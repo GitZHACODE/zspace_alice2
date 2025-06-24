@@ -1,0 +1,92 @@
+@echo off
+echo ========================================
+echo Alice2 Build Directory Organization
+echo ========================================
+echo.
+
+:: Check if we're in the build directory
+if not exist "alice2.sln" (
+    echo ERROR: alice2.sln not found!
+    echo Please run this script from the build directory.
+    pause
+    exit /b 1
+)
+
+echo Organizing build directory for clean distribution...
+echo.
+
+:: Create _deps/cmake_files directory if it doesn't exist
+if not exist "_deps\cmake_files" mkdir "_deps\cmake_files"
+
+:: Move CMake-generated files to _deps
+echo [1/4] Moving CMake files to _deps/cmake_files/...
+if exist "CMakeFiles" (
+    if not exist "_deps\cmake_files\CMakeFiles" (
+        move "CMakeFiles" "_deps\cmake_files\" >nul 2>&1
+        echo   - Moved CMakeFiles/
+    )
+)
+
+if exist "CMakeCache.txt" (
+    move "CMakeCache.txt" "_deps\cmake_files\" >nul 2>&1
+    echo   - Moved CMakeCache.txt
+)
+
+if exist "cmake_install.cmake" (
+    move "cmake_install.cmake" "_deps\cmake_files\" >nul 2>&1
+    echo   - Moved cmake_install.cmake
+)
+
+:: Move utility project files to _deps
+echo [2/4] Moving utility project files to _deps/...
+if exist "ALL_BUILD.vcxproj" (
+    move "ALL_BUILD.vcxproj*" "_deps\" >nul 2>&1
+    echo   - Moved ALL_BUILD project files
+)
+
+if exist "INSTALL.vcxproj" (
+    move "INSTALL.vcxproj*" "_deps\" >nul 2>&1
+    echo   - Moved INSTALL project files
+)
+
+if exist "ZERO_CHECK.vcxproj" (
+    move "ZERO_CHECK.vcxproj*" "_deps\" >nul 2>&1
+    echo   - Moved ZERO_CHECK project files
+)
+
+:: Move build artifacts to _deps
+echo [3/4] Moving build artifacts to _deps/...
+if exist "alice2.dir" (
+    move "alice2.dir" "_deps\" >nul 2>&1
+    echo   - Moved alice2.dir/
+)
+
+if exist "x64" (
+    move "x64" "_deps\" >nul 2>&1
+    echo   - Moved x64/
+)
+
+:: Keep essential files in root
+echo [4/4] Keeping essential files in build root:
+echo   - bin/ (executables and DLLs)
+echo   - alice2.sln (Visual Studio solution)
+echo   - alice2.vcxproj* (Main project files)
+echo   - build.bat (Build script)
+
+echo.
+echo ========================================
+echo ORGANIZATION COMPLETE!
+echo ========================================
+echo.
+echo Clean build directory structure:
+echo   build/
+echo   ├── bin/                    # Executables and DLLs
+echo   ├── alice2.sln             # Visual Studio solution
+echo   ├── alice2.vcxproj*        # Main project files
+echo   ├── build.bat              # Build script
+echo   └── _deps/                 # Dependencies and CMake files
+echo.
+echo The build directory is now ready for distribution!
+echo External developers will see only the essential files.
+echo.
+pause
