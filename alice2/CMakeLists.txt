@@ -24,9 +24,9 @@ set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "_deps/CMakeTargets")
 find_package(OpenGL REQUIRED)
 
 # Use GLEW from ALICE_PLATFORM
-set(ALICE_PLATFORM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../ALICE_PLATFORM")
-set(GLEW_INCLUDE_DIRS "${ALICE_PLATFORM_DIR}/src/glew/include")
-set(GLEW_LIBRARIES "${ALICE_PLATFORM_DIR}/src/glew/lib/glew32.lib")
+set(GLEW_DIR "${CMAKE_CURRENT_SOURCE_DIR}/depends/glew")
+set(GLEW_INCLUDE_DIRS "${GLEW_DIR}/include")
+set(GLEW_LIBRARIES "${GLEW_DIR}/lib/glew32.lib")
 
 # Check if GLEW files exist
 if(NOT EXISTS ${GLEW_INCLUDE_DIRS}/GL/glew.h)
@@ -119,18 +119,6 @@ endif()
 if(WIN32)
     # Windows-specific settings
     target_compile_definitions(alice2 PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
-
-    # Copy DLLs to output directory for Windows
-    # Copy GLEW DLL (manually placed in depends/glfw/)
-    set(GLEW_DLL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/depends/glfw/glew32.dll")
-    if(EXISTS ${GLEW_DLL_PATH})
-        add_custom_command(TARGET alice2 POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${GLEW_DLL_PATH} $<TARGET_FILE_DIR:alice2>
-            COMMENT "Copying glew32.dll to output directory")
-    else()
-        message(WARNING "glew32.dll not found at ${GLEW_DLL_PATH}")
-    endif()
 
     # Copy GLFW DLL (generated from build)
     add_custom_command(TARGET alice2 POST_BUILD
