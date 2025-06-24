@@ -23,7 +23,7 @@ if errorlevel 1 (
 
 :: Build the project
 echo.
-echo [2/4] Building project (Release configuration)...
+echo [2/3] Building project (Release configuration)...
 cmake --build build --config Release
 if errorlevel 1 (
     echo ERROR: Build failed!
@@ -31,20 +31,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: Organize build directory
-echo.
-echo [3/4] Organizing build directory for clean distribution...
-cd build
-if exist "organize_build.bat" (
-    call organize_build.bat
-) else (
-    echo Warning: organize_build.bat not found, skipping organization step.
-)
-cd ..
-
 :: Build complete
 echo.
-echo [4/4] Build complete!
+echo [3/3] Build complete!
 echo.
 echo Executable location: build\bin\Release\alice2.exe
 echo DLLs copied automatically to executable directory.

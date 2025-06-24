@@ -120,6 +120,18 @@ if(WIN32)
     # Windows-specific settings
     target_compile_definitions(alice2 PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
+        # Copy DLLs to output directory for Windows
+    # Copy GLEW DLL (manually placed in depends/glfw/)
+    set(GLEW_DLL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/depends/glew/bin/glew32.dll")
+    if(EXISTS ${GLEW_DLL_PATH})
+        add_custom_command(TARGET alice2 POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${GLEW_DLL_PATH} $<TARGET_FILE_DIR:alice2>
+            COMMENT "Copying glew32.dll to output directory")
+    else()
+        message(WARNING "glew32.dll not found at ${GLEW_DLL_PATH}")
+    endif()
+
     # Copy GLFW DLL (generated from build)
     add_custom_command(TARGET alice2 POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
