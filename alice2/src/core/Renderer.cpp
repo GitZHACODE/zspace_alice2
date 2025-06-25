@@ -401,6 +401,9 @@ namespace alice2 {
         // Enable color material
         glEnable(GL_COLOR_MATERIAL);
         glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+
+        // Enable V-sync 1 -> Disable 0
+        glfwSwapInterval(1);
     }
 
     void Renderer::applyRenderMode() {
@@ -430,29 +433,7 @@ namespace alice2 {
         m_fontRenderer->drawText(text, position, size, m_currentColor, m_currentAlpha);
     }
 
-    void Renderer::drawTextScreenSpace(const std::string& text, const Vec3& position,
-                                      float pixelSize, const Camera& camera) {
-        if (!m_initialized || !m_fontRenderer || !m_fontRenderer->isInitialized()) {
-            return;
-        }
 
-        // Get camera parameters needed for screen-space sizing
-        Vec3 cameraPos = camera.getPosition();
-        float fovDegrees = camera.getFieldOfView();
-        float fovRadians = fovDegrees * DEG_TO_RAD;
-
-        // Use current viewport height
-        int viewportHeight = m_viewportHeight;
-
-        m_fontRenderer->drawText(text, position, pixelSize, cameraPos, fovRadians,
-                                viewportHeight, m_currentColor, m_currentAlpha);
-    }
-
-    void Renderer::drawTextWithCamera(const std::string& text, const Vec3& position,
-                                     float pixelSize, const Camera& camera) {
-        // This is an alias for drawTextScreenSpace for clearer API
-        drawTextScreenSpace(text, position, pixelSize, camera);
-    }
 
     void Renderer::drawString(const std::string& text, float x, float y) {
         if (!m_initialized || !m_fontRenderer || !m_fontRenderer->isInitialized()) {

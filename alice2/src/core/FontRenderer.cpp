@@ -55,10 +55,7 @@ namespace alice2 {
     }
 
     bool FontRenderer::loadDefaultFont(float fontSize) {
-        // Embedded minimal font data (we'll use a simple approach for now)
-        // In a real implementation, you'd embed JetBrains Mono or load from system fonts
-        
-        // For now, let's try to load a system font
+        // Try to load system fonts in order of preference
         std::vector<std::string> systemFontPaths = {
             "C:/Windows/Fonts/consola.ttf",  // Consolas (monospace)
             "C:/Windows/Fonts/arial.ttf",    // Arial (fallback)
@@ -67,7 +64,6 @@ namespace alice2 {
 
         for (const auto& path : systemFontPaths) {
             if (loadFont(path, fontSize)) {
-                std::cout << "FontRenderer: Loaded system font: " << path << std::endl;
                 return true;
             }
         }
@@ -105,8 +101,6 @@ namespace alice2 {
             return false;
         }
 
-        std::cout << "FontRenderer: Successfully loaded font: " << fontPath 
-                  << " (size: " << fontSize << ")" << std::endl;
         return true;
     }
 
@@ -178,28 +172,7 @@ namespace alice2 {
                                  const Vec3& color, float alpha) {
         if (!m_initialized || !m_fontAtlas || text.empty()) return;
 
-        renderText2D(text, x, y, color, alpha);
-    }
-
-    void FontRenderer::drawText(const std::string& text, const Vec3& position,
-                               float size, const Vec3& color, float alpha) {
-        if (!m_initialized || !m_fontAtlas || text.empty()) return;
-
-        renderText3D(text, position, size, color, alpha);
-    }
-
-    void FontRenderer::drawText(const std::string& text, const Vec3& position,
-                               float pixelSize, const Vec3& cameraPos, float fovRadians,
-                               int viewportHeight, const Vec3& color, float alpha) {
-        if (!m_initialized || !m_fontAtlas || text.empty()) return;
-
-        renderText3DScreenSpace(text, position, pixelSize, cameraPos, fovRadians,
-                               viewportHeight, color, alpha);
-    }
-
-    void FontRenderer::renderText2D(const std::string& text, float x, float y,
-                                   const Vec3& color, float alpha) {
-        setupOpenGLState();
+                setupOpenGLState();
 
         glColor4f(color.x, color.y, color.z, alpha);
         glBindTexture(GL_TEXTURE_2D, m_fontAtlas->textureId);
@@ -259,95 +232,41 @@ namespace alice2 {
         restoreOpenGLState();
     }
 
-    void FontRenderer::renderText3D(const std::string& text, const Vec3& position,
-                                   float size, const Vec3& color, float alpha) {
-        setupOpenGLState();
+    void FontRenderer::drawText(const std::string& text, const Vec3& position,
+                               float size, const Vec3& color, float alpha) {
+        if (!m_initialized || !m_fontAtlas || text.empty()) return;
 
-        glColor4f(color.x, color.y, color.z, alpha);
-        glBindTexture(GL_TEXTURE_2D, m_fontAtlas->textureId);
-
-        // Get current matrices for billboard calculation
+        // Extract camera information from OpenGL matrices for screen-space sizing
         GLfloat modelView[16];
         GLfloat projection[16];
+        GLint viewport[4];
+
         glGetFloatv(GL_MODELVIEW_MATRIX, modelView);
         glGetFloatv(GL_PROJECTION_MATRIX, projection);
+        glGetIntegerv(GL_VIEWPORT, viewport);
 
-        // For the legacy method, just use the size parameter directly (no screen-space sizing)
-        // This maintains backward compatibility
-        float scale = size;
+        // Extract camera position from inverse modelview matrix
+        // The camera position is the translation part of the inverse view matrix
+        // For a view matrix V = T * R, the camera position is -R^T * T
+        Vec3 cameraPos;
+        cameraPos.x = -(modelView[0] * modelView[12] + modelView[1] * modelView[13] + modelView[2] * modelView[14]);
+        cameraPos.y = -(modelView[4] * modelView[12] + modelView[5] * modelView[13] + modelView[6] * modelView[14]);
+        cameraPos.z = -(modelView[8] * modelView[12] + modelView[9] * modelView[13] + modelView[10] * modelView[14]);
 
-        // Calculate billboard vectors (camera-facing) - extract from modelview matrix
-        // Right vector: first column of modelview matrix (camera's right in world space)
-        Vec3 right(modelView[0], modelView[4], modelView[8]);
-        // Up vector: second column of modelview matrix (camera's up in world space)
-        Vec3 up(modelView[1], modelView[5], modelView[9]);
+        // Extract FOV from projection matrix
+        // For perspective projection: P[5] = 1/tan(fov/2)
+        // So: fov = 2 * atan(1/P[5])
+        float fovRadians = 2.0f * atan(1.0f / projection[5]);
 
-        // Normalize and scale vectors with screen-space scale
-        right = right.normalized() * scale;
-        up = up.normalized() * scale;
-        up *= -1.0f; // Flip Y for proper text orientation
+        // Convert size parameter to pixel size (approximate conversion for backward compatibility)
+        // This maintains reasonable text sizes for existing code
+        float pixelSize = size * 20.0f; // Scale factor to convert size to approximate pixel size
 
-        glBegin(GL_QUADS);
-
-        float currentX = 0.0f;
-        float textWidth = getTextWidth(text) * size / m_fontAtlas->fontSize;
-        float startX = -textWidth * 0.5f; // Center the text
-
-        for (size_t i = 0; i < text.length(); i++) {
-            char c = text[i];
-
-            if (c == '\n') {
-                currentX = startX;
-                // Handle newlines in 3D (move down)
-                continue;
-            }
-
-            if (c < 32 || c > 126) continue;
-
-            auto it = m_fontAtlas->glyphs.find(c);
-            if (it == m_fontAtlas->glyphs.end()) continue;
-
-            const FontGlyph& glyph = it->second;
-
-            float charWidth = (glyph.x1 - glyph.x0) * m_fontAtlas->width * size / m_fontAtlas->fontSize;
-            float charHeight = (glyph.y1 - glyph.y0) * m_fontAtlas->height * size / m_fontAtlas->fontSize;
-
-            float x0 = currentX + glyph.xoff * size / m_fontAtlas->fontSize;
-            float y0 = glyph.yoff * size / m_fontAtlas->fontSize;
-            float x1 = x0 + charWidth;
-            float y1 = y0 + charHeight;
-
-            // Calculate billboard quad vertices
-            Vec3 v0 = position + right * x0 + up * y0;
-            Vec3 v1 = position + right * x1 + up * y0;
-            Vec3 v2 = position + right * x1 + up * y1;
-            Vec3 v3 = position + right * x0 + up * y1;
-
-            glTexCoord2f(glyph.x0, glyph.y0); glVertex3f(v0.x, v0.y, v0.z);
-            glTexCoord2f(glyph.x1, glyph.y0); glVertex3f(v1.x, v1.y, v1.z);
-            glTexCoord2f(glyph.x1, glyph.y1); glVertex3f(v2.x, v2.y, v2.z);
-            glTexCoord2f(glyph.x0, glyph.y1); glVertex3f(v3.x, v3.y, v3.z);
-
-            currentX += glyph.xadvance * size / m_fontAtlas->fontSize;
-        }
-
-        glEnd();
-
-        restoreOpenGLState();
-    }
-
-    void FontRenderer::renderText3DScreenSpace(const std::string& text, const Vec3& position,
-                                             float pixelSize, const Vec3& cameraPos,
-                                             float fovRadians, int viewportHeight,
-                                             const Vec3& color, float alpha) {
+        // Inline screen-space text rendering
         setupOpenGLState();
 
         glColor4f(color.x, color.y, color.z, alpha);
         glBindTexture(GL_TEXTURE_2D, m_fontAtlas->textureId);
-
-        // Get current matrices for billboard calculation
-        GLfloat modelView[16];
-        glGetFloatv(GL_MODELVIEW_MATRIX, modelView);
 
         // Calculate distance from camera to text position in world space
         Vec3 toText = position - cameraPos;
@@ -358,37 +277,19 @@ namespace alice2 {
         // This calculates the world-space size needed to achieve the desired pixel size at this distance
         // Formula: worldSize = 2.0 * distance * tan(fov/2) * (pixelSize / viewportHeight)
         float halfFov = fovRadians * 0.5f;
-        float worldSize = 2.0f * distance * tan(halfFov) * (pixelSize / (float)viewportHeight);
+        float worldSize = 2.0f * distance * tan(halfFov) * (pixelSize / (float)viewport[3]);
 
         // The scale factor for our font atlas coordinates
-        // We need to convert from font atlas units to world units
         float scale = worldSize / m_fontAtlas->fontSize;
 
-        // Debug output (disabled for production)
-        // static int debugCounter = 0;
-        // if (debugCounter++ % 60 == 0) { // Print every 60 frames
-        //     std::cout << "Screen-space text debug:" << std::endl;
-        //     std::cout << "  Distance: " << distance << std::endl;
-        //     std::cout << "  FOV (rad): " << fovRadians << " (deg: " << (fovRadians * 180.0f / 3.14159f) << ")" << std::endl;
-        //     std::cout << "  Pixel size: " << pixelSize << std::endl;
-        //     std::cout << "  Viewport height: " << viewportHeight << std::endl;
-        //     std::cout << "  World size: " << worldSize << std::endl;
-        //     std::cout << "  Scale: " << scale << std::endl;
-        //     std::cout << "  Camera pos: (" << cameraPos.x << ", " << cameraPos.y << ", " << cameraPos.z << ")" << std::endl;
-        //     std::cout << "  Text pos: (" << position.x << ", " << position.y << ", " << position.z << ")" << std::endl;
-        // }
-
-        // Calculate billboard vectors (camera-facing) - extract from modelview matrix
-        // The modelview matrix transforms from world space to view space
-        // Right vector: first column of inverse modelview (camera's right in world space)
+        // Calculate billboard vectors (camera-facing) from modelview matrix
         Vec3 right(modelView[0], modelView[4], modelView[8]);
-        // Up vector: second column of inverse modelview (camera's up in world space)
         Vec3 up(modelView[1], modelView[5], modelView[9]);
 
-        // Normalize the vectors (they should already be normalized, but ensure it)
+        // Normalize and orient vectors for proper text rendering
         right = right.normalized();
         up = up.normalized();
-        up *= -1.0f; // Flip Y for proper text orientation (font coordinates are top-down)
+        up *= -1.0f; // Flip Y for proper text orientation
 
         glBegin(GL_QUADS);
 
@@ -412,30 +313,27 @@ namespace alice2 {
 
             const FontGlyph& glyph = it->second;
 
-            // Calculate character dimensions in world space
-            // The glyph coordinates are normalized (0-1), so we multiply by atlas dimensions and scale
+            // Calculate character dimensions and positioning
             float charWidth = (glyph.x1 - glyph.x0) * m_fontAtlas->width * scale;
             float charHeight = (glyph.y1 - glyph.y0) * m_fontAtlas->height * scale;
 
-            // Character positioning with proper scaling
             float x0 = currentX + glyph.xoff * scale;
             float y0 = glyph.yoff * scale;
             float x1 = x0 + charWidth;
             float y1 = y0 + charHeight;
 
-            // Calculate billboard quad vertices in world space
+            // Calculate billboard quad vertices
             Vec3 v0 = position + right * x0 + up * y0;
             Vec3 v1 = position + right * x1 + up * y0;
             Vec3 v2 = position + right * x1 + up * y1;
             Vec3 v3 = position + right * x0 + up * y1;
 
-            // Render quad with texture coordinates
+            // Render quad
             glTexCoord2f(glyph.x0, glyph.y0); glVertex3f(v0.x, v0.y, v0.z);
             glTexCoord2f(glyph.x1, glyph.y0); glVertex3f(v1.x, v1.y, v1.z);
             glTexCoord2f(glyph.x1, glyph.y1); glVertex3f(v2.x, v2.y, v2.z);
             glTexCoord2f(glyph.x0, glyph.y1); glVertex3f(v3.x, v3.y, v3.z);
 
-            // Advance to next character position
             currentX += glyph.xadvance * scale;
         }
 
@@ -504,27 +402,6 @@ namespace alice2 {
         return m_fontAtlas->ascent - m_fontAtlas->descent;
     }
 
-    int FontRenderer::getNextCodepoint(const char*& text) const {
-        // Simple UTF-8 decoding (basic implementation)
-        unsigned char c = *text++;
-        if (c < 0x80) return c;
 
-        // For now, just return the first byte for non-ASCII
-        // A full implementation would handle multi-byte UTF-8 sequences
-        return c;
-    }
-
-    bool FontRenderer::isValidUTF8(const std::string& text) const {
-        // Basic UTF-8 validation
-        for (size_t i = 0; i < text.length(); i++) {
-            unsigned char c = text[i];
-            if (c > 0x7F) {
-                // For now, accept any high-bit characters
-                // A full implementation would validate UTF-8 sequences
-                continue;
-            }
-        }
-        return true;
-    }
 
 } // namespace alice2
