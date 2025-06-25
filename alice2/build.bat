@@ -42,4 +42,3 @@ echo To create a distribution package, run:
 echo   cmake --install build --prefix dist
 echo.
 echo Build successful! You can now run the alice2 viewer.
-pause

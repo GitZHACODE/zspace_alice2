@@ -1,5 +1,6 @@
 #include "Renderer.h"
 #include "Camera.h"
+#include "FontRenderer.h"
 #include <iostream>
 #include <cmath>
 
@@ -24,6 +25,7 @@ namespace alice2 {
         , m_ambientLight(0.2f, 0.2f, 0.2f)
         , m_lightDirection(0.0f, -1.0f, -1.0f)
         , m_lightColor(1.0f, 1.0f, 1.0f)
+        , m_fontRenderer(std::make_unique<FontRenderer>())
     {
     }
 
@@ -36,7 +38,19 @@ namespace alice2 {
 
         // Initialize OpenGL state
         setupOpenGL();
-        
+
+        // Initialize font renderer
+        if (!m_fontRenderer->initialize()) {
+            std::cerr << "Renderer: Failed to initialize FontRenderer" << std::endl;
+            return false;
+        }
+
+        // Load default font
+        if (!m_fontRenderer->loadDefaultFont(16.0f)) {
+            std::cerr << "Renderer: Warning - Failed to load default font" << std::endl;
+            // Continue anyway - text rendering will just be disabled
+        }
+
         m_initialized = true;
         return true;
     }
@@ -387,6 +401,9 @@ namespace alice2 {
         // Enable color material
         glEnable(GL_COLOR_MATERIAL);
         glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+
+        // Enable V-sync 1 -> Disable 0
+        glfwSwapInterval(1);
     }
 
     void Renderer::applyRenderMode() {
@@ -406,6 +423,24 @@ namespace alice2 {
 
     void Renderer::checkErrors() const {
         checkGLError("Renderer");
+    }
+
+    void Renderer::drawText(const std::string& text, const Vec3& position, float size) {
+        if (!m_initialized || !m_fontRenderer || !m_fontRenderer->isInitialized()) {
+            return;
+        }
+
+        m_fontRenderer->drawText(text, position, size, m_currentColor, m_currentAlpha);
+    }
+
+
+
+    void Renderer::drawString(const std::string& text, float x, float y) {
+        if (!m_initialized || !m_fontRenderer || !m_fontRenderer->isInitialized()) {
+            return;
+        }
+
+        m_fontRenderer->drawString(text, x, y, m_currentColor, m_currentAlpha);
     }
 
 } // namespace alice2
