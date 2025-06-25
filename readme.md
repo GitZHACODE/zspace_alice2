@@ -57,4 +57,7 @@ The library has some dependencies on third-party tools and services, which have 
 Thanks a lot!
 
 - [**OPENGL**](https://www.opengl.org/about/) for display methods. End users, independent software vendors, and others writing code based on the OpenGL API are free from licensing requirements.
+- [**STB**](https://github.com/nothings/stb) for text rendering. These single-file libraries are released into the public domain and can be used freely for any purpose.
+- [**GLEW**](http://glew.sourceforge.net/) for managing OpenGL extensions. GLEW is open-source and distributed under the Modified BSD license, allowing free use in both open and closed source projects.
+- [**GLFW**](https://www.glfw.org/) for window and input management. GLFW is licensed under the zlib/libpng license, permitting free use in commercial and non-commercial applications.
 
