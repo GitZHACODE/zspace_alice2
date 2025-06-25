@@ -3,6 +3,7 @@
 #include <fstream>
 #include <vector>
 #include <cstring>
+#include <cmath>
 
 // STB TrueType implementation
 #define STB_TRUETYPE_IMPLEMENTATION
@@ -187,6 +188,15 @@ namespace alice2 {
         renderText3D(text, position, size, color, alpha);
     }
 
+    void FontRenderer::drawText(const std::string& text, const Vec3& position,
+                               float pixelSize, const Vec3& cameraPos, float fovRadians,
+                               int viewportHeight, const Vec3& color, float alpha) {
+        if (!m_initialized || !m_fontAtlas || text.empty()) return;
+
+        renderText3DScreenSpace(text, position, pixelSize, cameraPos, fovRadians,
+                               viewportHeight, color, alpha);
+    }
+
     void FontRenderer::renderText2D(const std::string& text, float x, float y,
                                    const Vec3& color, float alpha) {
         setupOpenGLState();
@@ -262,18 +272,20 @@ namespace alice2 {
         glGetFloatv(GL_MODELVIEW_MATRIX, modelView);
         glGetFloatv(GL_PROJECTION_MATRIX, projection);
 
+        // For the legacy method, just use the size parameter directly (no screen-space sizing)
+        // This maintains backward compatibility
+        float scale = size;
+
         // Calculate billboard vectors (camera-facing) - extract from modelview matrix
-        // For billboard effect, we want vectors that are aligned with screen space
         // Right vector: first column of modelview matrix (camera's right in world space)
         Vec3 right(modelView[0], modelView[4], modelView[8]);
         // Up vector: second column of modelview matrix (camera's up in world space)
         Vec3 up(modelView[1], modelView[5], modelView[9]);
 
-        // Simple scaling approach first - just use the size parameter directly
-        // Normalize and scale vectors
-        right = right.normalized() * size;
-        up = up.normalized() * size;
-        up *= -1.0f;
+        // Normalize and scale vectors with screen-space scale
+        right = right.normalized() * scale;
+        up = up.normalized() * scale;
+        up *= -1.0f; // Flip Y for proper text orientation
 
         glBegin(GL_QUADS);
 
@@ -317,6 +329,114 @@ namespace alice2 {
             glTexCoord2f(glyph.x0, glyph.y1); glVertex3f(v3.x, v3.y, v3.z);
 
             currentX += glyph.xadvance * size / m_fontAtlas->fontSize;
+        }
+
+        glEnd();
+
+        restoreOpenGLState();
+    }
+
+    void FontRenderer::renderText3DScreenSpace(const std::string& text, const Vec3& position,
+                                             float pixelSize, const Vec3& cameraPos,
+                                             float fovRadians, int viewportHeight,
+                                             const Vec3& color, float alpha) {
+        setupOpenGLState();
+
+        glColor4f(color.x, color.y, color.z, alpha);
+        glBindTexture(GL_TEXTURE_2D, m_fontAtlas->textureId);
+
+        // Get current matrices for billboard calculation
+        GLfloat modelView[16];
+        glGetFloatv(GL_MODELVIEW_MATRIX, modelView);
+
+        // Calculate distance from camera to text position in world space
+        Vec3 toText = position - cameraPos;
+        float distance = toText.length();
+        if (distance < 0.01f) distance = 0.01f; // Avoid division by zero
+
+        // Apply screen-space sizing formula:
+        // This calculates the world-space size needed to achieve the desired pixel size at this distance
+        // Formula: worldSize = 2.0 * distance * tan(fov/2) * (pixelSize / viewportHeight)
+        float halfFov = fovRadians * 0.5f;
+        float worldSize = 2.0f * distance * tan(halfFov) * (pixelSize / (float)viewportHeight);
+
+        // The scale factor for our font atlas coordinates
+        // We need to convert from font atlas units to world units
+        float scale = worldSize / m_fontAtlas->fontSize;
+
+        // Debug output (disabled for production)
+        // static int debugCounter = 0;
+        // if (debugCounter++ % 60 == 0) { // Print every 60 frames
+        //     std::cout << "Screen-space text debug:" << std::endl;
+        //     std::cout << "  Distance: " << distance << std::endl;
+        //     std::cout << "  FOV (rad): " << fovRadians << " (deg: " << (fovRadians * 180.0f / 3.14159f) << ")" << std::endl;
+        //     std::cout << "  Pixel size: " << pixelSize << std::endl;
+        //     std::cout << "  Viewport height: " << viewportHeight << std::endl;
+        //     std::cout << "  World size: " << worldSize << std::endl;
+        //     std::cout << "  Scale: " << scale << std::endl;
+        //     std::cout << "  Camera pos: (" << cameraPos.x << ", " << cameraPos.y << ", " << cameraPos.z << ")" << std::endl;
+        //     std::cout << "  Text pos: (" << position.x << ", " << position.y << ", " << position.z << ")" << std::endl;
+        // }
+
+        // Calculate billboard vectors (camera-facing) - extract from modelview matrix
+        // The modelview matrix transforms from world space to view space
+        // Right vector: first column of inverse modelview (camera's right in world space)
+        Vec3 right(modelView[0], modelView[4], modelView[8]);
+        // Up vector: second column of inverse modelview (camera's up in world space)
+        Vec3 up(modelView[1], modelView[5], modelView[9]);
+
+        // Normalize the vectors (they should already be normalized, but ensure it)
+        right = right.normalized();
+        up = up.normalized();
+        up *= -1.0f; // Flip Y for proper text orientation (font coordinates are top-down)
+
+        glBegin(GL_QUADS);
+
+        float currentX = 0.0f;
+        float textWidth = getTextWidth(text) * scale;
+        float startX = -textWidth * 0.5f; // Center the text
+
+        for (size_t i = 0; i < text.length(); i++) {
+            char c = text[i];
+
+            if (c == '\n') {
+                currentX = startX;
+                // Handle newlines in 3D (move down)
+                continue;
+            }
+
+            if (c < 32 || c > 126) continue;
+
+            auto it = m_fontAtlas->glyphs.find(c);
+            if (it == m_fontAtlas->glyphs.end()) continue;
+
+            const FontGlyph& glyph = it->second;
+
+            // Calculate character dimensions in world space
+            // The glyph coordinates are normalized (0-1), so we multiply by atlas dimensions and scale
+            float charWidth = (glyph.x1 - glyph.x0) * m_fontAtlas->width * scale;
+            float charHeight = (glyph.y1 - glyph.y0) * m_fontAtlas->height * scale;
+
+            // Character positioning with proper scaling
+            float x0 = currentX + glyph.xoff * scale;
+            float y0 = glyph.yoff * scale;
+            float x1 = x0 + charWidth;
+            float y1 = y0 + charHeight;
+
+            // Calculate billboard quad vertices in world space
+            Vec3 v0 = position + right * x0 + up * y0;
+            Vec3 v1 = position + right * x1 + up * y0;
+            Vec3 v2 = position + right * x1 + up * y1;
+            Vec3 v3 = position + right * x0 + up * y1;
+
+            // Render quad with texture coordinates
+            glTexCoord2f(glyph.x0, glyph.y0); glVertex3f(v0.x, v0.y, v0.z);
+            glTexCoord2f(glyph.x1, glyph.y0); glVertex3f(v1.x, v1.y, v1.z);
+            glTexCoord2f(glyph.x1, glyph.y1); glVertex3f(v2.x, v2.y, v2.z);
+            glTexCoord2f(glyph.x0, glyph.y1); glVertex3f(v3.x, v3.y, v3.z);
+
+            // Advance to next character position
+            currentX += glyph.xadvance * scale;
         }
 
         glEnd();
