@@ -258,20 +258,36 @@ namespace alice2 {
 
         // Get current matrices for billboard calculation
         GLfloat modelView[16];
+        GLfloat projection[16];
         glGetFloatv(GL_MODELVIEW_MATRIX, modelView);
+        glGetFloatv(GL_PROJECTION_MATRIX, projection);
 
-        // Calculate billboard vectors (camera-facing)
+        // Calculate billboard vectors (camera-facing) - extract from inverse modelview
+        // Right vector: first row of inverse modelview (transposed)
         Vec3 right(modelView[0], modelView[4], modelView[8]);
-        Vec3 up(modelView[1], modelView[5], modelView[9]);
+        // Up vector: second row of inverse modelview (transposed) - flip Y for correct orientation
+        Vec3 up(-modelView[1], -modelView[5], -modelView[9]);
 
-        // Normalize and scale
-        right = right.normalized() * size;
-        up = up.normalized() * size;
+        // Calculate screen-space scaling factor to maintain consistent pixel size
+        // Transform position to view space
+        Vec3 viewPos(
+            modelView[0] * position.x + modelView[4] * position.y + modelView[8] * position.z + modelView[12],
+            modelView[1] * position.x + modelView[5] * position.y + modelView[9] * position.z + modelView[13],
+            modelView[2] * position.x + modelView[6] * position.y + modelView[10] * position.z + modelView[14]
+        );
+
+        // Calculate screen-space scale factor based on distance and projection
+        float distance = std::abs(viewPos.z);
+        float screenScale = size * distance * 0.001f; // Adjust multiplier as needed for desired size
+
+        // Normalize and scale vectors
+        right = right.normalized() * screenScale;
+        up = up.normalized() * screenScale;
 
         glBegin(GL_QUADS);
 
         float currentX = 0.0f;
-        float textWidth = getTextWidth(text) * size / m_fontAtlas->fontSize;
+        float textWidth = getTextWidth(text) * screenScale / m_fontAtlas->fontSize;
         float startX = -textWidth * 0.5f; // Center the text
 
         for (size_t i = 0; i < text.length(); i++) {
@@ -290,11 +306,11 @@ namespace alice2 {
 
             const FontGlyph& glyph = it->second;
 
-            float charWidth = (glyph.x1 - glyph.x0) * m_fontAtlas->width * size / m_fontAtlas->fontSize;
-            float charHeight = (glyph.y1 - glyph.y0) * m_fontAtlas->height * size / m_fontAtlas->fontSize;
+            float charWidth = (glyph.x1 - glyph.x0) * m_fontAtlas->width * screenScale / m_fontAtlas->fontSize;
+            float charHeight = (glyph.y1 - glyph.y0) * m_fontAtlas->height * screenScale / m_fontAtlas->fontSize;
 
-            float x0 = currentX + glyph.xoff * size / m_fontAtlas->fontSize;
-            float y0 = glyph.yoff * size / m_fontAtlas->fontSize;
+            float x0 = currentX + glyph.xoff * screenScale / m_fontAtlas->fontSize;
+            float y0 = glyph.yoff * screenScale / m_fontAtlas->fontSize;
             float x1 = x0 + charWidth;
             float y1 = y0 + charHeight;
 
@@ -309,7 +325,7 @@ namespace alice2 {
             glTexCoord2f(glyph.x1, glyph.y1); glVertex3f(v2.x, v2.y, v2.z);
             glTexCoord2f(glyph.x0, glyph.y1); glVertex3f(v3.x, v3.y, v3.z);
 
-            currentX += glyph.xadvance * size / m_fontAtlas->fontSize;
+            currentX += glyph.xadvance * screenScale / m_fontAtlas->fontSize;
         }
 
         glEnd();
@@ -351,6 +367,9 @@ namespace alice2 {
         } else {
             glDisable(GL_DEPTH_TEST);
         }
+
+        // Restore texture state
+        glDisable(GL_TEXTURE_2D);
     }
 
     float FontRenderer::getTextWidth(const std::string& text) const {
