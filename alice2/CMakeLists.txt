@@ -61,6 +61,19 @@ endif()
 message(STATUS "Using precompiled GLFW from local depends directory")
 message(STATUS "GLFW library: ${GLFW_LIBRARIES}")
 
+# Eigen library setup (header-only)
+set(EIGEN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/depends/eigen")
+if(NOT EXISTS ${EIGEN_DIR}/eigen)
+    message(FATAL_ERROR "Eigen headers not found at ${EIGEN_DIR}")
+endif()
+
+# nlohmann/json library setup (header-only)
+set(NLOHMANN_JSON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/depends/nlohmann")
+set(NLOHMANN_JSON_INCLUDE_DIRS "${NLOHMANN_JSON_DIR}/include")
+if(NOT EXISTS ${NLOHMANN_JSON_INCLUDE_DIRS}/nlohmann/json.hpp)
+    message(FATAL_ERROR "nlohmann/json headers not found at ${NLOHMANN_JSON_INCLUDE_DIRS}")
+endif()
+
 # Include directories
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -68,6 +81,8 @@ include_directories(
     ${OPENGL_INCLUDE_DIRS}
     ${GLEW_INCLUDE_DIRS}
     ${GLFW_INCLUDE_DIRS}
+    ${EIGEN_DIR}
+    ${NLOHMANN_JSON_INCLUDE_DIRS}
 )
 
 # Collect all .cpp files under src/ and userSrc/
@@ -236,6 +251,8 @@ message(STATUS "  C++ standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "  OpenGL: ${OPENGL_LIBRARIES}")
 message(STATUS "  GLEW: ${GLEW_LIBRARIES}")
 message(STATUS "  GLFW: ${GLFW_LIBRARIES} (precompiled)")
+message(STATUS "  Eigen: ${EIGEN_DIR} (header-only)")
+message(STATUS "  nlohmann/json: ${NLOHMANN_JSON_INCLUDE_DIRS} (header-only)")
 
 # Optional: Create a build script for convenience
 if(WIN32)
