@@ -2,7 +2,7 @@
 # Set default behavior to automatically normalize line endings.
 ###############################################################################
 * text=auto
-*.h filter=lfs diff=lfs merge=lfs -text
+# *.h filter=lfs diff=lfs merge=lfs -text  # Commented out - header files should not be in LFS
 ###############################################################################
 # Set default behavior for command prompt diff.
 #
