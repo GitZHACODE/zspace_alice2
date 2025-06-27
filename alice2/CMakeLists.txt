@@ -36,26 +36,30 @@ if(NOT EXISTS ${GLEW_LIBRARIES})
     message(FATAL_ERROR "GLEW library not found at ${GLEW_LIBRARIES}")
 endif()
 
-# Use GLFW from local depends directory
+# Use precompiled GLFW from local depends directory
 set(GLFW_DIR "${CMAKE_CURRENT_SOURCE_DIR}/depends/glfw")
 set(GLFW_INCLUDE_DIRS "${GLFW_DIR}/include")
+
+# Choose appropriate GLFW library based on build configuration
+# glfw3.lib - static library for static linking
+# glfw3dll.lib - import library for dynamic linking with glfw3.dll
+# glfw3_mt.lib - static library with multithreading support
+if(BUILD_SHARED_LIBS)
+    set(GLFW_LIBRARIES "${GLFW_DIR}/lib/glfw3dll.lib")
+else()
+    set(GLFW_LIBRARIES "${GLFW_DIR}/lib/glfw3.lib")
+endif()
 
 # Check if GLFW files exist
 if(NOT EXISTS ${GLFW_INCLUDE_DIRS}/GLFW/glfw3.h)
     message(FATAL_ERROR "GLFW headers not found at ${GLFW_INCLUDE_DIRS}")
 endif()
+if(NOT EXISTS ${GLFW_LIBRARIES})
+    message(FATAL_ERROR "GLFW library not found at ${GLFW_LIBRARIES}")
+endif()
 
-# Build GLFW as a subdirectory (shared library for DLL generation)
-set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)  # Force shared library build for GLFW DLL
-add_subdirectory(${GLFW_DIR} _deps/glfw_build)
-
-# Set GLFW target properties to organize in solution
-set_target_properties(glfw PROPERTIES FOLDER "_deps/GLFW")
-
-message(STATUS "Using GLFW from local depends directory")
+message(STATUS "Using precompiled GLFW from local depends directory")
+message(STATUS "GLFW library: ${GLFW_LIBRARIES}")
 
 # Include directories
 include_directories(
@@ -104,8 +108,18 @@ add_executable(alice2 ${ALICE2_SOURCES} ${ALICE2_HEADERS})
 target_link_libraries(alice2
     ${OPENGL_LIBRARIES}
     ${GLEW_LIBRARIES}
-    glfw
+    ${GLFW_LIBRARIES}
 )
+
+# Platform-specific linking for GLFW
+if(WIN32)
+    # Link Windows system libraries required by GLFW
+    target_link_libraries(alice2
+        user32
+        gdi32
+        shell32
+    )
+endif()
 
 # Compiler-specific options
 if(MSVC)
@@ -120,8 +134,8 @@ if(WIN32)
     # Windows-specific settings
     target_compile_definitions(alice2 PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
-        # Copy DLLs to output directory for Windows
-    # Copy GLEW DLL (manually placed in depends/glfw/)
+    # Copy DLLs to output directory for Windows
+    # Copy GLEW DLL
     set(GLEW_DLL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/depends/glew/bin/glew32.dll")
     if(EXISTS ${GLEW_DLL_PATH})
         add_custom_command(TARGET alice2 POST_BUILD
@@ -132,11 +146,20 @@ if(WIN32)
         message(WARNING "glew32.dll not found at ${GLEW_DLL_PATH}")
     endif()
 
-    # Copy GLFW DLL (generated from build)
-    add_custom_command(TARGET alice2 POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        $<TARGET_FILE:glfw> $<TARGET_FILE_DIR:alice2>
-        COMMENT "Copying GLFW DLL to output directory")
+    # Copy GLFW DLL (only needed when using dynamic linking)
+    set(GLFW_DLL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/depends/glfw/bin/glfw3.dll")
+    if(BUILD_SHARED_LIBS OR NOT DEFINED BUILD_SHARED_LIBS)
+        if(EXISTS ${GLFW_DLL_PATH})
+            add_custom_command(TARGET alice2 POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${GLFW_DLL_PATH} $<TARGET_FILE_DIR:alice2>
+                COMMENT "Copying glfw3.dll to output directory")
+        else()
+            message(WARNING "glfw3.dll not found at ${GLFW_DLL_PATH}")
+        endif()
+    else()
+        message(STATUS "Using static GLFW library - no DLL copy needed")
+    endif()
 endif()
 
 # Install targets for distribution
@@ -144,19 +167,6 @@ install(TARGETS alice2
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION _deps/lib
     ARCHIVE DESTINATION _deps/lib
-)
-
-# Install GLFW DLL and import library
-install(TARGETS glfw
-    RUNTIME DESTINATION bin
-    LIBRARY DESTINATION _deps/lib
-    ARCHIVE DESTINATION _deps/lib
-)
-
-# Ensure DLLs are copied during install
-install(FILES
-    "$<TARGET_FILE:glfw>"
-    DESTINATION bin
 )
 
 # Install user source directory with examples
@@ -182,14 +192,27 @@ install(DIRECTORY ${GLEW_INCLUDE_DIRS}/
     FILES_MATCHING PATTERN "*.h"
 )
 
-# Install GLEW DLL
-set(GLEW_DLL_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/depends/glfw/glew32.dll")
-if(EXISTS ${GLEW_DLL_SOURCE})
-    install(FILES ${GLEW_DLL_SOURCE}
-        DESTINATION bin
-    )
-else()
-    message(WARNING "GLEW DLL not found at ${GLEW_DLL_SOURCE} for install")
+# Install DLLs
+if(WIN32)
+    # Install GLEW DLL
+    if(EXISTS ${GLEW_DLL_PATH})
+        install(FILES ${GLEW_DLL_PATH}
+            DESTINATION bin
+        )
+    else()
+        message(WARNING "GLEW DLL not found at ${GLEW_DLL_PATH} for install")
+    endif()
+
+    # Install GLFW DLL (only needed when using dynamic linking)
+    if(BUILD_SHARED_LIBS OR NOT DEFINED BUILD_SHARED_LIBS)
+        if(EXISTS ${GLFW_DLL_PATH})
+            install(FILES ${GLFW_DLL_PATH}
+                DESTINATION bin
+            )
+        else()
+            message(WARNING "GLFW DLL not found at ${GLFW_DLL_PATH} for install")
+        endif()
+    endif()
 endif()
 
 # Install build scripts and project files (keep main project files in root)
@@ -206,21 +229,13 @@ install(FILES CMakeLists.txt
     DESTINATION .
 )
 
-# Install dependency build files to _deps (for reference but hidden from main view)
-install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/_deps/"
-    DESTINATION _deps
-    OPTIONAL
-    PATTERN "*.tmp" EXCLUDE
-    PATTERN "*.log" EXCLUDE
-)
-
 # Print configuration summary
 message(STATUS "alice2 Configuration Summary:")
 message(STATUS "  Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "  OpenGL: ${OPENGL_LIBRARIES}")
 message(STATUS "  GLEW: ${GLEW_LIBRARIES}")
-message(STATUS "  GLFW: glfw (built from source)")
+message(STATUS "  GLFW: ${GLFW_LIBRARIES} (precompiled)")
 
 # Optional: Create a build script for convenience
 if(WIN32)

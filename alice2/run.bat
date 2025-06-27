@@ -27,4 +27,5 @@ echo Launching Alice2 3D Viewer...
 cd /d build\bin\Release
 start alice2.exe
 cd /d ..\..\..
+echo Alice2 launched successfully!
 echo.
