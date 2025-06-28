@@ -51,19 +51,19 @@ foreach(url IN LISTS ASSET_URLS)
       message(FATAL_ERROR "Failed to download ${name}: ${dl_status}")
     endif()
 
-    # unpack each ZIP in its own subfolder
-    get_filename_component(name_without_ext "${name}" NAME_WE)
-    set(extract_dir "${ALICE2_DEPENDS_DIR}/${name_without_ext}")
-    file(MAKE_DIRECTORY "${extract_dir}")
-
+    # unpack each ZIP directly into depends folder
     execute_process(
       COMMAND ${CMAKE_COMMAND} -E tar xzf "${ALICE2_DEPENDS_DIR}/${name}"
-      WORKING_DIRECTORY "${extract_dir}"
+      WORKING_DIRECTORY "${ALICE2_DEPENDS_DIR}"
       RESULT_VARIABLE unpack_ret
     )
     if(NOT unpack_ret EQUAL 0)
       message(FATAL_ERROR "Failed to unpack ${name}")
     endif()
+
+    # Clean up the zip file after successful extraction
+    file(REMOVE "${ALICE2_DEPENDS_DIR}/${name}")
+    message(STATUS "Extracted and removed ${name}")
   endforeach()
 endif()
 
