@@ -55,7 +55,8 @@ foreach(url IN LISTS ASSET_URLS)
     execute_process(
       COMMAND ${CMAKE_COMMAND} -E tar xzf "${ALICE2_DEPENDS_DIR}/${name}"
         --strip-components=1
-        -C "${ALICE2_DEPENDS_DIR}/${name}_unpacked"
+        file(MAKE_DIRECTORY "${ALICE2_DEPENDS_DIR}/${name}")
+        -C "${ALICE2_DEPENDS_DIR}/${name}"
       RESULT_VARIABLE unpack_ret
     )
     if(NOT unpack_ret EQUAL 0)
