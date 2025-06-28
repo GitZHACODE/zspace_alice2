@@ -52,11 +52,13 @@ foreach(url IN LISTS ASSET_URLS)
     endif()
 
     # unpack each ZIP in its own subfolder
+    get_filename_component(name_without_ext "${name}" NAME_WE)
+    set(extract_dir "${ALICE2_DEPENDS_DIR}/${name_without_ext}")
+    file(MAKE_DIRECTORY "${extract_dir}")
+
     execute_process(
       COMMAND ${CMAKE_COMMAND} -E tar xzf "${ALICE2_DEPENDS_DIR}/${name}"
-        --strip-components=1
-        file(MAKE_DIRECTORY "${ALICE2_DEPENDS_DIR}/${name}")
-        -C "${ALICE2_DEPENDS_DIR}/${name}"
+      WORKING_DIRECTORY "${extract_dir}"
       RESULT_VARIABLE unpack_ret
     )
     if(NOT unpack_ret EQUAL 0)
