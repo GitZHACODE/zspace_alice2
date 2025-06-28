@@ -23,8 +23,49 @@ set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "_deps/CMakeTargets")
 # Find required packages
 find_package(OpenGL REQUIRED)
 
+# Use depends path
+set(ALICE2_DEPENDS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/depends")
+file(GLOB DEP_FILES "${ALICE2_DEPENDS_DIR}/*")
+if(NOT DEP_FILES)
+    file(MAKE_DIRECTORY "${ALICE2_DEPENDS_DIR}")
+
+set(ASSET_URLS
+    "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/eigen.zip"
+    "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/glew.zip"
+    "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/glfw.zip"
+    "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/nlohmann.zip"
+    "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/stb.zip"
+  )
+
+foreach(url IN LISTS ASSET_URLS)
+    get_filename_component(name "${url}" NAME)
+    message(STATUS "Downloading ${name} from ${url}…")
+    file(DOWNLOAD
+      "${url}"
+      "${ALICE2_DEPENDS_DIR}/${name}"
+      SHOW_PROGRESS
+      STATUS dl_status
+    )
+    list(GET dl_status 0 dl_code)
+    if(NOT dl_code EQUAL 0)
+      message(FATAL_ERROR "Failed to download ${name}: ${dl_status}")
+    endif()
+
+    # unpack each ZIP in its own subfolder
+    execute_process(
+      COMMAND ${CMAKE_COMMAND} -E tar xzf "${ALICE2_DEPENDS_DIR}/${name}"
+        --strip-components=1
+        -C "${ALICE2_DEPENDS_DIR}/${name}_unpacked"
+      RESULT_VARIABLE unpack_ret
+    )
+    if(NOT unpack_ret EQUAL 0)
+      message(FATAL_ERROR "Failed to unpack ${name}")
+    endif()
+  endforeach()
+endif()
+
 # Use GLEW from ALICE_PLATFORM
-set(GLEW_DIR "${CMAKE_CURRENT_SOURCE_DIR}/depends/glew")
+set(GLEW_DIR "${ALICE2_DEPENDS_DIR}/glew")
 set(GLEW_INCLUDE_DIRS "${GLEW_DIR}/include")
 set(GLEW_LIBRARIES "${GLEW_DIR}/lib/glew32.lib")
 
@@ -37,7 +78,7 @@ if(NOT EXISTS ${GLEW_LIBRARIES})
 endif()
 
 # Use precompiled GLFW from local depends directory
-set(GLFW_DIR "${CMAKE_CURRENT_SOURCE_DIR}/depends/glfw")
+set(GLFW_DIR "${ALICE2_DEPENDS_DIR}/glfw")
 set(GLFW_INCLUDE_DIRS "${GLFW_DIR}/include")
 
 # Choose appropriate GLFW library based on build configuration
@@ -62,13 +103,13 @@ message(STATUS "Using precompiled GLFW from local depends directory")
 message(STATUS "GLFW library: ${GLFW_LIBRARIES}")
 
 # Eigen library setup (header-only)
-set(EIGEN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/depends/eigen")
+set(EIGEN_DIR "${ALICE2_DEPENDS_DIR}/eigen")
 if(NOT EXISTS ${EIGEN_DIR}/eigen)
     message(FATAL_ERROR "Eigen headers not found at ${EIGEN_DIR}")
 endif()
 
 # nlohmann/json library setup (header-only)
-set(NLOHMANN_JSON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/depends/nlohmann")
+set(NLOHMANN_JSON_DIR "${ALICE2_DEPENDS_DIR}/nlohmann")
 set(NLOHMANN_JSON_INCLUDE_DIRS "${NLOHMANN_JSON_DIR}/include")
 if(NOT EXISTS ${NLOHMANN_JSON_INCLUDE_DIRS}/nlohmann/json.hpp)
     message(FATAL_ERROR "nlohmann/json headers not found at ${NLOHMANN_JSON_INCLUDE_DIRS}")
@@ -151,7 +192,7 @@ if(WIN32)
 
     # Copy DLLs to output directory for Windows
     # Copy GLEW DLL
-    set(GLEW_DLL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/depends/glew/bin/glew32.dll")
+    set(GLEW_DLL_PATH "${ALICE2_DEPENDS_DIR}/glew/bin/glew32.dll")
     if(EXISTS ${GLEW_DLL_PATH})
         add_custom_command(TARGET alice2 POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -162,7 +203,7 @@ if(WIN32)
     endif()
 
     # Copy GLFW DLL (only needed when using dynamic linking)
-    set(GLFW_DLL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/depends/glfw/bin/glfw3.dll")
+    set(GLFW_DLL_PATH "${ALICE2_DEPENDS_DIR}/glfw/bin/glfw3.dll")
     if(BUILD_SHARED_LIBS OR NOT DEFINED BUILD_SHARED_LIBS)
         if(EXISTS ${GLFW_DLL_PATH})
             add_custom_command(TARGET alice2 POST_BUILD
