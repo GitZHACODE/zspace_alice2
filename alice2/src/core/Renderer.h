@@ -97,6 +97,12 @@ namespace alice2 {
         void drawText(const std::string& text, const Vec3& position, float size = 1.0f);    // 3D billboard text with screen-space sizing
         void drawString(const std::string& text, float x, float y);                         // 2D screen overlay text
 
+        // 2D screen space drawing (coordinates in pixels)
+        void draw2dPoint(const Vec2& position);                                                 // 2D point with current color/size
+        void draw2dPoint(const Vec2& position, const Vec3& color, float size = 1.0f);          // 2D point with specified color/size
+        void draw2dLine(const Vec2& start, const Vec2& end);                           // 2D line with current color/width
+        void draw2dLine(const Vec2& start, const Vec2& end, const Vec3& color, float width = 1.0f); // 2D line with specified color/width
+
 
 
         // State queries

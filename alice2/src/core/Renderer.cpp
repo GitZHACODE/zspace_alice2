@@ -443,4 +443,99 @@ namespace alice2 {
         m_fontRenderer->drawString(text, x, y, m_currentColor, m_currentAlpha);
     }
 
+    void Renderer::draw2dPoint(const Vec2& position) {
+        if (!m_initialized) return;
+
+        // Save current matrices
+        glMatrixMode(GL_PROJECTION);
+        glPushMatrix();
+        glLoadIdentity();
+
+        // Set up orthographic projection for 2D drawing
+        glOrtho(0, m_viewportWidth, m_viewportHeight, 0, -1, 1);
+
+        glMatrixMode(GL_MODELVIEW);
+        glPushMatrix();
+        glLoadIdentity();
+
+        // Draw the point
+        glPointSize(m_pointSize);
+        glBegin(GL_POINTS);
+        glVertex2f(position.x, position.y);
+        glEnd();
+
+        // Restore matrices
+        glPopMatrix();
+        glMatrixMode(GL_PROJECTION);
+        glPopMatrix();
+        glMatrixMode(GL_MODELVIEW);
+    }
+
+    void Renderer::draw2dPoint(const Vec2& position, const Vec3& color, float size) {
+        if (!m_initialized) return;
+
+        // Save current state
+        Vec3 oldColor = m_currentColor;
+        float oldSize = m_pointSize;
+
+        // Set new state
+        setColor(color);
+        setPointSize(size);
+
+        // Draw the point
+        draw2dPoint(position);
+
+        // Restore state
+        setColor(oldColor);
+        setPointSize(oldSize);
+    }
+
+    void Renderer::draw2dLine(const Vec2& start, const Vec2& end) {
+        if (!m_initialized) return;
+
+        // Save current matrices
+        glMatrixMode(GL_PROJECTION);
+        glPushMatrix();
+        glLoadIdentity();
+
+        // Set up orthographic projection for 2D drawing
+        glOrtho(0, m_viewportWidth, m_viewportHeight, 0, -1, 1);
+
+        glMatrixMode(GL_MODELVIEW);
+        glPushMatrix();
+        glLoadIdentity();
+
+        // Draw the line
+        glLineWidth(m_lineWidth);
+        glBegin(GL_LINES);
+        glVertex2f(start.x, start.y);
+        glVertex2f(end.x, end.y);
+        glEnd();
+
+        // Restore matrices
+        glPopMatrix();
+        glMatrixMode(GL_PROJECTION);
+        glPopMatrix();
+        glMatrixMode(GL_MODELVIEW);
+    }
+
+    void Renderer::draw2dLine(const Vec2& start, const Vec2& end, const Vec3& color, float width) {
+        if (!m_initialized) return;
+
+        // Save current state
+        Vec3 oldColor = m_currentColor;
+        float oldWidth = m_lineWidth;
+
+        // Set new state
+        setColor(color);
+        setLineWidth(width);
+
+        // Draw the line
+        draw2dLine(start,end);
+
+        // Restore state
+        setColor(oldColor);
+        setLineWidth(oldWidth);
+    }
+
 } // namespace alice2

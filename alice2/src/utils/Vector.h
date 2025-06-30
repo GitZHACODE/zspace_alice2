@@ -7,6 +7,22 @@
 
 namespace alice2 {
 
+    // 2D Vector class
+    struct Vec2 {
+        float x, y;
+
+        Vec2() : x(0), y(0) {}
+        Vec2(float x_, float y_) : x(x_), y(y_) {}
+
+        // Basic operations
+        Vec2 operator+(const Vec2& other) const { return Vec2(x + other.x, y + other.y); }
+        Vec2 operator-(const Vec2& other) const { return Vec2(x - other.x, y - other.y); }
+        Vec2 operator-() const { return Vec2(-x, -y); }  // Unary minus
+        Vec2 operator*(float scalar) const { return Vec2(x * scalar, y * scalar); }
+        Vec2 operator/(float scalar) const { return Vec2(x / scalar, y / scalar); }
+        
+    };
+
     // 3D Vector class
     struct Vec3 {
         float x, y, z;
@@ -42,6 +58,11 @@ namespace alice2 {
         void normalize() { 
             float len = length(); 
             if (len > 0) { x /= len; y /= len; z /= len; } 
+        }
+
+        float distanceTo(const Vec3& other) const{
+            float dist = (*this - other).length();
+            return dist; 
         }
 
         // Access
