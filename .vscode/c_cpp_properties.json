@@ -1,0 +1,37 @@
+{
+    "version": 4,
+    "configurations": [
+        {
+            "name": "Win32",
+            "includePath": [
+                "${workspaceFolder}/alice2/include",
+                "${workspaceFolder}/alice2/src",
+                "${workspaceFolder}/alice2/userSrc",
+                "${workspaceFolder}/alice2/depends/glew/include",
+                "${workspaceFolder}/alice2/depends/glfw/include",
+                "${workspaceFolder}/alice2/depends/eigen",
+                "${workspaceFolder}/alice2/depends/nlohmann/include",
+                "${workspaceFolder}/alice2/depends/stb",
+                "${vcpkgRoot}/installed/x64-windows/include",
+                "C:/Program Files (x86)/Windows Kits/10/Include/10.0.*/um",
+                "C:/Program Files (x86)/Windows Kits/10/Include/10.0.*/ucrt",
+                "C:/Program Files (x86)/Windows Kits/10/Include/10.0.*/shared",
+                "C:/Program Files/Microsoft Visual Studio/*/VC/Tools/MSVC/*/include"
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE",
+                "WIN32_LEAN_AND_MEAN",
+                "NOMINMAX",
+                "_CRT_SECURE_NO_WARNINGS"
+            ],
+            "windowsSdkVersion": "10.0.22621.0",
+            "compilerPath": "cl.exe",
+            "cStandard": "c17",
+            "cppStandard": "c++20",
+            "intelliSenseMode": "windows-msvc-x64",
+            "configurationProvider": "ms-vscode.cmake-tools"
+        }
+    ]
+}
