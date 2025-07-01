@@ -4,6 +4,8 @@
 #define ALICE2_CAMERA_CONTROLLER_H
 
 #include "../utils/Math.h"
+#include <string>
+#include <array>
 
 namespace alice2 {
 
@@ -14,6 +16,34 @@ namespace alice2 {
         Orbit,      // Orbit around a center point
         Fly,        // Free-flying camera
         Pan         // Pan and zoom only
+    };
+
+    // Structure to hold camera state for saving/loading
+    struct CameraState {
+        // Camera transform
+        Vec3 position;
+        Quaternion rotation;
+
+        // Camera mode and parameters
+        CameraMode mode;
+        Vec3 orbitCenter;
+        float orbitDistance;
+
+        // Projection settings
+        float fov;
+        float nearPlane;
+        float farPlane;
+
+        CameraState()
+            : position(0, 0, 0)
+            , rotation(0, 0, 0, 1)
+            , mode(CameraMode::Orbit)
+            , orbitCenter(0, 0, 0)
+            , orbitDistance(15.0f)
+            , fov(45.0f)
+            , nearPlane(0.1f)
+            , farPlane(1000.0f)
+        {}
     };
 
     class CameraController {
@@ -67,6 +97,13 @@ namespace alice2 {
         void focusOnBounds(const Vec3& boundsMin, const Vec3& boundsMax);
         void resetToDefault();
 
+        // Camera save/load functionality
+        void saveCamera(int slot);                    // Save current camera to slot (0-7)
+        void loadCamera(int slot);                    // Load camera from slot (0-7)
+        bool hasSavedCamera(int slot) const;          // Check if slot has saved camera
+        void saveCamerasToFile();                     // Save all cameras to persistent storage
+        void loadCamerasFromFile();                   // Load all cameras from persistent storage
+
     private:
         Camera& m_camera;
         InputManager& m_inputManager;
@@ -93,6 +130,11 @@ namespace alice2 {
         bool m_isDragging;
         Vec3 m_lastMousePos;
 
+        // Camera save/load state
+        std::array<CameraState, 8> m_savedCameras;    // 8 camera slots (F1-F8)
+        std::array<bool, 8> m_cameraSlotUsed;         // Track which slots have saved cameras
+        std::string m_cameraFilePath;                 // Path to camera save file
+
         // Input handling
         void handleOrbitMode(float deltaTime);
         void handleFlyMode(float deltaTime);
@@ -101,6 +143,10 @@ namespace alice2 {
         void updateOrbitCamera();
         void updateFlyCamera();
         void initializeFromCurrentCamera();
+
+        // Camera save/load helpers
+        CameraState getCurrentCameraState() const;    // Get current camera state
+        void applyCameraState(const CameraState& state);  // Apply camera state
     };
 
 } // namespace alice2

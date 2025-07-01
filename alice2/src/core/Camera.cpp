@@ -280,4 +280,10 @@ namespace alice2 {
         }
     }
 
+    void Camera::updateCamera()
+    {
+        updateOrbitPosition();
+        updateProjection();
+        updateViewMatrix();
+    }
 } // namespace alice2

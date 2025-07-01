@@ -131,7 +131,7 @@ public:
 };
 
 // Register the sketch with alice2 (both old and new systems)
-//ALICE2_REGISTER_SKETCH(BaseSketch)
+ALICE2_REGISTER_SKETCH(BaseSketch)
 //ALICE2_REGISTER_SKETCH_AUTO(BaseSketch)
 
 #endif // __MAIN__

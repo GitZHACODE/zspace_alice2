@@ -310,6 +310,20 @@ namespace alice2 {
 
     void Application::keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
         if (s_instance && action == GLFW_PRESS) {
+            // Handle function keys for camera save/load
+            if (key >= GLFW_KEY_F1 && key <= GLFW_KEY_F8) {
+                int slot = key - GLFW_KEY_F1;  // Convert F1-F8 to 0-7
+
+                if (mods & GLFW_MOD_SHIFT) {
+                    // Shift + F1-F8: Save camera
+                    s_instance->m_cameraController->saveCamera(slot);
+                } else {
+                    // F1-F8: Load camera
+                    s_instance->m_cameraController->loadCamera(slot);
+                }
+                return;
+            }
+
             // Convert GLFW key to character for compatibility
             unsigned char charKey = 0;
 

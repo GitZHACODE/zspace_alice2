@@ -23,7 +23,7 @@ namespace alice2 {
         const Transform& getTransform() const { return m_transform; }
 
         // Position and orientation
-        void setPosition(const Vec3& position) { m_transform.setPosition(position); m_viewDirty = true; }
+        void setPosition(const Vec3& position) { m_transform.setPosition(position);}
         Vec3 getPosition() const { return m_transform.getPosition(); }
 
         void lookAt(const Vec3 &target, const Vec3 &up = Vec3(0, 0, 1))
@@ -43,10 +43,10 @@ namespace alice2 {
         void setPerspective(float fov, float aspect, float nearPlane, float farPlane);
         void setOrthographic(float left, float right, float bottom, float top, float nearPlane, float farPlane);
         
-        void setFieldOfView(float fov) { m_fov = fov; updateProjection(); }
-        void setAspectRatio(float aspect) { m_aspectRatio = aspect; updateProjection(); }
-        void setNearPlane(float nearPlane) { m_nearPlane = nearPlane; updateProjection(); }
-        void setFarPlane(float farPlane) { m_farPlane = farPlane; updateProjection(); }
+        void setFieldOfView(float fov) { m_fov = fov; updateProjection();}
+        void setAspectRatio(float aspect) { m_aspectRatio = aspect; updateProjection();}
+        void setNearPlane(float nearPlane) { m_nearPlane = nearPlane; updateProjection();}
+        void setFarPlane(float farPlane) { m_farPlane = farPlane; updateProjection();}
 
         float getFieldOfView() const { return m_fov; }
         float getAspectRatio() const { return m_aspectRatio; }
@@ -54,7 +54,7 @@ namespace alice2 {
         float getFarPlane() const { return m_farPlane; }
 
         // Projection type
-        void setProjectionType(ProjectionType type) { m_projectionType = type; updateProjection(); }
+        void setProjectionType(ProjectionType type) { m_projectionType = type; updateProjection();}
         ProjectionType getProjectionType() const { return m_projectionType; }
 
         // Matrices
@@ -73,11 +73,14 @@ namespace alice2 {
         Vec3 worldToScreen(const Vec3& worldPos, int screenWidth, int screenHeight) const;
 
         // Camera controls
-        void setOrbitCenter(const Vec3& center) { m_orbitCenter = center; }
+        void setOrbitCenter(const Vec3& center) { m_orbitCenter = center;}
         const Vec3& getOrbitCenter() const { return m_orbitCenter; }
-        
-        void setOrbitDistance(float distance) { m_orbitDistance = distance; updateOrbitPosition(); }
+
+        void setOrbitDistance(float distance) { m_orbitDistance = distance; updateOrbitPosition();}
         float getOrbitDistance() const { return m_orbitDistance; }
+
+        void setOrbitRotation(const Quaternion& rotation) { m_orbitRotation = rotation.normalized();}
+        const Quaternion& getOrbitRotation() const { return m_orbitRotation; }
 
         // Smooth camera interpolation
         void smoothOrbitTo(const Vec3& center, const Quaternion& targetRotation, float distance, float t);
@@ -86,6 +89,7 @@ namespace alice2 {
         Vec3 getForward() const { return m_transform.forward(); }
         Vec3 getRight() const { return m_transform.right(); }
         Vec3 getUp() const { return m_transform.up(); }
+        void updateCamera();
 
     private:
         Transform m_transform;

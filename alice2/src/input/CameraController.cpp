@@ -3,6 +3,10 @@
 #include "InputManager.h"
 #include <algorithm>
 #include <iostream>
+#include <fstream>
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
 
 namespace alice2 {
 
@@ -22,10 +26,19 @@ namespace alice2 {
         , m_invertY(false)
         , m_isDragging(false)
         , m_lastMousePos(0, 0, 0)
+        , m_cameraFilePath("src/cameras/camera_saves.json")
     {
+        // Initialize camera slot tracking
+        for (int i = 0; i < 8; ++i) {
+            m_cameraSlotUsed[i] = false;
+        }
+
         // Initialize orbit parameters based on current camera position
         // This preserves any camera setup done before the controller is created
         initializeFromCurrentCamera();
+
+        // Load saved cameras from file
+        loadCamerasFromFile();
     }
 
     void CameraController::update(float deltaTime) {
@@ -178,6 +191,198 @@ namespace alice2 {
 
         if (m_orbitDistance < 0.1f) {
             m_orbitDistance = 15.0f;  // Default distance
+        }
+    }
+
+    // Camera save/load functionality
+    void CameraController::saveCamera(int slot) {
+        if (slot < 0 || slot >= 8) {
+            std::cerr << "[CAMERA] Invalid camera slot: " << slot << std::endl;
+            return;
+        }
+
+        m_savedCameras[slot] = getCurrentCameraState();
+        m_cameraSlotUsed[slot] = true;
+
+        // Save to file immediately for persistence
+        saveCamerasToFile();
+
+        std::cout << "[CAMERA] Camera saved to slot " << (slot + 1) << " (F" << (slot + 1) << ")" << std::endl;
+    }
+
+    void CameraController::loadCamera(int slot) {
+        if (slot < 0 || slot >= 8) {
+            std::cerr << "[CAMERA] Invalid camera slot: " << slot << std::endl;
+            return;
+        }
+
+        if (!m_cameraSlotUsed[slot]) {
+            std::cout << "[CAMERA] No camera saved in slot " << (slot + 1) << " (F" << (slot + 1) << ")" << std::endl;
+            return;
+        }
+
+        applyCameraState(m_savedCameras[slot]);
+        std::cout << "[CAMERA] Camera loaded from slot " << (slot + 1) << " (F" << (slot + 1) << ")" << std::endl;
+    }
+
+    bool CameraController::hasSavedCamera(int slot) const {
+        if (slot < 0 || slot >= 8) {
+            return false;
+        }
+        return m_cameraSlotUsed[slot];
+    }
+
+    CameraState CameraController::getCurrentCameraState() const {
+        CameraState state;
+
+        // Get camera transform
+        state.position = m_camera.getPosition();
+        state.rotation = m_camera.getTransform().getRotation();
+
+        // Get camera mode and parameters
+        state.mode = m_mode;
+        state.orbitCenter = m_orbitCenter;
+        state.orbitDistance = m_orbitDistance;
+
+        // Get projection settings
+        state.fov = m_camera.getFieldOfView();
+        state.nearPlane = m_camera.getNearPlane();
+        state.farPlane = m_camera.getFarPlane();
+
+        return state;
+    }
+
+    void CameraController::applyCameraState(const CameraState& state) {
+        // Apply camera mode
+        m_mode = state.mode;
+
+        // Apply orbit parameters
+        m_orbitCenter = state.orbitCenter;
+        m_orbitDistance = state.orbitDistance;
+
+        // Apply camera transform directly - don't let orbit mode override this
+        m_camera.setPosition(state.position);
+        m_camera.getTransform().setRotation(state.rotation);
+
+        // Apply projection settings (these automatically update the projection matrix)
+        m_camera.setFieldOfView(state.fov);
+        m_camera.setNearPlane(state.nearPlane);
+        m_camera.setFarPlane(state.farPlane);
+
+        // For orbit mode, we need to sync the camera's internal orbit state
+        // but NOT recalculate position - the saved state is already correct
+        if (m_mode == CameraMode::Orbit) {
+            // Update the camera's internal orbit parameters without changing position
+            m_camera.setOrbitCenter(state.orbitCenter);
+            m_camera.setOrbitDistance(state.orbitDistance);
+            // CRITICAL: Sync the camera's internal orbit rotation with the saved rotation
+            m_camera.setOrbitRotation(state.rotation);
+            // Don't call updateOrbitCamera() as it would override our saved position!
+        }
+
+        // Force the view matrix to update immediately by accessing it
+        m_camera.pan(0.0f, 0.0f);
+    }
+
+    void CameraController::saveCamerasToFile() {
+        try {
+            // Create directory if it doesn't exist
+            std::string directory = m_cameraFilePath.substr(0, m_cameraFilePath.find_last_of("/\\"));
+
+            // Create directory using system call (cross-platform)
+            #ifdef _WIN32
+                std::string createDirCmd = "mkdir \"" + directory + "\" 2>nul";
+                system(createDirCmd.c_str());
+            #else
+                std::string createDirCmd = "mkdir -p \"" + directory + "\"";
+                system(createDirCmd.c_str());
+            #endif
+
+            json j;
+            j["cameras"] = json::array();
+
+            for (int i = 0; i < 8; ++i) {
+                if (m_cameraSlotUsed[i]) {
+                    json cameraJson;
+                    const CameraState& state = m_savedCameras[i];
+
+                    cameraJson["slot"] = i;
+                    cameraJson["position"] = {state.position.x, state.position.y, state.position.z};
+                    cameraJson["rotation"] = {state.rotation.x, state.rotation.y, state.rotation.z, state.rotation.w};
+                    cameraJson["mode"] = static_cast<int>(state.mode);
+                    cameraJson["orbitCenter"] = {state.orbitCenter.x, state.orbitCenter.y, state.orbitCenter.z};
+                    cameraJson["orbitDistance"] = state.orbitDistance;
+                    cameraJson["fov"] = state.fov;
+                    cameraJson["nearPlane"] = state.nearPlane;
+                    cameraJson["farPlane"] = state.farPlane;
+
+                    j["cameras"].push_back(cameraJson);
+                }
+            }
+
+            std::ofstream file(m_cameraFilePath);
+            if (file.is_open()) {
+                file << j.dump(4); // Pretty print with 4 spaces
+                // std::cout << "[CAMERA] Cameras saved to " << m_cameraFilePath << std::endl;
+            } else {
+                std::cerr << "[CAMERA] Failed to open file for writing: " << m_cameraFilePath << std::endl;
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "[CAMERA] Error saving cameras: " << e.what() << std::endl;
+        }
+    }
+
+    void CameraController::loadCamerasFromFile() {
+        try {
+            std::ifstream file(m_cameraFilePath);
+            if (!file.is_open()) {
+                // File doesn't exist yet, which is fine for first run
+                std::cout << "[CAMERA] No saved cameras file found, starting fresh" << std::endl;
+                return;
+            }
+
+            json j;
+            file >> j;
+
+            // Reset all slots
+            for (int i = 0; i < 8; ++i) {
+                m_cameraSlotUsed[i] = false;
+            }
+
+            if (j.contains("cameras") && j["cameras"].is_array()) {
+                for (const auto& cameraJson : j["cameras"]) {
+                    int slot = cameraJson["slot"];
+                    if (slot >= 0 && slot < 8) {
+                        CameraState& state = m_savedCameras[slot];
+
+                        // Load position
+                        auto pos = cameraJson["position"];
+                        state.position = Vec3(pos[0], pos[1], pos[2]);
+
+                        // Load rotation
+                        auto rot = cameraJson["rotation"];
+                        state.rotation = Quaternion(rot[0], rot[1], rot[2], rot[3]);
+
+                        // Load mode
+                        state.mode = static_cast<CameraMode>(cameraJson["mode"]);
+
+                        // Load orbit parameters
+                        auto center = cameraJson["orbitCenter"];
+                        state.orbitCenter = Vec3(center[0], center[1], center[2]);
+                        state.orbitDistance = cameraJson["orbitDistance"];
+
+                        // Load projection settings
+                        state.fov = cameraJson["fov"];
+                        state.nearPlane = cameraJson["nearPlane"];
+                        state.farPlane = cameraJson["farPlane"];
+
+                        m_cameraSlotUsed[slot] = true;
+                    }
+                }
+                std::cout << "[CAMERA] Cameras loaded from " << m_cameraFilePath << std::endl;
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "[CAMERA] Error loading cameras: " << e.what() << std::endl;
         }
     }
 
