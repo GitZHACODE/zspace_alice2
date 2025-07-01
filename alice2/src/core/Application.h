@@ -38,6 +38,10 @@ namespace alice2 {
         Renderer& getRenderer() { return *m_renderer; }
         Camera& getCamera() { return *m_camera; }
         InputManager& getInputManager() { return *m_inputManager; }
+
+        // Screenshot functionality
+        void takeScreenshot();
+        void takeScreenshotAllCameras();
         CameraController& getCameraController() { return *m_cameraController; }
         SketchManager& getSketchManager() { return *m_sketchManager; }
 

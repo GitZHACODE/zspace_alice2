@@ -221,7 +221,7 @@ namespace alice2 {
             return;
         }
 
-        applyCameraState(m_savedCameras[slot]);
+        setCameraState(m_savedCameras[slot]);
         std::cout << "[CAMERA] Camera loaded from slot " << (slot + 1) << " (F" << (slot + 1) << ")" << std::endl;
     }
 
@@ -252,7 +252,7 @@ namespace alice2 {
         return state;
     }
 
-    void CameraController::applyCameraState(const CameraState& state) {
+    void CameraController::setCameraState(const CameraState& state) {
         // Apply camera mode
         m_mode = state.mode;
 

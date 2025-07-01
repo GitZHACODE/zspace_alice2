@@ -104,6 +104,10 @@ namespace alice2 {
         void saveCamerasToFile();                     // Save all cameras to persistent storage
         void loadCamerasFromFile();                   // Load all cameras from persistent storage
 
+        // Camera state access (for screenshots)
+        CameraState getCurrentCameraState() const;    // Get current camera state
+        void setCameraState(const CameraState& state);    // Set camera state
+
     private:
         Camera& m_camera;
         InputManager& m_inputManager;
@@ -143,10 +147,6 @@ namespace alice2 {
         void updateOrbitCamera();
         void updateFlyCamera();
         void initializeFromCurrentCamera();
-
-        // Camera save/load helpers
-        CameraState getCurrentCameraState() const;    // Get current camera state
-        void applyCameraState(const CameraState& state);  // Apply camera state
     };
 
 } // namespace alice2

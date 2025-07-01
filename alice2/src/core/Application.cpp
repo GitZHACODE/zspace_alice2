@@ -2,6 +2,15 @@
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include <chrono>
+#include <iomanip>
+#include <sstream>
+#include <fstream>
+#include <vector>
+#include <thread>
+
+// STB image write for screenshots
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "../../depends/stb/stb_image_write.h"
 
 // Debug logging flag - set to true to enable detailed application logging
 #define DEBUG_APPLICATION_LOGGING false
@@ -324,6 +333,18 @@ namespace alice2 {
                 return;
             }
 
+            // Handle screenshot shortcuts
+            if (key == GLFW_KEY_E) {
+                if ((mods & GLFW_MOD_CONTROL) && (mods & GLFW_MOD_SHIFT)) {
+                    // Ctrl + Shift + E: Take screenshots from all saved cameras
+                    s_instance->takeScreenshotAllCameras();
+                } else if (mods & GLFW_MOD_SHIFT) {
+                    // Shift + E: Take screenshot from current view
+                    s_instance->takeScreenshot();
+                }
+                return;
+            }
+
             // Convert GLFW key to character for compatibility
             unsigned char charKey = 0;
 
@@ -463,6 +484,141 @@ namespace alice2 {
         
         app.run();
         return 0;
+    }
+
+    void Application::takeScreenshot() {
+        if (!m_initialized || !m_window) {
+            std::cerr << "[SCREENSHOT] Application not initialized" << std::endl;
+            return;
+        }
+
+        // Create screenshots directory if it doesn't exist
+        #ifdef _WIN32
+            system("mkdir \"src\\screenshots\" 2>nul");
+        #else
+            system("mkdir -p \"src/screenshots\"");
+        #endif
+
+        // Generate timestamp for filename
+        auto now = std::chrono::system_clock::now();
+        auto time_t = std::chrono::system_clock::to_time_t(now);
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now.time_since_epoch()) % 1000;
+
+        std::stringstream ss;
+        ss << "src/screenshots/screenshot_"
+           << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S")
+           << "_" << std::setfill('0') << std::setw(3) << ms.count()
+           << ".png";
+
+        std::string filename = ss.str();
+
+        // Read pixels from framebuffer
+        int width, height;
+        glfwGetFramebufferSize(m_window, &width, &height);
+
+        std::vector<unsigned char> pixels(width * height * 3);
+        glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+
+        // Flip image vertically (OpenGL has origin at bottom-left, PNG at top-left)
+        std::vector<unsigned char> flipped(width * height * 3);
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                int src_idx = ((height - 1 - y) * width + x) * 3;
+                int dst_idx = (y * width + x) * 3;
+                flipped[dst_idx] = pixels[src_idx];
+                flipped[dst_idx + 1] = pixels[src_idx + 1];
+                flipped[dst_idx + 2] = pixels[src_idx + 2];
+            }
+        }
+
+        // Save as PNG
+        if (stbi_write_png(filename.c_str(), width, height, 3, flipped.data(), width * 3)) {
+            std::cout << "[SCREENSHOT] Screenshot saved: " << filename << std::endl;
+        } else {
+            std::cerr << "[SCREENSHOT] Failed to save screenshot: " << filename << std::endl;
+        }
+    }
+
+    void Application::takeScreenshotAllCameras() {
+        if (!m_initialized || !m_window || !m_cameraController) {
+            std::cerr << "[SCREENSHOT] Application not initialized" << std::endl;
+            return;
+        }
+
+        // Create screenshots directory if it doesn't exist
+        #ifdef _WIN32
+            system("mkdir \"src\\screenshots\" 2>nul");
+        #else
+            system("mkdir -p \"src/screenshots\"");
+        #endif
+
+        // Generate base timestamp for filenames
+        auto now = std::chrono::system_clock::now();
+        auto time_t = std::chrono::system_clock::to_time_t(now);
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now.time_since_epoch()) % 1000;
+
+        std::stringstream base_ss;
+        base_ss << "src/screenshots/camera_"
+                << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S")
+                << "_" << std::setfill('0') << std::setw(3) << ms.count();
+
+        std::string base_filename = base_ss.str();
+
+        int screenshotCount = 0;
+
+        // Take screenshots from all saved camera positions
+        for (int slot = 0; slot < 8; ++slot) {
+            if (m_cameraController->hasSavedCamera(slot)) {
+                // Load the saved camera
+                m_cameraController->loadCamera(slot);
+
+                // Force a render to update the view
+                glfwSwapBuffers(m_window);
+                render();
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+                // Generate filename for this camera slot
+                std::stringstream ss;
+                ss << base_filename << "_F" << (slot + 1) << ".png";
+                std::string filename = ss.str();
+
+                // Read pixels from framebuffer
+                int width, height;
+                glfwGetFramebufferSize(m_window, &width, &height);
+
+                std::vector<unsigned char> pixels(width * height * 3);
+                glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+
+                // Flip image vertically
+                std::vector<unsigned char> flipped(width * height * 3);
+                for (int y = 0; y < height; ++y) {
+                    for (int x = 0; x < width; ++x) {
+                        int src_idx = ((height - 1 - y) * width + x) * 3;
+                        int dst_idx = (y * width + x) * 3;
+                        flipped[dst_idx] = pixels[src_idx];
+                        flipped[dst_idx + 1] = pixels[src_idx + 1];
+                        flipped[dst_idx + 2] = pixels[src_idx + 2];
+                    }
+                }
+
+                // Save as PNG
+                if (stbi_write_png(filename.c_str(), width, height, 3, flipped.data(), width * 3)) {
+                    std::cout << "[SCREENSHOT] Camera F" << (slot + 1) << " screenshot saved: " << filename << std::endl;
+                    screenshotCount++;
+                } else {
+                    std::cerr << "[SCREENSHOT] Failed to save camera F" << (slot + 1) << " screenshot: " << filename << std::endl;
+                }
+            }
+        }
+
+        if (screenshotCount > 0) {
+            std::cout << "[SCREENSHOT] Saved " << screenshotCount << " camera screenshots" << std::endl;
+        } else {
+            std::cout << "[SCREENSHOT] No saved cameras found - no screenshots taken" << std::endl;
+        }
     }
 
 } // namespace alice2
