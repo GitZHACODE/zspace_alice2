@@ -4,6 +4,7 @@
 #define ALICE2_VECTOR_H
 
 #include <cmath>
+#include <algorithm>
 
 namespace alice2 {
 
@@ -41,6 +42,13 @@ namespace alice2 {
         Vec3& operator-=(const Vec3& other) { x -= other.x; y -= other.y; z -= other.z; return *this; }
         Vec3& operator*=(float scalar) { x *= scalar; y *= scalar; z *= scalar; return *this; }
 
+        bool operator==(const Vec3 &o) const
+        {
+            constexpr float EPS = 1e-6f;
+            return fabs(x - o.x) < EPS && fabs(y - o.y) < EPS && fabs(z - o.z) < EPS;
+        }
+        bool operator!=(const Vec3 &other) const { return !(*this == other); }
+
         // Vector operations
         float dot(const Vec3& other) const { return x * other.x + y * other.y + z * other.z; }
         Vec3 cross(const Vec3& other) const { 
@@ -63,6 +71,21 @@ namespace alice2 {
         float distanceTo(const Vec3& other) const{
             float dist = (*this - other).length();
             return dist; 
+        }
+
+        float angleBetween(const Vec3 &other) const
+        {
+            float len1 = length();
+            float len2 = other.length();
+            if (len1 == 0.0f || len2 == 0.0f)
+            {
+                // undefined; choose 0 to avoid division-by-zero
+                return 0.0f;
+            }
+            float cosTheta = dot(other) / (len1 * len2);
+            // clamp for numeric safety
+            cosTheta = std::clamp(cosTheta, -1.0f, 1.0f);
+            return std::acos(cosTheta);
         }
 
         // Access

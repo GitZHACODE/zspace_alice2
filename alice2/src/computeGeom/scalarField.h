@@ -64,12 +64,54 @@ namespace ScalarFieldUtils {
         g = clamp(std::min(fourValue - 0.5f, -fourValue + 3.5f), 0.0f, 1.0f);
         b = clamp(std::min(fourValue + 0.5f, -fourValue + 2.5f), 0.0f, 1.0f);
     }
+
+    // helper: clamp a float
+inline float clampf(float x, float lo, float hi) {
+    return x < lo ? lo : (x > hi ? hi : x);
+}
+
+// helper: HSV→RGB (H in degrees [0,360), S,V in [0,1])
+inline void hsv2rgb(float H, float S, float V, float &R, float &G, float &B) {
+    H = fmodf(H, 360.0f);
+    float C = V * S;
+    float X = C * (1.0f - fabsf(fmodf(H / 60.0f, 2.0f) - 1.0f));
+    float m = V - C;
+
+    if      (H < 60.0f)  { R = C; G = X; B = 0; }
+    else if (H < 120.0f) { R = X; G = C; B = 0; }
+    else if (H < 180.0f) { R = 0; G = C; B = X; }
+    else if (H < 240.0f) { R = 0; G = X; B = C; }
+    else if (H < 300.0f) { R = X; G = 0; B = C; }
+    else                 { R = C; G = 0; B = X; }
+
+    // add lightness offset
+    R = clampf(R + m, 0.0f, 1.0f);
+    G = clampf(G + m, 0.0f, 1.0f);
+    B = clampf(B + m, 0.0f, 1.0f);
+}
+
+// your new “jet-like” but white-friendly mapper
+inline void get_hsv_color(float value, float& r, float& g, float& b) {
+    // 1. normalize
+    float t = clampf((value + 1.0f) * 0.5f, 0.0f, 1.0f);
+
+    // 2. compute hue from blue→red
+    float hue = 240.0f - 240.0f * t;
+
+    // 3. fixed saturation/value for good contrast on white
+    constexpr float sat = 0.75f;
+    constexpr float val = 0.85f;
+
+    // 4. convert
+    hsv2rgb(hue, sat, val, r, g, b);
+}
 }
 
 // Contour data structure
 struct ContourData {
     std::vector<std::vector<Vec3>> contours;
     std::vector<std::pair<Vec3, Vec3>> line_segments;
+    std::vector<Vec3> colors; // color per segment
     float threshold;
 
     ContourData() : threshold(0.0f) {}
@@ -137,25 +179,32 @@ public:
     void set_values(const std::vector<float>& values);
     std::pair<int, int> get_resolution() const { return {m_res_x, m_res_y}; }
     std::pair<Vec3, Vec3> get_bounds() const { return {m_min_bounds, m_max_bounds}; }
+    
+    Vec3 cellPosition(int x, int y) const;
+    float sample_nearest(const Vec3 &p) const;
+    Vec3 gradientAt(const Vec3 &p) const;
 
     // Field generation methods (snake_case naming)
     void clear_field();
-    float get_scalar_circle(const Vec3& center, float radius) const;
-    float get_scalar_square(const Vec3& center, const Vec3& half_size, float angle_radians) const;
-    float get_scalar_line(const Vec3& start, const Vec3& end, float thickness) const;
-    float get_scalar_polygon(const std::vector<Vec3>& vertices) const;
-    float get_scalar_voronoi(const std::vector<Vec3>& sites, const Vec3& query_point) const;
+    float get_scalar_circle(const Vec3 &center, float radius) const;
+    float get_scalar_square(const Vec3 &center, const Vec3 &half_size, float angle_radians) const;
+    float get_scalar_line(const Vec3 &start, const Vec3 &end, float thickness) const;
+    float get_scalar_polygon(const std::vector<Vec3> &vertices) const;
+    float get_scalar_voronoi(const std::vector<Vec3> &sites, const Vec3 &query_point) const;
 
     // Apply scalar functions to entire field
-    void apply_scalar_circle(const Vec3& center, float radius);
-    void apply_scalar_rect(const Vec3& center, const Vec3& half_size, float angle_radians);
-    void apply_scalar_line(const Vec3& start, const Vec3& end, float thickness);
-    void apply_scalar_polygon(const std::vector<Vec3>& vertices);
-    void apply_scalar_voronoi(const std::vector<Vec3>& sites);
+    void apply_scalar_circle(const Vec3 &center, float radius);
+    void apply_scalar_rect(const Vec3 &center, const Vec3 &half_size, float angle_radians);
+    void apply_scalar_line(const Vec3 &start, const Vec3 &end, float thickness);
+    void apply_scalar_polygon(const std::vector<Vec3> &vertices);
+    void apply_scalar_voronoi(const std::vector<Vec3> &sites);
+    void apply_scalar_ellipse(const Vec3 &center, float radiusX, float radiusY, const float rotation = 0);
+    void apply_scalar_manhattan_voronoi(const std::vector<Vec3> &sites);
 
     // Boolean operations (snake_case naming)
     void boolean_union(const ScalarField2D& other);
     void boolean_intersect(const ScalarField2D& other);
+    void boolean_inverseintersect(const ScalarField2D &other);
     void boolean_subtract(const ScalarField2D& other);
     void boolean_difference(const ScalarField2D& other);
     void boolean_smin(const ScalarField2D& other, float smoothing = 1.0f);

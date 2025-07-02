@@ -106,6 +106,41 @@ void ScalarField2D::clear_field() {
     std::fill(m_normalized_values.begin(), m_normalized_values.end(), 0.0f);
 }
 
+Vec3 ScalarField2D::cellPosition(int x, int y) const
+{
+    int index = y * m_res_x + x;
+    return m_grid_points[index];
+}
+
+float ScalarField2D::sample_nearest(const Vec3 &p) const
+{
+    float fx = (p.x - m_min_bounds.x) / (m_max_bounds.x - m_min_bounds.x) * (m_res_x - 1);
+    float fy = (p.y - m_min_bounds.y) / (m_max_bounds.y - m_min_bounds.y) * (m_res_y - 1);
+
+    int ix = std::round(fx);
+    int iy = std::round(fy);
+
+    ix = std::clamp(ix, 0, m_res_x - 1);
+    iy = std::clamp(iy, 0, m_res_y - 1);
+
+    return m_field_values[iy * m_res_x + ix];
+}
+
+Vec3 ScalarField2D::gradientAt(const Vec3 &p) const
+{
+    float eps = 1.0f;
+    Vec3 a(p.x + eps, p.y, 0);
+    Vec3 b(p.x - eps, p.y, 0);
+
+    Vec3 c(p.x, p.y + eps, 0);
+    Vec3 d(p.x, p.y - eps, 0);
+
+    float dx = sample_nearest(a) - sample_nearest(b);
+    float dy = sample_nearest(c) - sample_nearest(d);
+    return Vec3(dx, dy, 0.0f) * 0.5f;
+}
+
+
 // Scalar function implementations
 
 void ScalarField2D::apply_scalar_circle(const Vec3& center, float radius) {
@@ -172,6 +207,86 @@ void ScalarField2D::apply_scalar_voronoi(const std::vector<Vec3>& sites) {
     }
 }
 
+void ScalarField2D::apply_scalar_line(const Vec3& start, const Vec3& end, float thickness) {
+    // Simple line SDF implementation
+    for (int j = 0; j < m_res_y; ++j) {
+        for (int i = 0; i < m_res_x; ++i) {
+            const int idx = get_index(i, j);
+            const Vec3& pt = m_grid_points[idx];
+
+            const Vec3 pa = pt - start;
+            const Vec3 ba = end - start;
+            const float h = clamp(pa.dot(ba) / ba.dot(ba), 0.0f, 1.0f);
+            const float dist = (pa - ba * h).length();
+
+            m_field_values[idx] = dist - thickness; // SDF: negative inside, positive outside
+        }
+    }
+}
+
+void ScalarField2D::apply_scalar_polygon(const std::vector<Vec3>& vertices) {
+    // Simple polygon SDF - placeholder implementation
+    if (vertices.empty()) return;
+
+    for (int j = 0; j < m_res_y; ++j) {
+        for (int i = 0; i < m_res_x; ++i) {
+            const int idx = get_index(i, j);
+            const Vec3& pt = m_grid_points[idx];
+
+            // Find distance to closest vertex (simplified)
+            float min_dist = std::numeric_limits<float>::max();
+            for (const auto& vertex : vertices) {
+                const float dist = ScalarFieldUtils::distance_to(pt, vertex);
+                min_dist = std::min(min_dist, dist);
+            }
+
+            m_field_values[idx] = min_dist;
+        }
+    }
+}
+
+void ScalarField2D::apply_scalar_ellipse(const Vec3 &center, float radiusX, float radiusY, const float rotation)
+{
+    float cosR = std::cos(rotation);
+    float sinR = std::sin(rotation);
+
+    for (int j = 0; j < m_res_y; ++j) {
+        for (int i = 0; i < m_res_x; ++i) {
+            int idx = get_index(i, j);
+            Vec3 p = m_grid_points[idx] - center;
+            // Rotate the point around the center by -rotation to align major axis
+            float xRot = p.x * cosR - p.y * sinR;
+            float yRot = p.x * sinR + p.y * cosR;
+            float xNorm = xRot / radiusX;
+            float yNorm = yRot / radiusY;
+            float k = std::sqrt(xNorm * xNorm + yNorm * yNorm);
+            float sdf = (k - 1.0f) * std::min(radiusX, radiusY);
+            m_field_values[idx] = sdf;
+        }
+    }
+}
+
+void ScalarField2D::apply_scalar_manhattan_voronoi(const std::vector<Vec3> &sites)
+{
+    for (int j = 0; j < m_res_y; ++j)
+    {
+        for (int i = 0; i < m_res_x; ++i)
+        {
+            int idx = get_index(i, j);
+            const Vec3 &p = m_grid_points[idx];
+            float minDist = std::numeric_limits<float>::max();
+            for (const auto &site : sites)
+            {
+                float d = std::abs(p.x - site.x) + std::abs(p.y - site.y);
+                if (d < minDist)
+                    minDist = d;
+            }
+            m_field_values[idx] = minDist;
+        }
+    }
+}
+
+
 // Boolean operations
 void ScalarField2D::boolean_union(const ScalarField2D& other) {
     if (m_field_values.size() != other.m_field_values.size()) {
@@ -190,6 +305,19 @@ void ScalarField2D::boolean_intersect(const ScalarField2D& other) {
 
     for (size_t i = 0; i < m_field_values.size(); ++i) {
         m_field_values[i] = std::max(m_field_values[i], other.m_field_values[i]);
+    }
+}
+
+void ScalarField2D::boolean_inverseintersect(const ScalarField2D &other)
+{
+    if (m_field_values.size() != other.m_field_values.size())
+    {
+        throw std::invalid_argument("Field dimensions must match for boolean operations");
+    }
+
+    for (size_t i = 0; i < m_field_values.size(); ++i)
+    {
+        m_field_values[i] = std::min(m_field_values[i], -other.m_field_values[i]);
     }
 }
 
@@ -244,7 +372,8 @@ void ScalarField2D::draw_points(Renderer& renderer, int step) const {
             const float f = m_normalized_values[idx];
 
             float r, g, b;
-            ScalarFieldUtils::get_jet_color(f * 2.0f - 1.0f, r, g, b);
+            // ScalarFieldUtils::get_jet_color(f * 2.0f - 1.0f, r, g, b);
+            ScalarFieldUtils::get_hsv_color(f, r, g, b);
             const Vec3 color(r, g, b);
 
             renderer.drawPoint(m_grid_points[idx], color, 3.0f);
@@ -343,43 +472,6 @@ std::vector<Vec3> ScalarField2D::get_gradient() const {
 }
 
 // Additional helper methods for missing functionality
-void ScalarField2D::apply_scalar_line(const Vec3& start, const Vec3& end, float thickness) {
-    // Simple line SDF implementation
-    for (int j = 0; j < m_res_y; ++j) {
-        for (int i = 0; i < m_res_x; ++i) {
-            const int idx = get_index(i, j);
-            const Vec3& pt = m_grid_points[idx];
-
-            const Vec3 pa = pt - start;
-            const Vec3 ba = end - start;
-            const float h = clamp(pa.dot(ba) / ba.dot(ba), 0.0f, 1.0f);
-            const float dist = (pa - ba * h).length();
-
-            m_field_values[idx] = dist - thickness; // SDF: negative inside, positive outside
-        }
-    }
-}
-
-void ScalarField2D::apply_scalar_polygon(const std::vector<Vec3>& vertices) {
-    // Simple polygon SDF - placeholder implementation
-    if (vertices.empty()) return;
-
-    for (int j = 0; j < m_res_y; ++j) {
-        for (int i = 0; i < m_res_x; ++i) {
-            const int idx = get_index(i, j);
-            const Vec3& pt = m_grid_points[idx];
-
-            // Find distance to closest vertex (simplified)
-            float min_dist = std::numeric_limits<float>::max();
-            for (const auto& vertex : vertices) {
-                const float dist = ScalarFieldUtils::distance_to(pt, vertex);
-                min_dist = std::min(min_dist, dist);
-            }
-
-            m_field_values[idx] = min_dist;
-        }
-    }
-}
 
 void ScalarField2D::set_values(const std::vector<float>& values) {
     if (values.size() != m_field_values.size()) {
