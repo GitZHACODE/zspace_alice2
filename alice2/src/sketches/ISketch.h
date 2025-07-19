@@ -53,23 +53,6 @@ namespace alice2 {
         Camera& camera() { return *m_camera; }
         InputManager& input() { return *m_inputManager; }
     };
-
-    // Macro to help register sketches
-    #define ALICE2_REGISTER_SKETCH(SketchClass) \
-        extern "C" { \
-            alice2::ISketch* createSketch() { \
-                return new SketchClass(); \
-            } \
-            void destroySketch(alice2::ISketch* sketch) { \
-                delete sketch; \
-            } \
-            const char* getSketchName() { \
-                SketchClass temp; \
-                static std::string name = temp.getName(); \
-                return name.c_str(); \
-            } \
-        }
-
 } // namespace alice2
 
 #endif // ALICE2_ISKETCH_H

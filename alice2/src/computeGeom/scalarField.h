@@ -8,7 +8,7 @@
 #include <iomanip>
 #include <memory>
 #include <stdexcept>
-#include "../include/alice2.h"
+#include <alice2.h>
 
 using namespace alice2;
 
