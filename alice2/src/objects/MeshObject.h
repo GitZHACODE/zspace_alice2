@@ -16,10 +16,10 @@ namespace alice2 {
     // Forward declaration for mesh data
     struct MeshData;
 
-    // Mesh rendering modes (simplified)
+    // Mesh rendering modes
     enum class MeshRenderMode {
-        Wireframe,  // Show mesh edges only
-        Lit         // Display using vertex/face colors without lighting
+        Lit,            // Display using vertex/face colors without lighting
+        NormalShaded    // Conceptual lighting based on normal-camera dot product
     };
 
 
@@ -96,6 +96,31 @@ namespace alice2 {
         void setRenderMode(MeshRenderMode mode) { m_renderMode = mode; }
         MeshRenderMode getRenderMode() const { return m_renderMode; }
 
+        // Normal shading colors
+        void setNormalShadingColors(const Color& frontColor, const Color& backColor) {
+            m_frontColor = frontColor;
+            m_backColor = backColor;
+        }
+        const Color& getFrontColor() const { return m_frontColor; }
+        const Color& getBackColor() const { return m_backColor; }
+
+        // Overlay controls
+        void setShowVertices(bool show) { m_showVertices = show; }
+        bool getShowVertices() const { return m_showVertices; }
+
+        void setShowEdges(bool show) { m_showEdges = show; }
+        bool getShowEdges() const { return m_showEdges; }
+
+        void setShowFaces(bool show) { m_showFaces = show; }
+        bool getShowFaces() const { return m_showFaces; }
+
+        // Rendering properties
+        void setVertexSize(float size) { m_vertexSize = size; }
+        float getVertexSize() const { return m_vertexSize; }
+
+        void setEdgeWidth(float width) { m_edgeWidth = width; }
+        float getEdgeWidth() const { return m_edgeWidth; }
+
 
 
 
@@ -108,10 +133,28 @@ namespace alice2 {
         std::shared_ptr<MeshData> m_meshData;
         MeshRenderMode m_renderMode;
 
+        // Normal shading colors
+        Color m_frontColor;
+        Color m_backColor;
+
+        // Overlay controls
+        bool m_showVertices;
+        bool m_showEdges;
+        bool m_showFaces;
+
+        // Rendering properties
+        float m_vertexSize;
+        float m_edgeWidth;
+
         // Rendering methods
         void renderMesh(Renderer& renderer, Camera& camera);
-        void renderWireframe(Renderer& renderer);
+        void renderWireframe(Renderer& renderer);  // Keep for backward compatibility
         void renderLit(Renderer& renderer);
+        void renderNormalShaded(Renderer& renderer, Camera& camera);
+
+        // Overlay rendering methods
+        void renderVertexOverlay(Renderer& renderer);
+        void renderEdgeOverlay(Renderer& renderer);
 
         // Helper methods
         void ensureTriangulation();

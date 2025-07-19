@@ -131,6 +131,13 @@ namespace alice2 {
         : SceneObject(name)
         , m_meshData(std::make_shared<MeshData>())
         , m_renderMode(MeshRenderMode::Lit)
+        , m_frontColor(1.0f, 1.0f, 1.0f)  // Default: white
+        , m_backColor(0.0f, 0.0f, 0.0f)   // Default: black
+        , m_showVertices(false)
+        , m_showEdges(false)
+        , m_showFaces(true)
+        , m_vertexSize(3.0f)
+        , m_edgeWidth(1.0f)
     {
     }
 
@@ -153,8 +160,18 @@ namespace alice2 {
         // Ensure triangulation is up to date
         ensureTriangulation();
 
-        // Render main mesh based on render mode
-        renderMesh(renderer, camera);
+        // Render faces if enabled
+        if (m_showFaces) {
+            renderMesh(renderer, camera);
+        }
+
+        // Render overlays
+        if (m_showVertices) {
+            renderVertexOverlay(renderer);
+        }
+        if (m_showEdges) {
+            renderEdgeOverlay(renderer);
+        }
     }
 
     void MeshObject::calculateBounds() {
@@ -170,34 +187,43 @@ namespace alice2 {
 
     void MeshObject::renderMesh(Renderer& renderer, Camera& camera) {
         switch (m_renderMode) {
-            case MeshRenderMode::Wireframe:
-                renderWireframe(renderer);
-                break;
             case MeshRenderMode::Lit:
                 renderLit(renderer);
+                break;
+            case MeshRenderMode::NormalShaded:
+                renderNormalShaded(renderer, camera);
                 break;
         }
     }
 
     void MeshObject::renderWireframe(Renderer& renderer) {
-        if (!m_meshData->triangleIndices.empty()) {
-            // Prepare vertex data for wireframe rendering
-            std::vector<Vec3> triangleVertices;
-            std::vector<Color> triangleColors;
+        if (!m_meshData->edges.empty() && !m_meshData->vertices.empty()) {
+            // Prepare edge data for wireframe rendering using original mesh edges
+            std::vector<int> edgeIndices;
+            std::vector<Color> edgeColors;
 
-            for (int index : m_meshData->triangleIndices) {
-                if (index >= 0 && index < static_cast<int>(m_meshData->vertices.size())) {
-                    triangleVertices.push_back(m_meshData->vertices[index].position);
-                    triangleColors.push_back(m_meshData->vertices[index].color);
+            // Extract vertex positions for rendering
+            std::vector<Vec3> vertexPositions;
+            for (const auto& vertex : m_meshData->vertices) {
+                vertexPositions.push_back(vertex.position);
+            }
+
+            // Extract edge indices and colors
+            for (const auto& edge : m_meshData->edges) {
+                if (edge.vertexA >= 0 && edge.vertexA < static_cast<int>(m_meshData->vertices.size()) &&
+                    edge.vertexB >= 0 && edge.vertexB < static_cast<int>(m_meshData->vertices.size())) {
+                    edgeIndices.push_back(edge.vertexA);
+                    edgeIndices.push_back(edge.vertexB);
+                    edgeColors.push_back(edge.color);
                 }
             }
 
-            if (!triangleVertices.empty()) {
-                renderer.drawMeshWireframe(
-                    triangleVertices.data(),
-                    triangleColors.data(),
-                    static_cast<int>(triangleVertices.size()),
-                    nullptr, 0
+            if (!edgeIndices.empty()) {
+                renderer.drawMeshEdges(
+                    vertexPositions.data(),
+                    edgeIndices.data(),
+                    edgeColors.data(),
+                    static_cast<int>(edgeColors.size())
                 );
             }
         }
@@ -228,6 +254,103 @@ namespace alice2 {
                     false  // No lighting for lit mode
                 );
             }
+        }
+    }
+
+    void MeshObject::renderNormalShaded(Renderer& renderer, Camera& camera) {
+        if (!m_meshData->triangleIndices.empty()) {
+            // Get camera view direction (from camera position to origin)
+            Vec3 cameraPos = camera.getPosition();
+            Vec3 viewDir = (Vec3(0, 0, 0) - cameraPos).normalized(); // Simplified: looking towards origin
+
+            // Prepare vertex data for normal shaded rendering
+            std::vector<Vec3> triangleVertices;
+            std::vector<Vec3> triangleNormals;
+            std::vector<Color> triangleColors;
+
+            for (int index : m_meshData->triangleIndices) {
+                if (index >= 0 && index < static_cast<int>(m_meshData->vertices.size())) {
+                    const MeshVertex& vertex = m_meshData->vertices[index];
+
+                    // Calculate dot product between vertex normal and view direction
+                    float dotProduct = vertex.normal.dot(viewDir);
+
+                    // Blend between front and back colors based on dot product
+                    // Positive dot product = facing camera (front), negative = facing away (back)
+                    float t = (dotProduct + 1.0f) * 0.5f; // Map [-1,1] to [0,1]
+                    Color blendedColor = Color(
+                        m_backColor.r + t * (m_frontColor.r - m_backColor.r),
+                        m_backColor.g + t * (m_frontColor.g - m_backColor.g),
+                        m_backColor.b + t * (m_frontColor.b - m_backColor.b),
+                        m_backColor.a + t * (m_frontColor.a - m_backColor.a)
+                    );
+
+                    triangleVertices.push_back(vertex.position);
+                    triangleNormals.push_back(vertex.normal);
+                    triangleColors.push_back(blendedColor);
+                }
+            }
+
+            if (!triangleVertices.empty()) {
+                renderer.drawMesh(
+                    triangleVertices.data(),
+                    triangleNormals.data(),
+                    triangleColors.data(),
+                    static_cast<int>(triangleVertices.size()),
+                    nullptr, 0,
+                    false  // No OpenGL lighting for normal shaded mode
+                );
+            }
+        }
+    }
+
+    void MeshObject::renderVertexOverlay(Renderer& renderer) {
+        if (m_meshData->vertices.empty()) return;
+
+        renderer.setPointSize(m_vertexSize);
+
+        std::vector<Vec3> vertexPositions;
+        for (const auto& vertex : m_meshData->vertices) {
+            vertexPositions.push_back(vertex.position);
+        }
+
+        if (!vertexPositions.empty()) {
+            renderer.drawPoints(vertexPositions.data(), static_cast<int>(vertexPositions.size()));
+        }
+    }
+
+    void MeshObject::renderEdgeOverlay(Renderer& renderer) {
+        if (m_meshData->edges.empty() || m_meshData->vertices.empty()) return;
+
+        renderer.setLineWidth(m_edgeWidth);
+
+        // Prepare edge data for rendering using original mesh edges
+        std::vector<int> edgeIndices;
+        std::vector<Color> edgeColors;
+
+        // Extract vertex positions for rendering
+        std::vector<Vec3> vertexPositions;
+        for (const auto& vertex : m_meshData->vertices) {
+            vertexPositions.push_back(vertex.position);
+        }
+
+        // Extract edge indices and colors
+        for (const auto& edge : m_meshData->edges) {
+            if (edge.vertexA >= 0 && edge.vertexA < static_cast<int>(m_meshData->vertices.size()) &&
+                edge.vertexB >= 0 && edge.vertexB < static_cast<int>(m_meshData->vertices.size())) {
+                edgeIndices.push_back(edge.vertexA);
+                edgeIndices.push_back(edge.vertexB);
+                edgeColors.push_back(edge.color);
+            }
+        }
+
+        if (!edgeIndices.empty()) {
+            renderer.drawMeshEdges(
+                vertexPositions.data(),
+                edgeIndices.data(),
+                edgeColors.data(),
+                static_cast<int>(edgeColors.size())
+            );
         }
     }
 

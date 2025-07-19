@@ -636,4 +636,53 @@ namespace alice2 {
         glColor4f(m_currentColor.r, m_currentColor.g, m_currentColor.b, m_currentColor.a);
     }
 
+    void Renderer::drawMeshEdges(const Vec3* vertices, const int* edgeIndices, const Color* edgeColors, int edgeCount) {
+        if (!vertices || !edgeIndices || edgeCount == 0) return;
+
+        glBegin(GL_LINES);
+
+        for (int i = 0; i < edgeCount; i++) {
+            int vertexA = edgeIndices[i * 2];
+            int vertexB = edgeIndices[i * 2 + 1];
+
+            // Set edge color if provided
+            if (edgeColors) {
+                glColor4f(edgeColors[i].r, edgeColors[i].g, edgeColors[i].b, edgeColors[i].a);
+            }
+
+            // Draw line between the two vertices
+            glVertex3f(vertices[vertexA].x, vertices[vertexA].y, vertices[vertexA].z);
+            glVertex3f(vertices[vertexB].x, vertices[vertexB].y, vertices[vertexB].z);
+        }
+
+        glEnd();
+
+        // Restore current color
+        glColor4f(m_currentColor.r, m_currentColor.g, m_currentColor.b, m_currentColor.a);
+    }
+
+    void Renderer::drawPoints(const Vec3* points, int count) {
+        if (!points || count == 0) return;
+
+        glBegin(GL_POINTS);
+
+        for (int i = 0; i < count; i++) {
+            glVertex3f(points[i].x, points[i].y, points[i].z);
+        }
+
+        glEnd();
+    }
+
+    void Renderer::drawLines(const Vec3* points, int count) {
+        if (!points || count == 0) return;
+
+        glBegin(GL_LINES);
+
+        for (int i = 0; i < count; i++) {
+            glVertex3f(points[i].x, points[i].y, points[i].z);
+        }
+
+        glEnd();
+    }
+
 } // namespace alice2

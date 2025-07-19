@@ -96,6 +96,7 @@ namespace alice2 {
         // Mesh rendering
         void drawMesh(const Vec3* vertices, const Vec3* normals, const Color* colors, int vertexCount, const int* indices = nullptr, int indexCount = 0, bool enableLighting = false);
         void drawMeshWireframe(const Vec3* vertices, const Color* colors, int vertexCount, const int* indices = nullptr, int indexCount = 0);
+        void drawMeshEdges(const Vec3* vertices, const int* edgeIndices, const Color* edgeColors, int edgeCount);
 
         // Text rendering
         void drawText(const std::string& text, const Vec3& position, float size = 1.0f);    // 3D billboard text with screen-space sizing
