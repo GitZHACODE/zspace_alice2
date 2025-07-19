@@ -16,33 +16,13 @@ namespace alice2 {
     // Forward declaration for mesh data
     struct MeshData;
 
-    // Mesh rendering modes
+    // Mesh rendering modes (simplified)
     enum class MeshRenderMode {
         Wireframe,  // Show mesh edges only
-        Lit,        // Display using vertex/face colors without lighting
-        Shaded      // Basic lighting with shadows using scene lighting
+        Lit         // Display using vertex/face colors without lighting
     };
 
-    // Mesh overlay options (can be combined)
-    enum class MeshOverlay {
-        None = 0,
-        Vertices = 1 << 0,  // Overlay point rendering with vertex colors
-        Edges = 1 << 1,     // Overlay line rendering with edge colors
-        Faces = 1 << 2      // Overlay polygon rendering with face colors
-    };
 
-    // Bitwise operations for MeshOverlay
-    inline MeshOverlay operator|(MeshOverlay a, MeshOverlay b) {
-        return static_cast<MeshOverlay>(static_cast<int>(a) | static_cast<int>(b));
-    }
-
-    inline MeshOverlay operator&(MeshOverlay a, MeshOverlay b) {
-        return static_cast<MeshOverlay>(static_cast<int>(a) & static_cast<int>(b));
-    }
-
-    inline bool hasOverlay(MeshOverlay flags, MeshOverlay overlay) {
-        return (flags & overlay) != MeshOverlay::None;
-    }
 
     // Vertex data structure
     struct MeshVertex {
@@ -116,19 +96,9 @@ namespace alice2 {
         void setRenderMode(MeshRenderMode mode) { m_renderMode = mode; }
         MeshRenderMode getRenderMode() const { return m_renderMode; }
 
-        // Overlay options
-        void setOverlayOptions(MeshOverlay overlays) { m_overlayOptions = overlays; }
-        MeshOverlay getOverlayOptions() const { return m_overlayOptions; }
-        void enableOverlay(MeshOverlay overlay) { m_overlayOptions = m_overlayOptions | overlay; }
-        void disableOverlay(MeshOverlay overlay) { m_overlayOptions = static_cast<MeshOverlay>(static_cast<int>(m_overlayOptions) & ~static_cast<int>(overlay)); }
-        bool hasOverlay(MeshOverlay overlay) const { return alice2::hasOverlay(m_overlayOptions, overlay); }
 
-        // Rendering properties
-        void setVertexSize(float size) { m_vertexSize = size; }
-        float getVertexSize() const { return m_vertexSize; }
-        
-        void setEdgeWidth(float width) { m_edgeWidth = width; }
-        float getEdgeWidth() const { return m_edgeWidth; }
+
+
 
         // SceneObject overrides
         void renderImpl(Renderer& renderer, Camera& camera) override;
@@ -137,23 +107,12 @@ namespace alice2 {
     private:
         std::shared_ptr<MeshData> m_meshData;
         MeshRenderMode m_renderMode;
-        MeshOverlay m_overlayOptions;
-        
-        // Rendering properties
-        float m_vertexSize;
-        float m_edgeWidth;
 
         // Rendering methods
         void renderMesh(Renderer& renderer, Camera& camera);
         void renderWireframe(Renderer& renderer);
         void renderLit(Renderer& renderer);
-        void renderShaded(Renderer& renderer, Camera& camera);
-        
-        // Overlay rendering methods
-        void renderVertexOverlay(Renderer& renderer);
-        void renderEdgeOverlay(Renderer& renderer);
-        void renderFaceOverlay(Renderer& renderer);
-        
+
         // Helper methods
         void ensureTriangulation();
     };

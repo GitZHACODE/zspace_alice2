@@ -131,9 +131,6 @@ namespace alice2 {
         : SceneObject(name)
         , m_meshData(std::make_shared<MeshData>())
         , m_renderMode(MeshRenderMode::Lit)
-        , m_overlayOptions(MeshOverlay::None)
-        , m_vertexSize(3.0f)
-        , m_edgeWidth(1.0f)
     {
     }
 
@@ -146,46 +143,18 @@ namespace alice2 {
     }
 
     void MeshObject::renderImpl(Renderer& renderer, Camera& camera) {
-        std::cout << "[MESH] Rendering mesh object: " << getName() << std::endl;
-
         if (!m_meshData || m_meshData->vertices.empty()) {
-            std::cout << "[MESH] No mesh data, rendering placeholder cube" << std::endl;
             // Render placeholder when no mesh data
             renderer.setColor(Color(0.5f, 0.5f, 0.5f));
             renderer.drawCube(1.0f);
             return;
         }
 
-        std::cout << "[MESH] Mesh has " << m_meshData->vertices.size() << " vertices, " << m_meshData->faces.size() << " faces" << std::endl;
-
-        // Print diagnostic info (limited output)
-        static int meshDebugCount = 0;
-        if (meshDebugCount < 1) {
-            Vec3 minBounds, maxBounds;
-            m_meshData->updateBounds(minBounds, maxBounds);
-            std::cout << "[MESH] Bounds: min(" << minBounds.x << ", " << minBounds.y << ", " << minBounds.z << ") "
-                      << "max(" << maxBounds.x << ", " << maxBounds.y << ", " << maxBounds.z << ")" << std::endl;
-            meshDebugCount++;
-        }
-
         // Ensure triangulation is up to date
         ensureTriangulation();
 
-        std::cout << "[MESH] After triangulation: " << m_meshData->triangleIndices.size() << " triangle indices" << std::endl;
-
         // Render main mesh based on render mode
         renderMesh(renderer, camera);
-
-        // Render overlays
-        if (hasOverlay(MeshOverlay::Vertices)) {
-            renderVertexOverlay(renderer);
-        }
-        if (hasOverlay(MeshOverlay::Edges)) {
-            renderEdgeOverlay(renderer);
-        }
-        if (hasOverlay(MeshOverlay::Faces)) {
-            renderFaceOverlay(renderer);
-        }
     }
 
     void MeshObject::calculateBounds() {
@@ -200,20 +169,12 @@ namespace alice2 {
     }
 
     void MeshObject::renderMesh(Renderer& renderer, Camera& camera) {
-        std::cout << "[MESH] Rendering mesh with mode: " << static_cast<int>(m_renderMode) << std::endl;
-
         switch (m_renderMode) {
             case MeshRenderMode::Wireframe:
-                std::cout << "[MESH] Rendering wireframe" << std::endl;
                 renderWireframe(renderer);
                 break;
             case MeshRenderMode::Lit:
-                std::cout << "[MESH] Rendering lit" << std::endl;
                 renderLit(renderer);
-                break;
-            case MeshRenderMode::Shaded:
-                std::cout << "[MESH] Rendering shaded" << std::endl;
-                renderShaded(renderer, camera);
                 break;
         }
     }
@@ -222,7 +183,7 @@ namespace alice2 {
         if (!m_meshData->triangleIndices.empty()) {
             // Prepare vertex data for wireframe rendering
             std::vector<Vec3> triangleVertices;
-            std::vector<Vec3> triangleColors;
+            std::vector<Color> triangleColors;
 
             for (int index : m_meshData->triangleIndices) {
                 if (index >= 0 && index < static_cast<int>(m_meshData->vertices.size())) {
@@ -243,43 +204,8 @@ namespace alice2 {
     }
 
     void MeshObject::renderLit(Renderer& renderer) {
-        std::cout << "[MESH] renderLit called" << std::endl;
         if (!m_meshData->triangleIndices.empty()) {
-            std::cout << "[MESH] renderLit: Has triangle indices, preparing vertex data" << std::endl;
             // Prepare vertex data for lit rendering
-            std::vector<Vec3> triangleVertices;
-            std::vector<Vec3> triangleNormals;
-            std::vector<Vec3> triangleColors;
-
-            for (int index : m_meshData->triangleIndices) {
-                if (index >= 0 && index < static_cast<int>(m_meshData->vertices.size())) {
-                    triangleVertices.push_back(m_meshData->vertices[index].position);
-                    triangleNormals.push_back(m_meshData->vertices[index].normal);
-                    triangleColors.push_back(m_meshData->vertices[index].color);
-                }
-            }
-
-            std::cout << "[MESH] renderLit: Prepared " << triangleVertices.size() << " triangle vertices" << std::endl;
-
-            if (!triangleVertices.empty()) {
-                std::cout << "[MESH] renderLit: Calling renderer.drawMesh" << std::endl;
-                renderer.drawMesh(
-                    triangleVertices.data(),
-                    triangleNormals.data(),
-                    triangleColors.data(),
-                    static_cast<int>(triangleVertices.size()),
-                    nullptr, 0,
-                    false  // No lighting for lit mode
-                );
-            }
-        } else {
-            std::cout << "[MESH] renderLit: No triangle indices available" << std::endl;
-        }
-    }
-
-    void MeshObject::renderShaded(Renderer& renderer, Camera& camera) {
-        if (!m_meshData->triangleIndices.empty()) {
-            // Prepare vertex data for shaded rendering
             std::vector<Vec3> triangleVertices;
             std::vector<Vec3> triangleNormals;
             std::vector<Color> triangleColors;
@@ -299,64 +225,15 @@ namespace alice2 {
                     triangleColors.data(),
                     static_cast<int>(triangleVertices.size()),
                     nullptr, 0,
-                    true  // Enable lighting for shaded mode
+                    false  // No lighting for lit mode
                 );
             }
         }
     }
 
-    void MeshObject::renderVertexOverlay(Renderer& renderer) {
-        renderer.setPointSize(m_vertexSize);
-        
-        std::vector<Vec3> vertexPositions;
-        for (const auto& vertex : m_meshData->vertices) {
-            vertexPositions.push_back(vertex.position);
-        }
-        
-        if (!vertexPositions.empty()) {
-            renderer.drawPoints(vertexPositions.data(), static_cast<int>(vertexPositions.size()));
-        }
-    }
 
-    void MeshObject::renderEdgeOverlay(Renderer& renderer) {
-        renderer.setLineWidth(m_edgeWidth);
-        
-        std::vector<Vec3> edgeVertices;
-        for (const auto& edge : m_meshData->edges) {
-            if (edge.vertexA >= 0 && edge.vertexA < static_cast<int>(m_meshData->vertices.size()) &&
-                edge.vertexB >= 0 && edge.vertexB < static_cast<int>(m_meshData->vertices.size())) {
-                edgeVertices.push_back(m_meshData->vertices[edge.vertexA].position);
-                edgeVertices.push_back(m_meshData->vertices[edge.vertexB].position);
-            }
-        }
-        
-        if (!edgeVertices.empty()) {
-            renderer.drawLines(edgeVertices.data(), static_cast<int>(edgeVertices.size()));
-        }
-    }
 
-    void MeshObject::renderFaceOverlay(Renderer& renderer) {
-        // Render face outlines
-        for (const auto& face : m_meshData->faces) {
-            if (face.vertices.size() < 3) continue;
-            
-            // Draw face outline
-            for (size_t i = 0; i < face.vertices.size(); i++) {
-                int currentVertex = face.vertices[i];
-                int nextVertex = face.vertices[(i + 1) % face.vertices.size()];
-                
-                if (currentVertex >= 0 && currentVertex < static_cast<int>(m_meshData->vertices.size()) &&
-                    nextVertex >= 0 && nextVertex < static_cast<int>(m_meshData->vertices.size())) {
-                    renderer.drawLine(
-                        m_meshData->vertices[currentVertex].position,
-                        m_meshData->vertices[nextVertex].position,
-                        face.color,
-                        m_edgeWidth
-                    );
-                }
-            }
-        }
-    }
+
 
     void MeshObject::ensureTriangulation() {
         if (m_meshData && m_meshData->triangulationDirty) {
@@ -429,7 +306,7 @@ namespace alice2 {
                 float u = static_cast<float>(x) / subdivisionsX;
                 float v = static_cast<float>(y) / subdivisionsY;
 
-                Vec3 color(u, v, 0.5f);
+                Color color(u, v, 0.5f);
                 m_meshData->vertices.emplace_back(Vec3(posX, posY, 0), Vec3(0, 0, 1), color);
             }
         }
@@ -442,7 +319,7 @@ namespace alice2 {
                 int i2 = (y + 1) * (subdivisionsX + 1) + x + 1;
                 int i3 = (y + 1) * (subdivisionsX + 1) + x;
 
-                m_meshData->faces.emplace_back(std::vector<int>{i0, i1, i2, i3}, Vec3(0, 0, 1), Vec3(0.7f, 0.7f, 0.7f));
+                m_meshData->faces.emplace_back(std::vector<int>{i0, i1, i2, i3}, Vec3(0, 0, 1), Color(0.7f, 0.7f, 0.7f));
             }
         }
 
@@ -450,16 +327,16 @@ namespace alice2 {
         int vertsPerRow = subdivisionsX + 1;
         for (int x = 0; x < subdivisionsX; x++) {
             // Bottom edge
-            m_meshData->edges.emplace_back(x, x + 1, Vec3(1, 1, 1));
+            m_meshData->edges.emplace_back(x, x + 1, Color(1, 1, 1));
             // Top edge
             int topStart = subdivisionsY * vertsPerRow;
-            m_meshData->edges.emplace_back(topStart + x, topStart + x + 1, Vec3(1, 1, 1));
+            m_meshData->edges.emplace_back(topStart + x, topStart + x + 1, Color(1, 1, 1));
         }
         for (int y = 0; y < subdivisionsY; y++) {
             // Left edge
-            m_meshData->edges.emplace_back(y * vertsPerRow, (y + 1) * vertsPerRow, Vec3(1, 1, 1));
+            m_meshData->edges.emplace_back(y * vertsPerRow, (y + 1) * vertsPerRow, Color(1, 1, 1));
             // Right edge
-            m_meshData->edges.emplace_back(y * vertsPerRow + subdivisionsX, (y + 1) * vertsPerRow + subdivisionsX, Vec3(1, 1, 1));
+            m_meshData->edges.emplace_back(y * vertsPerRow + subdivisionsX, (y + 1) * vertsPerRow + subdivisionsX, Color(1, 1, 1));
         }
 
         m_meshData->calculateNormals();
@@ -487,7 +364,7 @@ namespace alice2 {
 
                 Vec3 position(x, y, z);
                 Vec3 normal = position * (1.0f / radius); // Normalized position is the normal for a sphere
-                Vec3 color(0.5f + 0.5f * normal.x, 0.5f + 0.5f * normal.y, 0.5f + 0.5f * normal.z);
+                Color color(0.5f + 0.5f * normal.x, 0.5f + 0.5f * normal.y, 0.5f + 0.5f * normal.z);
 
                 m_meshData->vertices.emplace_back(position, normal, color);
             }
@@ -501,7 +378,7 @@ namespace alice2 {
                 int i2 = (ring + 1) * (segments + 1) + segment + 1;
                 int i3 = (ring + 1) * (segments + 1) + segment;
 
-                m_meshData->faces.emplace_back(std::vector<int>{i0, i1, i2, i3}, Vec3(0, 0, 1), Vec3(0.8f, 0.8f, 0.8f));
+                m_meshData->faces.emplace_back(std::vector<int>{i0, i1, i2, i3}, Vec3(0, 0, 1), Color(0.8f, 0.8f, 0.8f));
             }
         }
 

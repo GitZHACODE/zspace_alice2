@@ -536,4 +536,104 @@ namespace alice2 {
         setLineWidth(oldWidth);
     }
 
+    void Renderer::drawMesh(const Vec3* vertices, const Vec3* normals, const Color* colors, int vertexCount, const int* indices, int indexCount, bool enableLighting) {
+        if (!vertices || vertexCount == 0) return;
+
+        // Save current lighting state
+        bool wasLightingEnabled = glIsEnabled(GL_LIGHTING);
+
+        if (enableLighting && !wasLightingEnabled) {
+            glEnable(GL_LIGHTING);
+        } else if (!enableLighting && wasLightingEnabled) {
+            glDisable(GL_LIGHTING);
+        }
+
+        glBegin(GL_TRIANGLES);
+
+        if (indices && indexCount > 0) {
+            // Use indices - render triangles
+            for (int i = 0; i < indexCount; i += 3) {
+                for (int j = 0; j < 3; j++) {
+                    int idx = indices[i + j];
+                    if (idx >= 0 && idx < vertexCount) {
+                        if (normals) {
+                            glNormal3f(normals[idx].x, normals[idx].y, normals[idx].z);
+                        }
+                        if (colors) {
+                            glColor4f(colors[idx].r, colors[idx].g, colors[idx].b, colors[idx].a);
+                        }
+                        glVertex3f(vertices[idx].x, vertices[idx].y, vertices[idx].z);
+                    }
+                }
+            }
+        } else {
+            // Use vertices directly - assume triangles
+            for (int i = 0; i < vertexCount; i++) {
+                if (normals) {
+                    glNormal3f(normals[i].x, normals[i].y, normals[i].z);
+                }
+                if (colors) {
+                    glColor4f(colors[i].r, colors[i].g, colors[i].b, colors[i].a);
+                }
+                glVertex3f(vertices[i].x, vertices[i].y, vertices[i].z);
+            }
+        }
+
+        glEnd();
+
+        // Restore lighting state
+        if (enableLighting && !wasLightingEnabled) {
+            glDisable(GL_LIGHTING);
+        } else if (!enableLighting && wasLightingEnabled) {
+            glEnable(GL_LIGHTING);
+        }
+
+        // Restore current color
+        glColor4f(m_currentColor.r, m_currentColor.g, m_currentColor.b, m_currentColor.a);
+    }
+
+    void Renderer::drawMeshWireframe(const Vec3* vertices, const Color* colors, int vertexCount, const int* indices, int indexCount) {
+        if (!vertices || vertexCount == 0) return;
+
+        // Save current polygon mode
+        GLint polygonMode[2];
+        glGetIntegerv(GL_POLYGON_MODE, polygonMode);
+
+        // Set wireframe mode
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+        glBegin(GL_TRIANGLES);
+
+        if (indices && indexCount > 0) {
+            // Use indices - render triangles
+            for (int i = 0; i < indexCount; i += 3) {
+                for (int j = 0; j < 3; j++) {
+                    int idx = indices[i + j];
+                    if (idx >= 0 && idx < vertexCount) {
+                        if (colors) {
+                            glColor4f(colors[idx].r, colors[idx].g, colors[idx].b, colors[idx].a);
+                        }
+                        glVertex3f(vertices[idx].x, vertices[idx].y, vertices[idx].z);
+                    }
+                }
+            }
+        } else {
+            // Use vertices directly - assume triangles
+            for (int i = 0; i < vertexCount; i++) {
+                if (colors) {
+                    glColor4f(colors[i].r, colors[i].g, colors[i].b, colors[i].a);
+                }
+                glVertex3f(vertices[i].x, vertices[i].y, vertices[i].z);
+            }
+        }
+
+        glEnd();
+
+        // Restore polygon mode
+        glPolygonMode(GL_FRONT_AND_BACK, polygonMode[0]);
+
+        // Restore current color
+        glColor4f(m_currentColor.r, m_currentColor.g, m_currentColor.b, m_currentColor.a);
+    }
+
 } // namespace alice2
