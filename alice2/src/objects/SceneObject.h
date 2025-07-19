@@ -73,17 +73,6 @@ namespace alice2 {
         // Ray intersection
         virtual bool intersectRay(const Vec3& rayOrigin, const Vec3& rayDirection, float& distance) const;
 
-        // Hierarchy
-        void setParent(std::shared_ptr<SceneObject> parent);
-        std::shared_ptr<SceneObject> getParent() const { return m_parent.lock(); }
-        void addChild(std::shared_ptr<SceneObject> child);
-        void removeChild(std::shared_ptr<SceneObject> child);
-        const std::vector<std::shared_ptr<SceneObject>>& getChildren() const { return m_children; }
-
-        // User data
-        void setUserData(void* data) { m_userData = data; }
-        void* getUserData() const { return m_userData; }
-
     protected:
         std::string m_name;
         int m_id;
@@ -97,11 +86,6 @@ namespace alice2 {
         
         Vec3 m_boundsMin;
         Vec3 m_boundsMax;
-        
-        std::weak_ptr<SceneObject> m_parent;
-        std::vector<std::shared_ptr<SceneObject>> m_children;
-        
-        void* m_userData;
 
         // Override this for custom rendering
         virtual void renderImpl(Renderer& /*renderer*/, Camera& /*camera*/) {}
