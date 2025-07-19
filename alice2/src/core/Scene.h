@@ -31,11 +31,11 @@ namespace alice2 {
         void update(float deltaTime);
 
         // Scene properties
-        void setBackgroundColor(const Vec3& color) { m_backgroundColor = color; }
-        const Vec3& getBackgroundColor() const { return m_backgroundColor; }
+        void setBackgroundColor(const Color& color) { m_backgroundColor = color; }
+        const Color& getBackgroundColor() const { return m_backgroundColor; }
 
-        void setAmbientLight(const Vec3& color) { m_ambientLight = color; }
-        const Vec3& getAmbientLight() const { return m_ambientLight; }
+        void setAmbientLight(const Color& color) { m_ambientLight = color; }
+        const Color& getAmbientLight() const { return m_ambientLight; }
 
 
 
@@ -75,8 +75,8 @@ namespace alice2 {
         std::vector<std::shared_ptr<SceneObject>> m_objects;
         
         // Scene properties
-        Vec3 m_backgroundColor;
-        Vec3 m_ambientLight;
+        Color m_backgroundColor;
+        Color m_ambientLight;
         
         // Grid settings
         bool m_showGrid;

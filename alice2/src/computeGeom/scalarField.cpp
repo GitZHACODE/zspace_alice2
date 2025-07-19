@@ -374,7 +374,7 @@ void ScalarField2D::draw_points(Renderer& renderer, int step) const {
             float r, g, b;
             // ScalarFieldUtils::get_jet_color(f * 2.0f - 1.0f, r, g, b);
             ScalarFieldUtils::get_hsv_color(f, r, g, b);
-            const Vec3 color(r, g, b);
+            const Color color(r, g, b);
 
             renderer.drawPoint(m_grid_points[idx], color, 3.0f);
         }

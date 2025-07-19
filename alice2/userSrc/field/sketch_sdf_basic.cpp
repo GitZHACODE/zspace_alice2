@@ -89,7 +89,7 @@ public:
             for (auto& seg : m_contours[i]) {
                 Vec3 A = seg.first  + Vec3(0,0,z);
                 Vec3 B = seg.second + Vec3(0,0,z);
-                renderer.drawLine(A, B, Vec3(1,1,1), 1.0f);
+                renderer.drawLine(A, B, Color(1,1,1), 1.0f);
             }
         }
     }

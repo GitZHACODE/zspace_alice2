@@ -34,7 +34,7 @@ int gridRings = 2;
 struct Graph
 {
     std::vector<std::pair<Vec3, Vec3>> segments;
-    Vec3 color;
+    Color color;
 };
 
 struct Slabs
@@ -49,9 +49,9 @@ struct Slabs
     std::vector<Vec3> sampledPoints;
     std::vector<Vec3> sampledPoints_normal;
 
-    Vec3 FacadeCol = Vec3(0, 0, 0);  // Magenta
-    Vec3 CoreCol = Vec3(0.35f, 0.35f, 0.0f);    // Green
-    Vec3 VoronoiCol = Vec3(0.8f, 0.8f, 0.8f); // Blue
+    Color FacadeCol = Color(0, 0, 0);  // Magenta
+    Color CoreCol = Color(0.35f, 0.35f, 0.0f);    // Green
+    Color VoronoiCol = Color(0.8f, 0.8f, 0.8f); // Blue
 
     void initialize(Vec3 _min, Vec3 _max, int _res)
     {
@@ -436,7 +436,7 @@ class VoronoiFullSketch : public ISketch
 public:
     void setup() override
     {
-        scene().setBackgroundColor(Vec3(1.0f, 1.0f, 1.0f));
+        scene().setBackgroundColor(Color(1.0f, 1.0f, 1.0f));
         scene().setShowAxes(false);
         scene().setShowGrid(false);
         slabs.initialize(Vec3(-25.0f, -25.0f, 0.0f), Vec3(25.0f, 25.0f, 0.0f), fieldRES);
@@ -445,9 +445,9 @@ public:
     void draw(Renderer &renderer, Camera &camera) override
     {
         // draw south direction line in yellow
-        renderer.drawLine(Vec3(0, 0, 0), southDirection * 1.0f, Vec3(1, 1, 0), 3.0f);
+        renderer.drawLine(Vec3(0, 0, 0), southDirection * 1.0f, Color(1, 1, 0), 3.0f);
         // draw view direction line in cyan
-        renderer.drawLine(Vec3(0, 0, 0), viewDirection * 1.0f, Vec3(0, 1, 1), 3.0f);
+        renderer.drawLine(Vec3(0, 0, 0), viewDirection * 1.0f, Color(0, 1, 1), 3.0f);
 
         for (int y = 0; y < slabs.res; ++y)
             for (int x = 0; x < slabs.res; ++x)
@@ -455,11 +455,11 @@ public:
                 float d = slabs.resultField.get_values()[y * slabs.res + x];
                 Vec3 p = slabs.resultField.cellPosition(x, y);
                 if (d > 0.2f)
-                    renderer.drawPoint(p, Vec3(1, 1, 1), 2.0f);
+                    renderer.drawPoint(p, Color(1, 1, 1), 2.0f);
                 else if (d < -0.2f)
-                    renderer.drawPoint(p, Vec3(0.5, 0.5, 0.5), 2.0f);
+                    renderer.drawPoint(p, Color(0.5, 0.5, 0.5), 2.0f);
                 else
-                    renderer.drawPoint(p, Vec3(0, 0, 0), 2.0f);
+                    renderer.drawPoint(p, Color(0, 0, 0), 2.0f);
             }
 
         ContourData cd = slabs.resultField.get_contours(0.0f);
@@ -467,7 +467,7 @@ public:
         {
             Vec3 p0 = seg.first + Vec3(0.0f, 0.0f, 0);
             Vec3 p1 = seg.second + Vec3(0.0f, 0.0f, 0);
-            renderer.drawLine(p0, p1, Vec3(1, 0, 0.75), 2.0f);
+            renderer.drawLine(p0, p1, Color(1, 0, 0.75), 2.0f);
         }
 
         for (auto &g : slabs.graphs)
@@ -482,17 +482,17 @@ public:
         }
 
         for (auto &s : slabs.sites)
-            renderer.drawPoint(s, Vec3(1, 0, 0), 8.0f);
+            renderer.drawPoint(s, Color(1, 0, 0), 8.0f);
 
         for (int i = 0; i < slabs.sampledPoints.size(); i++)
         {
-            renderer.drawPoint(slabs.sampledPoints[i] + slabs.sampledPoints_normal[i] * offsetCarves, Vec3(0, 0.5, 1), 10.0f);
-            renderer.drawLine(slabs.sampledPoints[i], slabs.sampledPoints[i] + slabs.sampledPoints_normal[i] * 2.0f, Vec3(0, 0.5, 1), 2.0f);
+            renderer.drawPoint(slabs.sampledPoints[i] + slabs.sampledPoints_normal[i] * offsetCarves, Color(0, 0.5, 1), 10.0f);
+            renderer.drawLine(slabs.sampledPoints[i], slabs.sampledPoints[i] + slabs.sampledPoints_normal[i] * 2.0f, Color(0, 0.5, 1), 2.0f);
         }
 
         ////---------------  UI
         
-        renderer.setColor(Vec3(0, 0, 0));
+        renderer.setColor(Color(0, 0, 0));
         renderer.drawString("e ->  Export JSON: ", 10, 100);
         renderer.drawString("r ->  Reset ", 10, 130);
         renderer.drawString("b ->  Flip Carves ", 10, 160);

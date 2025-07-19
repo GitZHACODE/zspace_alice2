@@ -67,8 +67,8 @@ private:
     bool d_showInfo;
     
     // Rendering properties
-    Vec3 m_boxColor;
-    Vec3 m_wireframeColor;
+    Color m_boxColor;
+    Color m_wireframeColor;
     
 public:
     ScalarField05TowerSetSketch()
@@ -103,7 +103,7 @@ public:
     
     void setup() override {
         // Set up scene
-        scene().setBackgroundColor(Vec3(0.05f, 0.05f, 0.1f));
+        scene().setBackgroundColor(Color(0.05f, 0.05f, 0.1f));
         scene().setShowGrid(false);  // Disable grid for cleaner visualization
         scene().setShowAxes(true);
         
@@ -309,7 +309,7 @@ private:
         }
 
         // Draw solid bounding box with transparency
-        renderer.setColor(m_boxColor, 0.3f);
+        renderer.setColor(m_boxColor);
         renderer.drawCube(1.0f);
 
         renderer.popMatrix();
@@ -317,28 +317,28 @@ private:
 
     void drawUI(Renderer& renderer) {
         // Title and description
-        renderer.setColor(Vec3(1.0f, 1.0f, 1.0f));
+        renderer.setColor(Color(1.0f, 1.0f, 1.0f));
         renderer.drawString(getName(), 10, 30);
         renderer.drawString("Educational sketch: JSON data loading with 3D bounding box visualization", 10, 50);
 
         // FPS display
-        renderer.setColor(Vec3(0.0f, 1.0f, 1.0f));
+        renderer.setColor(Color(0.0f, 1.0f, 1.0f));
         renderer.drawString("FPS: " + std::to_string(Application::getInstance()->getFPS()), 10, 80);
 
         // Data loading status
-        renderer.setColor(Vec3(1.0f, 1.0f, 0.0f));
+        renderer.setColor(Color(1.0f, 1.0f, 0.0f));
         renderer.drawString("Data Status: " + m_loadStatus, 10, 110);
 
         // Current building information
         if (m_dataLoaded && !m_buildings.empty()) {
             const BuildingData& building = m_buildings[m_currentBuildingIndex];
 
-            renderer.setColor(Vec3(0.8f, 1.0f, 0.8f));
+            renderer.setColor(Color(0.8f, 1.0f, 0.8f));
             renderer.drawString("Current Tower: " + std::to_string(m_currentBuildingIndex + 1) + " / " + std::to_string(m_buildings.size()), 10, 140);
             renderer.drawString("Tower ID: " + std::to_string(building.id), 10, 160);
 
             // Dimensions
-            renderer.setColor(Vec3(0.9f, 0.9f, 0.9f));
+            renderer.setColor(Color(0.9f, 0.9f, 0.9f));
             char dimStr[256];
             snprintf(dimStr, sizeof(dimStr), "Dimensions: %.1f × %.1f × %.1f meters",
                     building.width_m, building.length_m, building.height_m);
@@ -375,7 +375,7 @@ private:
         }
 
         // Visualization controls status
-        renderer.setColor(Vec3(0.7f, 0.7f, 1.0f));
+        renderer.setColor(Color(0.7f, 0.7f, 1.0f));
         std::string boxStatus = d_drawBoundingBox ? "ON" : "OFF";
         std::string wireStatus = d_showWireframe ? "ON" : "OFF";
         std::string fieldStatus = d_drawField ? "ON" : "OFF";
@@ -385,7 +385,7 @@ private:
         renderer.drawString("Scalar Field: " + fieldStatus, 10, 350);
 
         // Controls help
-        renderer.setColor(Vec3(0.75f, 0.75f, 0.75f));
+        renderer.setColor(Color(0.75f, 0.75f, 0.75f));
         renderer.drawString("Controls:", 10, 380);
         renderer.drawString("'1'     - Previous tower", 10, 400);
         renderer.drawString("'2'     - Next tower", 10, 420);

@@ -15,16 +15,15 @@ namespace alice2 {
         , m_viewportY(0)
         , m_viewportWidth(800)
         , m_viewportHeight(600)
-        , m_currentColor(1.0f, 1.0f, 1.0f)
-        , m_currentAlpha(1.0f)
+        , m_currentColor(1.0f, 1.0f, 1.0f, 1.0f)
         , m_wireframeMode(false)
         , m_pointSize(1.0f)
         , m_lineWidth(1.0f)
         , m_renderMode(RenderMode::Triangles)
         , m_lightingEnabled(true)
-        , m_ambientLight(0.2f, 0.2f, 0.2f)
+        , m_ambientLight(0.2f, 0.2f, 0.2f, 1.0f)
         , m_lightDirection(0.0f, -1.0f, -1.0f)
-        , m_lightColor(1.0f, 1.0f, 1.0f)
+        , m_lightColor(1.0f, 1.0f, 1.0f, 1.0f)
         , m_fontRenderer(std::make_unique<FontRenderer>())
     {
     }
@@ -158,10 +157,9 @@ namespace alice2 {
         glLoadIdentity();
     }
 
-    void Renderer::setColor(const Vec3& color, float alpha) {
+    void Renderer::setColor(const Color& color) {
         m_currentColor = color;
-        m_currentAlpha = alpha;
-        glColor4f(color.x, color.y, color.z, alpha);
+        glColor4f(color.r, color.g, color.b, color.a);
     }
 
     void Renderer::setWireframe(bool wireframe) {
@@ -190,12 +188,12 @@ namespace alice2 {
             glEnable(GL_LIGHT0);
             
             // Set ambient light
-            GLfloat ambient[] = { m_ambientLight.x, m_ambientLight.y, m_ambientLight.z, 1.0f };
+            GLfloat ambient[] = { m_ambientLight.r, m_ambientLight.g, m_ambientLight.b, m_ambientLight.a };
             glLightModelfv(GL_LIGHT_MODEL_AMBIENT, ambient);
             
             // Set directional light
             GLfloat lightPos[] = { -m_lightDirection.x, -m_lightDirection.y, -m_lightDirection.z, 0.0f };
-            GLfloat lightColor[] = { m_lightColor.x, m_lightColor.y, m_lightColor.z, 1.0f };
+            GLfloat lightColor[] = { m_lightColor.r, m_lightColor.g, m_lightColor.b, m_lightColor.a };
             glLightfv(GL_LIGHT0, GL_POSITION, lightPos);
             glLightfv(GL_LIGHT0, GL_DIFFUSE, lightColor);
             glLightfv(GL_LIGHT0, GL_SPECULAR, lightColor);
@@ -204,20 +202,20 @@ namespace alice2 {
         }
     }
 
-    void Renderer::setAmbientLight(const Vec3& color) {
+    void Renderer::setAmbientLight(const Color& color) {
         m_ambientLight = color;
         if (m_lightingEnabled) {
-            GLfloat ambient[] = { color.x, color.y, color.z, 1.0f };
+            GLfloat ambient[] = { color.r, color.g, color.b, color.a };
             glLightModelfv(GL_LIGHT_MODEL_AMBIENT, ambient);
         }
     }
 
-    void Renderer::setDirectionalLight(const Vec3& direction, const Vec3& color) {
+    void Renderer::setDirectionalLight(const Vec3& direction, const Color& color) {
         m_lightDirection = direction.normalized();
         m_lightColor = color;
         if (m_lightingEnabled) {
             GLfloat lightPos[] = { -m_lightDirection.x, -m_lightDirection.y, -m_lightDirection.z, 0.0f };
-            GLfloat lightColor[] = { m_lightColor.x, m_lightColor.y, m_lightColor.z, 1.0f };
+            GLfloat lightColor[] = { m_lightColor.r, m_lightColor.g, m_lightColor.b, m_lightColor.a };
             glLightfv(GL_LIGHT0, GL_POSITION, lightPos);
             glLightfv(GL_LIGHT0, GL_DIFFUSE, lightColor);
             glLightfv(GL_LIGHT0, GL_SPECULAR, lightColor);
@@ -233,8 +231,8 @@ namespace alice2 {
         GLDraw::drawPoint(position, m_pointSize);
     }
 
-    void Renderer::drawPoint(const Vec3& position, const Vec3& color, float size) {
-        Vec3 oldColor = m_currentColor;
+    void Renderer::drawPoint(const Vec3& position, const Color& color, float size) {
+        Color oldColor = m_currentColor;
         float oldSize = m_pointSize;
         setColor(color);
         setPointSize(size);
@@ -247,8 +245,8 @@ namespace alice2 {
         GLDraw::drawLine(start, end);
     }
 
-    void Renderer::drawLine(const Vec3& start, const Vec3& end, const Vec3& color, float width) {
-        Vec3 oldColor = m_currentColor;
+    void Renderer::drawLine(const Vec3& start, const Vec3& end, const Color& color, float width) {
+        Color oldColor = m_currentColor;
         float oldWidth = m_lineWidth;
         setColor(color);
         setLineWidth(width);
@@ -265,8 +263,8 @@ namespace alice2 {
         glEnd();
     }
 
-    void Renderer::drawTriangle(const Vec3& v1, const Vec3& v2, const Vec3& v3, const Vec3& color) {
-        Vec3 oldColor = m_currentColor;
+    void Renderer::drawTriangle(const Vec3& v1, const Vec3& v2, const Vec3& v3, const Color& color) {
+        Color oldColor = m_currentColor;
         setColor(color);
         glBegin(GL_TRIANGLES);
         glVertex3f(v1.x, v1.y, v1.z);
@@ -285,8 +283,8 @@ namespace alice2 {
         glEnd();
     }
 
-    void Renderer::drawQuad(const Vec3& v1, const Vec3& v2, const Vec3& v3, const Vec3& v4, const Vec3& color) {
-        Vec3 oldColor = m_currentColor;
+    void Renderer::drawQuad(const Vec3& v1, const Vec3& v2, const Vec3& v3, const Vec3& v4, const Color& color) {
+        Color oldColor = m_currentColor;
         setColor(color);
         glBegin(GL_QUADS);
         glVertex3f(v1.x, v1.y, v1.z);
@@ -301,8 +299,8 @@ namespace alice2 {
         GLDraw::drawWireCube(size);
     }
 
-    void Renderer::drawCube(float size, const Vec3& color) {
-        Vec3 oldColor = m_currentColor;
+    void Renderer::drawCube(float size, const Color& color) {
+        Color oldColor = m_currentColor;
         setColor(color);
         GLDraw::drawWireCube(size);
         setColor(oldColor);
@@ -314,8 +312,8 @@ namespace alice2 {
         drawCube(radius * 2.0f);
     }
 
-    void Renderer::drawSphere(float radius, int segments, const Vec3& color) {
-        Vec3 oldColor = m_currentColor;
+    void Renderer::drawSphere(float radius, int segments, const Color& color) {
+        Color oldColor = m_currentColor;
         setColor(color);
         // TODO: Implement custom sphere rendering without GLUT
         // For now, draw a simple wireframe cube as placeholder
@@ -335,8 +333,8 @@ namespace alice2 {
         }
     }
 
-    void Renderer::drawCylinder(float radius, float height, int segments, const Vec3& color) {
-        Vec3 oldColor = m_currentColor;
+    void Renderer::drawCylinder(float radius, float height, int segments, const Color& color) {
+        Color oldColor = m_currentColor;
         setColor(color);
         // Simple cylinder implementation using GLUT
         GLUquadric* quad = gluNewQuadric();
@@ -350,8 +348,8 @@ namespace alice2 {
         setColor(oldColor);
     }
 
-    void Renderer::drawGrid(float size, int divisions, const Vec3& color) {
-        Vec3 oldColor = m_currentColor;
+    void Renderer::drawGrid(float size, int divisions, const Color& color) {
+        Color oldColor = m_currentColor;
         setColor(color);
         GLDraw::drawGrid(size, divisions, color);
         setColor(oldColor);
@@ -361,8 +359,8 @@ namespace alice2 {
         GLDraw::drawAxes(length);
     }
 
-    void Renderer::drawAxes(float length, const Vec3& color) {
-        Vec3 oldColor = m_currentColor;
+    void Renderer::drawAxes(float length, const Color& color) {
+        Color oldColor = m_currentColor;
         setColor(color);
         GLDraw::drawAxes(length);
         setColor(oldColor);
@@ -430,7 +428,7 @@ namespace alice2 {
             return;
         }
 
-        m_fontRenderer->drawText(text, position, size, m_currentColor, m_currentAlpha);
+        m_fontRenderer->drawText(text, position, size, m_currentColor);
     }
 
 
@@ -440,7 +438,7 @@ namespace alice2 {
             return;
         }
 
-        m_fontRenderer->drawString(text, x, y, m_currentColor, m_currentAlpha);
+        m_fontRenderer->drawString(text, x, y, m_currentColor);
     }
 
     void Renderer::draw2dPoint(const Vec2& position) {
@@ -471,11 +469,11 @@ namespace alice2 {
         glMatrixMode(GL_MODELVIEW);
     }
 
-    void Renderer::draw2dPoint(const Vec2& position, const Vec3& color, float size) {
+    void Renderer::draw2dPoint(const Vec2& position, const Color& color, float size) {
         if (!m_initialized) return;
 
         // Save current state
-        Vec3 oldColor = m_currentColor;
+        Color oldColor = m_currentColor;
         float oldSize = m_pointSize;
 
         // Set new state
@@ -519,11 +517,11 @@ namespace alice2 {
         glMatrixMode(GL_MODELVIEW);
     }
 
-    void Renderer::draw2dLine(const Vec2& start, const Vec2& end, const Vec3& color, float width) {
+    void Renderer::draw2dLine(const Vec2& start, const Vec2& end, const Color& color, float width) {
         if (!m_initialized) return;
 
         // Save current state
-        Vec3 oldColor = m_currentColor;
+        Color oldColor = m_currentColor;
         float oldWidth = m_lineWidth;
 
         // Set new state

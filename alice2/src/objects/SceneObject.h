@@ -50,14 +50,14 @@ namespace alice2 {
         bool isSelected() const { return m_selected; }
 
         // Color and material
-        void setColor(const Vec3& color) { m_color = color; }
-        const Vec3& getColor() const { return m_color; }
+        void setColor(const Color& color) { m_color = color; }
+        const Color& getColor() const { return m_color; }
 
         void setWireframe(bool wireframe) { m_wireframe = wireframe; }
         bool isWireframe() const { return m_wireframe; }
 
-        void setOpacity(float opacity) { m_opacity = clamp(opacity, 0.0f, 1.0f); }
-        float getOpacity() const { return m_opacity; }
+        void setOpacity(float opacity) { m_color.a = clamp(opacity, 0.0f, 1.0f); }
+        float getOpacity() const { return m_color.a; }
 
         // Rendering
         virtual void render(Renderer& renderer, Camera& camera);
@@ -92,9 +92,8 @@ namespace alice2 {
         bool m_visible;
         bool m_selected;
         
-        Vec3 m_color;
+        Color m_color;
         bool m_wireframe;
-        float m_opacity;
         
         Vec3 m_boundsMin;
         Vec3 m_boundsMax;

@@ -81,7 +81,7 @@ public:
 
     // Sketch lifecycle
     void setup() override {
-        scene().setBackgroundColor(Vec3(0.05f, 0.05f, 0.1f));
+        scene().setBackgroundColor(Color(0.05f, 0.05f, 0.1f));
         scene().setShowGrid(false);
         scene().setGridSize(25.0f);
         scene().setGridDivisions(4);
@@ -200,7 +200,7 @@ private:
     }
     
     void drawContours(Renderer& renderer, const ScalarField2D& field) {
-        renderer.setColor(Vec3(1.0f, 1.0f, 1.0f)); // White contours
+        renderer.setColor(Color(1.0f, 1.0f, 1.0f)); // White contours
 
         // Draw single contour line
         float threshold = 0.0f;
@@ -209,8 +209,8 @@ private:
     
     void drawGeometry(Renderer& renderer) {
         // Draw rectangle center in blue
-        renderer.setColor(Vec3(0.2f, 0.2f, 1.0f));
-        renderer.drawPoint(m_rectCenter, Vec3(0.2f, 0.2f, 1.0f), 8.0f);
+        renderer.setColor(Color(0.2f, 0.2f, 1.0f));
+        renderer.drawPoint(m_rectCenter, Color(0.2f, 0.2f, 1.0f), 8.0f);
         renderer.drawText("RECT", m_rectCenter + Vec3(0, 0, 5), 1.0f);
         
         // Draw corner circles with different colors based on radius-determined operation
@@ -222,13 +222,13 @@ private:
 
             if (useUnion) {
                 // Green for union operations (small radius)
-                renderer.setColor(Vec3(0.2f, 1.0f, 0.2f));
-                renderer.drawPoint(circle.position, Vec3(0.2f, 1.0f, 0.2f), 6.0f);
+                renderer.setColor(Color(0.2f, 1.0f, 0.2f));
+                renderer.drawPoint(circle.position, Color(0.2f, 1.0f, 0.2f), 6.0f);
                 renderer.drawText("U", circle.position + Vec3(0, 0, 3), 0.8f);
             } else {
                 // Red for subtract operations (large radius)
-                renderer.setColor(Vec3(1.0f, 0.2f, 0.2f));
-                renderer.drawPoint(circle.position, Vec3(1.0f, 0.2f, 0.2f), 6.0f);
+                renderer.setColor(Color(1.0f, 0.2f, 0.2f));
+                renderer.drawPoint(circle.position, Color(1.0f, 0.2f, 0.2f), 6.0f);
                 renderer.drawText("S", circle.position + Vec3(0, 0, 3), 0.8f);
             }
         }
@@ -241,25 +241,25 @@ private:
     
     void drawUI(Renderer& renderer) {
         // Title and description
-        renderer.setColor(Vec3(1.0f, 1.0f, 1.0f));
+        renderer.setColor(Color(1.0f, 1.0f, 1.0f));
         renderer.drawString(getName(), 10, 30);
         renderer.drawString("Educational sketch: Boolean operations with corner circles", 10, 50);
         
         // FPS display
-        renderer.setColor(Vec3(0.0f, 1.0f, 1.0f));
+        renderer.setColor(Color(0.0f, 1.0f, 1.0f));
         renderer.drawString("FPS: " + std::to_string(Application::getInstance()->getFPS()), 10, 80);
         
         // Current mode display
-        renderer.setColor(Vec3(1.0f, 1.0f, 0.0f));
+        renderer.setColor(Color(1.0f, 1.0f, 0.0f));
         std::string mode = b_computeBoolean ? "BOOLEAN ACTIVE" : "BASE RECTANGLE";
         renderer.drawString("Current Mode: " + mode, 10, 110);
         
         // Corner circle info
-        renderer.setColor(Vec3(0.8f, 0.8f, 0.8f));
+        renderer.setColor(Color(0.8f, 0.8f, 0.8f));
         renderer.drawString("Corner Circles: 4 (2 Union, 2 Subtract)", 10, 140);
         
         // Controls
-        renderer.setColor(Vec3(0.7f, 0.7f, 0.7f));
+        renderer.setColor(Color(0.7f, 0.7f, 0.7f));
         renderer.drawString("Controls:", 10, 180);
         renderer.drawString("'B' - Toggle Boolean Computation", 10, 200);
         renderer.drawString("'U' - Preview Union Operations", 10, 220);
@@ -269,7 +269,7 @@ private:
         renderer.drawString("'V' - Toggle Value Display", 10, 300);
         
         // Status indicators
-        renderer.setColor(Vec3(0.5f, 1.0f, 0.5f));
+        renderer.setColor(Color(0.5f, 1.0f, 0.5f));
         renderer.drawString("Boolean: " + std::string(b_computeBoolean ? "ON" : "OFF"), 10, 330);
         renderer.drawString("Field: " + std::string(d_drawField ? "ON" : "OFF"), 10, 350);
         renderer.drawString("Contours: " + std::string(d_drawContours ? "ON" : "OFF"), 10, 370);

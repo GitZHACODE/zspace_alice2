@@ -56,7 +56,7 @@ namespace alice2 {
     void ZSpaceObject::renderImpl(Renderer& renderer, Camera& /*camera*/) {
         if (!m_zspaceObject) {
             // Render a placeholder cube when no zSpace object is attached
-            renderer.setColor(Vec3(0.5f, 0.5f, 0.5f));
+            renderer.setColor(Color(0.5f, 0.5f, 0.5f));
             renderer.drawCube(1.0f);
             return;
         }
@@ -132,7 +132,7 @@ namespace alice2 {
 
         // For now, render placeholder lines
         // TODO: Implement actual zSpace graph rendering using zSpace graph data
-        renderer.setColor(Vec3(0.8f, 0.8f, 0.8f));
+        renderer.setColor(Color(0.8f, 0.8f, 0.8f));
         renderer.setLineWidth(m_edgeWidth);
         renderer.drawLine(Vec3(-1, 0, 0), Vec3(1, 0, 0));
         renderer.drawLine(Vec3(0, -1, 0), Vec3(0, 1, 0));

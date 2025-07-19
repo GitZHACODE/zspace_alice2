@@ -15,7 +15,7 @@ namespace alice2 {
     }
 
     void PrimitiveObject::renderImpl(Renderer& renderer, Camera& /*camera*/) {
-        renderer.setColor(m_color, m_opacity);
+        renderer.setColor(m_color);
         renderer.setWireframe(m_wireframe);
 
         switch (m_primitiveType) {

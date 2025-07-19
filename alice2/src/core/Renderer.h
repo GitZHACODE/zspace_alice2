@@ -53,15 +53,15 @@ namespace alice2 {
         void loadIdentity();
 
         // Material properties
-        void setColor(const Vec3& color, float alpha = 1.0f);
+        void setColor(const Color& color);
         void setWireframe(bool wireframe);
         void setPointSize(float size);
         void setLineWidth(float width);
 
         // Lighting
         void enableLighting(bool enable);
-        void setAmbientLight(const Vec3& color);
-        void setDirectionalLight(const Vec3& direction, const Vec3& color);
+        void setAmbientLight(const Color& color);
+        void setDirectionalLight(const Vec3& direction, const Color& color);
 
         // Rendering modes
         void setRenderMode(RenderMode mode);
@@ -69,24 +69,24 @@ namespace alice2 {
 
         // Basic drawing
         void drawPoint(const Vec3& position);
-        void drawPoint(const Vec3& position, const Vec3& color, float size = 1.0f);
+        void drawPoint(const Vec3& position, const Color& color, float size = 1.0f);
         void drawLine(const Vec3& start, const Vec3& end);
-        void drawLine(const Vec3& start, const Vec3& end, const Vec3& color, float width = 1.0f);
+        void drawLine(const Vec3& start, const Vec3& end, const Color& color, float width = 1.0f);
         void drawTriangle(const Vec3& v1, const Vec3& v2, const Vec3& v3);
-        void drawTriangle(const Vec3& v1, const Vec3& v2, const Vec3& v3, const Vec3& color);
+        void drawTriangle(const Vec3& v1, const Vec3& v2, const Vec3& v3, const Color& color);
         void drawQuad(const Vec3& v1, const Vec3& v2, const Vec3& v3, const Vec3& v4);
-        void drawQuad(const Vec3& v1, const Vec3& v2, const Vec3& v3, const Vec3& v4, const Vec3& color);
+        void drawQuad(const Vec3& v1, const Vec3& v2, const Vec3& v3, const Vec3& v4, const Color& color);
 
         // Primitive shapes
         void drawCube(float size = 1.0f);
-        void drawCube(float size, const Vec3& color);
+        void drawCube(float size, const Color& color);
         void drawSphere(float radius = 1.0f, int segments = 16);
-        void drawSphere(float radius, int segments, const Vec3& color);
+        void drawSphere(float radius, int segments, const Color& color);
         void drawCylinder(float radius = 1.0f, float height = 2.0f, int segments = 16);
-        void drawCylinder(float radius, float height, int segments, const Vec3& color);
-        void drawGrid(float size, int divisions, const Vec3& color = Vec3(0.5f, 0.5f, 0.5f));
+        void drawCylinder(float radius, float height, int segments, const Color& color);
+        void drawGrid(float size, int divisions, const Color& color = Color(0.5f, 0.5f, 0.5f, 1.0f));
         void drawAxes(float length = 1.0f);
-        void drawAxes(float length, const Vec3& color);
+        void drawAxes(float length, const Color& color);
 
         // Vertex arrays
         void drawPoints(const Vec3* points, int count);
@@ -99,16 +99,15 @@ namespace alice2 {
 
         // 2D screen space drawing (coordinates in pixels)
         void draw2dPoint(const Vec2& position);                                                 // 2D point with current color/size
-        void draw2dPoint(const Vec2& position, const Vec3& color, float size = 1.0f);          // 2D point with specified color/size
+        void draw2dPoint(const Vec2& position, const Color& color, float size = 1.0f);          // 2D point with specified color/size
         void draw2dLine(const Vec2& start, const Vec2& end);                           // 2D line with current color/width
-        void draw2dLine(const Vec2& start, const Vec2& end, const Vec3& color, float width = 1.0f); // 2D line with specified color/width
+        void draw2dLine(const Vec2& start, const Vec2& end, const Color& color, float width = 1.0f); // 2D line with specified color/width
 
 
 
         // State queries
         bool isInitialized() const { return m_initialized; }
-        const Vec3& getCurrentColor() const { return m_currentColor; }
-        float getCurrentAlpha() const { return m_currentAlpha; }
+        const Color& getCurrentColor() const { return m_currentColor; }
 
         // Debug
         void checkErrors() const;
@@ -123,8 +122,7 @@ namespace alice2 {
         std::stack<Mat4> m_matrixStack;
         
         // Current state
-        Vec3 m_currentColor;
-        float m_currentAlpha;
+        Color m_currentColor;
         bool m_wireframeMode;
         float m_pointSize;
         float m_lineWidth;
@@ -132,9 +130,9 @@ namespace alice2 {
         
         // Lighting
         bool m_lightingEnabled;
-        Vec3 m_ambientLight;
+        Color m_ambientLight;
         Vec3 m_lightDirection;
-        Vec3 m_lightColor;
+        Color m_lightColor;
 
         // Text rendering
         std::unique_ptr<FontRenderer> m_fontRenderer;

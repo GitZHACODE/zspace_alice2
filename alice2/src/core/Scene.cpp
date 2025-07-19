@@ -184,7 +184,7 @@ namespace alice2 {
     }
 
     void Scene::renderGrid(Renderer& renderer) {
-        renderer.setColor(Vec3(0.5f, 0.5f, 0.5f));
+        renderer.setColor(Color(0.5f, 0.5f, 0.5f));
         renderer.drawGrid(m_gridSize, m_gridDivisions);
     }
 

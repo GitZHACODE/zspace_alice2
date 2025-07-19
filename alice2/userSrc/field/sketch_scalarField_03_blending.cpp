@@ -49,8 +49,8 @@ private:
     float m_blendFactor;
 
     // Blend colors
-    Vec3 magenta = Vec3(1.0f, 0.0f, 1.0f);
-    Vec3 purple = Vec3(0.5f, 0.0f, 1.0f);
+    Color magenta = Color(1.0f, 0.0f, 1.0f);
+    Color purple = Color(0.5f, 0.0f, 1.0f);
 
     // Tower visualization parameters
     std::vector<float> m_towerLevels;  // Z-levels for tower: 20 floors, 0 to 57
@@ -101,7 +101,7 @@ public:
 
     // Sketch lifecycle
     void setup() override {
-        scene().setBackgroundColor(Vec3(0.95f, 0.95f, 0.95f));
+        scene().setBackgroundColor(Color(0.95f, 0.95f, 0.95f));
         scene().setShowGrid(false);
         scene().setGridSize(25.0f);
         scene().setGridDivisions(4);
@@ -283,7 +283,7 @@ private:
             // Color gradient from magenta (bottom) to purple (top)
             float t = static_cast<float>(i) / (m_towerLevels.size() - 1);
             // Magenta (1, 0, 1) to Purple (0.5, 0, 1)
-            Vec3 color = Vec3::lerp(magenta, purple, t);
+            Color color = Color::lerp(magenta, purple, t);
             renderer.setColor(color);
 
             // Draw contours at this level with tower offset
@@ -309,8 +309,8 @@ private:
 
     void drawGeometry(Renderer& renderer) {
         // Draw rectangle center in blue
-        renderer.setColor(Vec3(0.2f, 0.2f, 1.0f));
-        renderer.drawPoint(m_rectCenter, Vec3(0.2f, 0.2f, 1.0f), 8.0f);
+        renderer.setColor(Color(0.2f, 0.2f, 1.0f));
+        renderer.drawPoint(m_rectCenter, Color(0.2f, 0.2f, 1.0f), 8.0f);
         renderer.drawText("RECT", m_rectCenter + Vec3(0, 0, 5), 1.0f);
 
         // Draw corner circles with different colors based on operation
@@ -319,13 +319,13 @@ private:
 
             if (circle.isUnion) {
                 // Green for union operations (upper field)
-                renderer.setColor(Vec3(0.2f, 1.0f, 0.2f));
-                renderer.drawPoint(circle.position, Vec3(0.2f, 1.0f, 0.2f), 6.0f);
+                renderer.setColor(Color(0.2f, 1.0f, 0.2f));
+                renderer.drawPoint(circle.position, Color(0.2f, 1.0f, 0.2f), 6.0f);
                 renderer.drawText("U", circle.position + Vec3(0, 0, 3), 0.8f);
             } else {
                 // Red for subtract operations (lower field)
-                renderer.setColor(Vec3(1.0f, 0.2f, 0.2f));
-                renderer.drawPoint(circle.position, Vec3(1.0f, 0.2f, 0.2f), 6.0f);
+                renderer.setColor(Color(1.0f, 0.2f, 0.2f));
+                renderer.drawPoint(circle.position, Color(1.0f, 0.2f, 0.2f), 6.0f);
                 renderer.drawText("S", circle.position + Vec3(0, 0, 3), 0.8f);
             }
         }
@@ -333,21 +333,21 @@ private:
     
     void drawUI(Renderer& renderer) {
         // Title and description
-        renderer.setColor(Vec3(1.0f, 1.0f, 1.0f));
+        renderer.setColor(Color(1.0f, 1.0f, 1.0f));
         renderer.drawString(getName(), 10, 30);
         renderer.drawString("Educational sketch: SDF blending with tower visualization", 10, 50);
         
         // FPS display
-        renderer.setColor(Vec3(0.0f, 1.0f, 1.0f));
+        renderer.setColor(Color(0.0f, 1.0f, 1.0f));
         renderer.drawString("FPS: " + std::to_string(Application::getInstance()->getFPS()), 10, 80);
         
         // Current mode display
-        renderer.setColor(Vec3(1.0f, 1.0f, 0.0f));
+        renderer.setColor(Color(1.0f, 1.0f, 0.0f));
         std::string mode = b_computeBlend ? "SMIN BLENDED" : "LOWER FIELD";
         renderer.drawString("Current Mode: " + mode, 10, 110);
 
         // Architecture info
-        renderer.setColor(Vec3(0.8f, 0.8f, 0.8f));
+        renderer.setColor(Color(0.8f, 0.8f, 0.8f));
         renderer.drawString("Lower: Rect + Subtract Corners", 10, 140);
         renderer.drawString("Upper: Rect + Union Corners", 10, 160);
         renderer.drawString("Blend Factor: " + std::to_string(m_blendFactor).substr(0, 4), 10, 180);
@@ -358,7 +358,7 @@ private:
         }
         
         // Controls
-        renderer.setColor(Vec3(0.7f, 0.7f, 0.7f));
+        renderer.setColor(Color(0.7f, 0.7f, 0.7f));
         renderer.drawString("Controls:", 10, 200);
         renderer.drawString("'B' - Toggle Blend Computation", 10, 220);
         renderer.drawString("'T' - Toggle Tower Visualization", 10, 240);
@@ -368,7 +368,7 @@ private:
         renderer.drawString("'V' - Toggle Value Display", 10, 320);
         
         // Status indicators
-        renderer.setColor(Vec3(0.5f, 1.0f, 0.5f));
+        renderer.setColor(Color(0.5f, 1.0f, 0.5f));
         renderer.drawString("Blend: " + std::string(b_computeBlend ? "ON" : "OFF"), 10, 350);
         renderer.drawString("Tower: " + std::string(d_drawTower ? "ON" : "OFF"), 10, 370);
         renderer.drawString("Field: " + std::string(d_drawField ? "ON" : "OFF"), 10, 390);

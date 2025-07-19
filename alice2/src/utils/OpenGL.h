@@ -60,8 +60,8 @@ namespace alice2 {
     // Basic drawing utilities
     class GLDraw {
     public:
-        static void drawGrid(float size, int divisions, const Vec3& color = Vec3(0.5f, 0.5f, 0.5f)) {
-            glColor3f(color.x, color.y, color.z);
+        static void drawGrid(float size, int divisions, const Color& color = Color(0.5f, 0.5f, 0.5f, 1.0f)) {
+            glColor3f(color.r, color.g, color.b);
             glBegin(GL_LINES);
 
             float step = size / divisions;

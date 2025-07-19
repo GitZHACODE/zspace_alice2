@@ -255,8 +255,8 @@ namespace alice2 {
         m_renderer->setCamera(*m_camera);
 
         // Set background color
-        Vec3 bgColor = m_scene->getBackgroundColor();
-        glClearColor(bgColor.x, bgColor.y, bgColor.z, 1.0f);
+        Color bgColor = m_scene->getBackgroundColor();
+        glClearColor(bgColor.r, bgColor.g, bgColor.b, bgColor.a);
         m_renderer->clear();
 
         if (DEBUG_APPLICATION_LOGGING) {

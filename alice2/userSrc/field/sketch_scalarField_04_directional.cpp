@@ -140,7 +140,7 @@ public:
 
     // Sketch lifecycle
     void setup() override {
-        scene().setBackgroundColor(Vec3(0.05f, 0.05f, 0.1f));
+        scene().setBackgroundColor(Color(0.05f, 0.05f, 0.1f));
         scene().setShowGrid(false);
         scene().setGridSize(25.0f);
         scene().setGridDivisions(4);
@@ -480,9 +480,9 @@ private:
             // Color gradient from magenta (bottom) to purple (top)
             float t = static_cast<float>(i) / (m_towerLevels.size() - 1);
             // Magenta (1, 0, 1) to Purple (0.5, 0, 1)
-            Vec3 magenta(1.0f, 0.0f, 1.0f);
-            Vec3 purple(0.5f, 0.0f, 1.0f);
-            Vec3 color = Vec3::lerp(magenta, purple, t);
+            Color magenta(1.0f, 0.0f, 1.0f);
+            Color purple(0.5f, 0.0f, 1.0f);
+            Color color = Color::lerp(magenta, purple, t);
             renderer.setColor(color);
 
             // Draw contours at this level with tower offset
@@ -501,7 +501,7 @@ private:
     }
     
     void drawContours(Renderer& renderer, const ScalarField2D& field) {
-        renderer.setColor(Vec3(1.0f, 1.0f, 1.0f));
+        renderer.setColor(Color(1.0f, 1.0f, 1.0f));
 
         // Draw single contour line
         float threshold = 0.0f;
@@ -510,15 +510,15 @@ private:
     
     void drawGeometry(Renderer& renderer) {
         // Draw rectangle center in blue
-        renderer.setColor(Vec3(0.2f, 0.2f, 1.0f));
-        renderer.drawPoint(m_rectCenter, Vec3(0.2f, 0.2f, 1.0f), 8.0f);
+        renderer.setColor(Color(0.2f, 0.2f, 1.0f));
+        renderer.drawPoint(m_rectCenter, Color(0.2f, 0.2f, 1.0f), 8.0f);
         renderer.drawText("RECT", m_rectCenter + Vec3(0, 0, 5), 1.0f);
 
         // Draw circle clusters if directional computation is active
         if (b_computeDirectional) {
             // Draw Cluster A (Sun-following, Green for Union)
             for (const auto& circle : m_clusterA_upper.circles) {
-                Vec3 color = circle.hasCollision ? Vec3(1.0f, 1.0f, 0.0f) : Vec3(0.2f, 1.0f, 0.2f); // Yellow if collision, Green otherwise
+                Color color = circle.hasCollision ? Color(1.0f, 1.0f, 0.0f) : Color(0.2f, 1.0f, 0.2f); // Yellow if collision, Green otherwise
                 renderer.setColor(color);
                 renderer.drawPoint(circle.position, color, circle.radius * 0.5f);
                 renderer.drawText("S", circle.position + Vec3(0, 0, 3), 0.6f);
@@ -526,22 +526,22 @@ private:
 
             // Draw Cluster B (Sun-opposing, Red for Subtract)
             for (const auto& circle : m_clusterB_upper.circles) {
-                Vec3 color = circle.hasCollision ? Vec3(1.0f, 1.0f, 0.0f) : Vec3(1.0f, 0.2f, 0.2f); // Yellow if collision, Red otherwise
+                Color color = circle.hasCollision ? Color(1.0f, 1.0f, 0.0f) : Color(1.0f, 0.2f, 0.2f); // Yellow if collision, Red otherwise
                 renderer.setColor(color);
                 renderer.drawPoint(circle.position, color, circle.radius * 0.5f);
                 renderer.drawText("U", circle.position + Vec3(0, 0, 3), 0.6f);
             }
 
             // Draw cluster movement vectors
-            renderer.setColor(Vec3(0.8f, 0.8f, 0.8f));
+            renderer.setColor(Color(0.8f, 0.8f, 0.8f));
             Vec3 clusterACenter = getClusterCenter(m_clusterA_upper);
             Vec3 clusterBCenter = getClusterCenter(m_clusterB_upper);
 
             // Cluster A movement vector
-            renderer.drawLine(clusterACenter, clusterACenter + m_clusterA_upper.clusterVelocity * 0.1f, Vec3(0.2f, 1.0f, 0.2f), 2.0f);
+            renderer.drawLine(clusterACenter, clusterACenter + m_clusterA_upper.clusterVelocity * 0.1f, Color(0.2f, 1.0f, 0.2f), 2.0f);
 
             // Cluster B movement vector
-            renderer.drawLine(clusterBCenter, clusterBCenter + m_clusterB_upper.clusterVelocity * 0.1f, Vec3(1.0f, 0.2f, 0.2f), 2.0f);
+            renderer.drawLine(clusterBCenter, clusterBCenter + m_clusterB_upper.clusterVelocity * 0.1f, Color(1.0f, 0.2f, 0.2f), 2.0f);
         }
     }
 
@@ -559,14 +559,14 @@ private:
         Vec3 sunEnd = sunStart * 0.8f;
         
         // Sun vector in yellow
-        renderer.setColor(Vec3(1.0f, 1.0f, 0.0f));
-        renderer.drawLine(sunStart, sunEnd, Vec3(1.0f, 1.0f, 0.0f), 3.0f);
+        renderer.setColor(Color(1.0f, 1.0f, 0.0f));
+        renderer.drawLine(sunStart, sunEnd, Color(1.0f, 1.0f, 0.0f), 3.0f);
         
         // Arrow head
         Vec3 arrowDir = m_sunDirection * 3.0f;
         Vec3 perpDir = Vec3(-m_sunDirection.y, m_sunDirection.x, 0) * 1.5f;
-        renderer.drawLine(sunEnd, sunEnd - arrowDir + perpDir, Vec3(1.0f, 1.0f, 0.0f), 2.0f);
-        renderer.drawLine(sunEnd, sunEnd - arrowDir - perpDir, Vec3(1.0f, 1.0f, 0.0f), 2.0f);
+        renderer.drawLine(sunEnd, sunEnd - arrowDir + perpDir, Color(1.0f, 1.0f, 0.0f), 2.0f);
+        renderer.drawLine(sunEnd, sunEnd - arrowDir - perpDir, Color(1.0f, 1.0f, 0.0f), 2.0f);
         
         // Sun direction text
         renderer.drawText("SUN", sunEnd + Vec3(2, 2, 0), 1.0f);
@@ -574,16 +574,16 @@ private:
     
     void drawUI(Renderer& renderer) {
         // Title and description
-        renderer.setColor(Vec3(1.0f, 1.0f, 1.0f));
+        renderer.setColor(Color(1.0f, 1.0f, 1.0f));
         renderer.drawString(getName(), 10, 30);
         renderer.drawString("Educational sketch: Dynamic circle clusters with sun-driven movement", 10, 50);
 
         // FPS display
-        renderer.setColor(Vec3(0.0f, 1.0f, 1.0f));
+        renderer.setColor(Color(0.0f, 1.0f, 1.0f));
         renderer.drawString("FPS: " + std::to_string(Application::getInstance()->getFPS()), 10, 80);
 
         // Current mode display
-        renderer.setColor(Vec3(1.0f, 1.0f, 0.0f));
+        renderer.setColor(Color(1.0f, 1.0f, 0.0f));
         std::string mode = b_computeDirectional ? "CLUSTER DYNAMICS ACTIVE" : "BASE RECTANGLES";
         renderer.drawString("Current Mode: " + mode, 10, 110);
 
@@ -592,7 +592,7 @@ private:
                           std::to_string(m_sunDirection.y).substr(0, 4) + ")", 10, 200);
 
         // Controls
-        renderer.setColor(Vec3(0.7f, 0.7f, 0.7f));
+        renderer.setColor(Color(0.7f, 0.7f, 0.7f));
         renderer.drawString("Controls:", 10, 250);
         renderer.drawString("'S' - Toggle Sun Animation", 10, 270);
         renderer.drawString("Arrow Keys - Manual Sun Control", 10, 290);
@@ -602,7 +602,7 @@ private:
         renderer.drawString("'C' - Toggle Contours", 10, 370);
 
         // Status indicators
-        renderer.setColor(Vec3(0.5f, 1.0f, 0.5f));
+        renderer.setColor(Color(0.5f, 1.0f, 0.5f));
         renderer.drawString("Clusters: " + std::string(b_computeDirectional ? "ON" : "OFF"), 10, 400);
         renderer.drawString("Sun Anim: " + std::string(d_animateSun ? "ON" : "OFF"), 10, 420);
         renderer.drawString("Tower: " + std::string(d_drawTower ? "ON" : "OFF"), 10, 440);

@@ -42,14 +42,12 @@ namespace alice2 {
 
         // 2D screen overlay text rendering
         void drawString(const std::string& text, float x, float y, 
-                       const Vec3& color = Vec3(1.0f, 1.0f, 1.0f), 
-                       float alpha = 1.0f);
+                       const Color& color = Color(1.0f, 1.0f, 1.0f, 1.0f));
 
         // 3D world space text rendering (billboard with screen-space sizing)
         void drawText(const std::string& text, const Vec3& position,
                      float size = 1.0f,
-                     const Vec3& color = Vec3(1.0f, 1.0f, 1.0f),
-                     float alpha = 1.0f);
+                     const Color& color = Color(1.0f, 1.0f, 1.0f, 1.0f));
 
         // Utility functions
         float getTextWidth(const std::string& text) const;

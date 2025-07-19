@@ -111,7 +111,7 @@ inline void get_hsv_color(float value, float& r, float& g, float& b) {
 struct ContourData {
     std::vector<std::vector<Vec3>> contours;
     std::vector<std::pair<Vec3, Vec3>> line_segments;
-    std::vector<Vec3> colors; // color per segment
+    std::vector<Color> colors; // color per segment
     float threshold;
 
     ContourData() : threshold(0.0f) {}

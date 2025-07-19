@@ -169,12 +169,12 @@ namespace alice2 {
     }
 
     void FontRenderer::drawString(const std::string& text, float x, float y,
-                                 const Vec3& color, float alpha) {
+                                 const Color& color) {
         if (!m_initialized || !m_fontAtlas || text.empty()) return;
 
                 setupOpenGLState();
 
-        glColor4f(color.x, color.y, color.z, alpha);
+        glColor4f(color.r, color.g, color.b, color.a);
         glBindTexture(GL_TEXTURE_2D, m_fontAtlas->textureId);
 
         // Set up 2D orthographic projection
@@ -233,7 +233,7 @@ namespace alice2 {
     }
 
     void FontRenderer::drawText(const std::string& text, const Vec3& position,
-                               float size, const Vec3& color, float alpha) {
+                               float size, const Color& color) {
         if (!m_initialized || !m_fontAtlas || text.empty()) return;
 
         // Extract camera information from OpenGL matrices for screen-space sizing
@@ -265,7 +265,7 @@ namespace alice2 {
         // Inline screen-space text rendering
         setupOpenGLState();
 
-        glColor4f(color.x, color.y, color.z, alpha);
+        glColor4f(color.r, color.g, color.b, color.a);
         glBindTexture(GL_TEXTURE_2D, m_fontAtlas->textureId);
 
         // Calculate distance from camera to text position in world space

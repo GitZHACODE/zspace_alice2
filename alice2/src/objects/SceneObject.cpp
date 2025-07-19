@@ -14,7 +14,6 @@ namespace alice2 {
         , m_selected(false)
         , m_color(1.0f, 1.0f, 1.0f)
         , m_wireframe(false)
-        , m_opacity(1.0f)
         , m_boundsMin(-1, -1, -1)
         , m_boundsMax(1, 1, 1)
         , m_userData(nullptr)
@@ -29,12 +28,12 @@ namespace alice2 {
         renderer.multMatrix(m_transform.getWorldMatrix());
 
         // Set material properties
-        renderer.setColor(m_color, m_opacity);
+        renderer.setColor(m_color);
         renderer.setWireframe(m_wireframe);
 
         // Highlight if selected
         if (m_selected) {
-            renderer.setColor(Vec3(1.0f, 0.5f, 0.0f), m_opacity); // Orange highlight
+            renderer.setColor(Color(1.0f, 0.5f, 0.0f)); // Orange highlight
         }
 
         // Call derived class implementation

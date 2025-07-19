@@ -34,7 +34,7 @@ public:
         // This is called once when the sketch is loaded
         
         // Example: Set background color
-        scene().setBackgroundColor(Vec3(0.15f, 0.15f, 0.15f));
+        scene().setBackgroundColor(Color(0.15f, 0.15f, 0.15f));
         std::cout << "Background color set to light gray" << std::endl;
 
         // Note: alice2 uses Z-up coordinate system by default (zspace compatibility)
@@ -70,7 +70,7 @@ public:
         // Example: Draw some points using enhanced renderer methods
         for (int i = 0; i < 10; i++) {
             Vec3 pos(0, 0, i);
-            Vec3 color(0.2f, 1.0f, 0.5f); // Green color
+            Color color(0.2f, 1.0f, 0.5f); // Green color
             renderer.drawPoint(pos, color, 5.0f); // Position, color, size
         }
 
@@ -78,26 +78,26 @@ public:
         for (int i = 0; i < 5; i++) {
             Vec3 start(i, 0, 0);
             Vec3 end(i, 2, 0);
-            Vec3 color(1.0f, 0.2f, 0.8f); // Pink color
+            Color color(1.0f, 0.2f, 0.8f); // Pink color
             renderer.drawLine(start, end, color, 2.0f); // Start, end, color, width
         }
 
         // 2D text rendering (screen overlay)
-        renderer.setColor(Vec3(1.0f, 1.0f, 1.0f));
+        renderer.setColor(Color(1.0f, 1.0f, 1.0f));
         renderer.drawString(getName(), 10, 30);
         renderer.drawString(getDescription(), 10, 50);
 
-        renderer.setColor(Vec3(0.0f, 1.0f, 1.0f));
+        renderer.setColor(Color(0.0f, 1.0f, 1.0f));
         renderer.drawString("FPS: " + std::to_string((Application::getInstance()->getFPS())), 10, 70);
 
-        renderer.setColor(Vec3(0.75f, 0.75f, 0.75f));
+        renderer.setColor(Color(0.75f, 0.75f, 0.75f));
         renderer.drawString("'ESC' - Exit ", 10, 200);
         renderer.drawString("'F'   - Extend view ", 10, 220);
         renderer.drawString("'N'   - Switch to the next sketch ", 10, 240);
         renderer.drawString("'P'   - Switch to the previous sketch ", 10, 260);
 
         // Test 3D text rendering (billboard text in world space with screen-space sizing)
-        renderer.setColor(Vec3(1.0f, 0.0f, 0.5f)); // Yellow text
+        renderer.setColor(Color(1.0f, 0.0f, 0.5f)); // Yellow text
         renderer.drawText("Hello from alice2 !", Vec3(0, 0, 2.0f), 1.2f);
     }
 

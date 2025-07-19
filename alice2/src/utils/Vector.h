@@ -98,6 +98,49 @@ namespace alice2 {
         }
     };
 
+    struct Vec4 {
+        float r, g, b, a;
+        
+        Vec4() : r(0), g(0), b(0), a(1) {}
+        Vec4(float r_, float g_, float b_) : r(r_), g(g_), b(b_), a(1.0f) {}
+        Vec4(float r_, float g_, float b_, float a_) : r(r_), g(g_), b(b_), a(a_) {}
+
+        // Basic operations
+        Vec4 operator+(const Vec4& other) const { return Vec4(r + other.r, g + other.g, b + other.b, a + other.a); }
+        Vec4 operator-(const Vec4& other) const { return Vec4(r - other.r, g - other.g, b - other.b, a + other.a); }
+        Vec4 operator-() const { return Vec4(-r, -g, -b); }  // Unary minus
+        Vec4 operator*(float scalar) const { return Vec4(r * scalar, g * scalar, b * scalar, a * scalar); }
+        Vec4 operator/(float scalar) const { return Vec4(r / scalar, g / scalar, b / scalar, a / scalar); }
+        
+        Vec4& operator+=(const Vec4& other) { r += other.r; g += other.g; b += other.b; a += other.a; return *this; }
+        Vec4& operator-=(const Vec4& other) { r -= other.r; g -= other.g; b -= other.b; a -= other.a; return *this; }
+        Vec4& operator*=(float scalar) { r *= scalar; g *= scalar; b *= scalar; a*= scalar; return *this; }
+
+        bool operator==(const Vec4 &o) const
+        {
+            constexpr float EPS = 1e-6f;
+            return fabs(r - o.r) < EPS && fabs(g - o.g) < EPS && fabs(b - o.b) < EPS; //ignore alpha value
+        }
+        bool operator!=(const Vec4 &other) const { return !(*this == other); }
+
+        // Static utility functions
+        static Vec4 lerp(const Vec4& a, const Vec4& b, float t) {
+            return a + (b - a) * t;
+        }
+    };
+
+    struct Color : Vec4
+    {
+        using Vec4::Vec4;
+        using Vec4::lerp;
+
+        static Color lerp(const Color &a, const Color &b, float t)
+        {
+            Vec4 v = Vec4::lerp(a, b, t);
+            return Color{v.r, v.g, v.b, v.a};
+        }
+    };
+
     // Z-up coordinate system constants
     namespace ZUp {
         static const Vec3 FORWARD = Vec3(0, 1, 0);   // +Y forward

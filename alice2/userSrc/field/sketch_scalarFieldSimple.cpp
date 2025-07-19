@@ -46,7 +46,7 @@ public:
 
     // Sketch lifecycle
     void setup() override {
-        scene().setBackgroundColor(Vec3(0.1f, 0.1f, 0.1f));
+        scene().setBackgroundColor(Color(0.1f, 0.1f, 0.1f));
         std::cout << "Simple Scalar Field Test loaded" << std::endl;
 
         scene().setShowGrid(false);
@@ -113,7 +113,7 @@ public:
 
     void draw(Renderer& renderer, Camera& camera) override {
         // Draw a test point to verify rendering works
-        renderer.drawPoint(Vec3(0, 0, 0), Vec3(1.0f, 0.0f, 0.0f), 10.0f);
+        renderer.drawPoint(Vec3(0, 0, 0), Color(1.0f, 0.0f, 0.0f), 10.0f);
         
         if (m_fieldGenerated) {
             try {
@@ -140,23 +140,23 @@ public:
             for(auto &contour : m_isolines)
             {
                 for(auto& line : contour.line_segments)
-                renderer.drawLine(line.first,line.second, Vec3(1.0f, 1.0f, 1.0f), 2.0f);
+                renderer.drawLine(line.first,line.second, Color(1.0f, 1.0f, 1.0f), 2.0f);
             }
         }
 
 
         // 2D text rendering
-        renderer.setColor(Vec3(1.0f, 1.0f, 1.0f));
+        renderer.setColor(Color(1.0f, 1.0f, 1.0f));
         renderer.drawString(getName(), 10, 30);
         renderer.drawString(getDescription(), 10, 50);
 
-        renderer.setColor(Vec3(0.0f, 1.0f, 1.0f));
+        renderer.setColor(Color(0.0f, 1.0f, 1.0f));
         renderer.drawString("FPS: " + std::to_string((Application::getInstance()->getFPS())), 10, 70);
 
-        renderer.setColor(Vec3(1.0f, 1.0f, 0.0f));
+        renderer.setColor(Color(1.0f, 1.0f, 0.0f));
         renderer.drawString("Field Generated: " + std::string(m_fieldGenerated ? "YES" : "NO"), 10, 100);
 
-        renderer.setColor(Vec3(0.75f, 0.75f, 0.75f));
+        renderer.setColor(Color(0.75f, 0.75f, 0.75f));
         renderer.drawString("Controls:", 10, 140);
         renderer.drawString("'R' - Regenerate field", 10, 160);
         renderer.drawString("'B' - Apply voronoi", 10, 180);
