@@ -334,7 +334,7 @@ namespace alice2 {
             }
 
             // Handle screenshot shortcuts
-            if (key == GLFW_KEY_E) {
+            if (key == GLFW_KEY_S) {
                 if ((mods & GLFW_MOD_CONTROL) && (mods & GLFW_MOD_SHIFT)) {
                     // Ctrl + Shift + E: Take screenshots from all saved cameras
                     s_instance->takeScreenshotAllCameras();

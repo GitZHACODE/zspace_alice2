@@ -11,11 +11,11 @@ namespace alice2 {
     class Transform {
     public:
         Transform();
-        Transform(const Vec3& position, const Quaternion& rotation = Quaternion(), const Vec3& scale = Vec3(1, 1, 1));
+        Transform(const Vec3& translation, const Quaternion& rotation = Quaternion(), const Vec3& scale = Vec3(1, 1, 1));
 
-        // Position
-        void setPosition(const Vec3& position) { m_position = position; markDirty(); }
-        const Vec3& getPosition() const { return m_position; }
+        // Translation
+        void setTranslation(const Vec3& translation) { m_translation = translation; markDirty(); }
+        const Vec3& getTranslation() const { return m_translation; }
 
         // Rotation (now using quaternions)
         void setRotation(const Quaternion& rotation) { m_rotation = rotation.normalized(); markDirty(); }
@@ -40,7 +40,7 @@ namespace alice2 {
         const Vec3& getScale() const { return m_scale; }
 
         // Transform operations
-        void translate(const Vec3& translation) { m_position += translation; markDirty(); }
+        void translate(const Vec3& translation) { m_translation += translation; markDirty(); }
         void rotate(const Quaternion& rotation) { m_rotation = rotation * m_rotation; markDirty(); }
         void rotateAxis(const Vec3& axis, float angle) {
             rotate(Quaternion::fromAxisAngle(axis, angle));
@@ -79,7 +79,7 @@ namespace alice2 {
         Vec3 up() const;
 
     private:
-        Vec3 m_position;
+        Vec3 m_translation;
         Quaternion m_rotation;  // Now using quaternion instead of Euler angles
         Vec3 m_scale;
 

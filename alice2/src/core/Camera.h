@@ -23,8 +23,8 @@ namespace alice2 {
         const Transform& getTransform() const { return m_transform; }
 
         // Position and orientation
-        void setPosition(const Vec3& position) { m_transform.setPosition(position);}
-        Vec3 getPosition() const { return m_transform.getPosition(); }
+        void setPosition(const Vec3& position) { m_transform.setTranslation(position);}
+        Vec3 getPosition() const { return m_transform.getTranslation(); }
 
         void lookAt(const Vec3 &target, const Vec3 &up = Vec3(0, 0, 1))
         {
@@ -33,7 +33,7 @@ namespace alice2 {
             {
                 upVector = Vec3(0, 0, 1);
             }
-            Vec3 forward = (target - m_transform.getPosition()).normalized();
+            Vec3 forward = (target - m_transform.getTranslation()).normalized();
             Quaternion lookRot = Quaternion::lookAt(forward, up);
             m_transform.setRotation(lookRot);
             m_viewDirty = true;

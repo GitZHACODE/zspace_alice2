@@ -213,7 +213,7 @@ namespace alice2 {
         Vec3 offset = m_orbitRotation.rotate(baseOffset);
 
         Vec3 position = m_orbitCenter + offset;
-        m_transform.setPosition(position);
+        m_transform.setTranslation(position);
         // m_transform.lookAt(m_orbitCenter, ZUp::UP);
         m_transform.setRotation(m_orbitRotation);
 
@@ -236,7 +236,7 @@ namespace alice2 {
     }
 
     void Camera::updateViewMatrix() const {
-        Vec3 pos = m_transform.getPosition();
+        Vec3 pos = m_transform.getTranslation();
         Vec3 forward = m_transform.forward();
         Vec3 right = m_transform.right();
         Vec3 up = m_transform.up();

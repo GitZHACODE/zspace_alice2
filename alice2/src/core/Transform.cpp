@@ -4,7 +4,7 @@
 namespace alice2 {
 
     Transform::Transform()
-        : m_position(0, 0, 0)
+        : m_translation(0, 0, 0)
         , m_rotation(0, 0, 0, 1)  // Identity quaternion
         , m_scale(1, 1, 1)
         , m_dirty(true)
@@ -14,7 +14,7 @@ namespace alice2 {
     }
 
     Transform::Transform(const Vec3& position, const Quaternion& rotation, const Vec3& scale)
-        : m_position(position)
+        : m_translation(position)
         , m_rotation(rotation)
         , m_scale(scale)
         , m_dirty(true)
@@ -41,7 +41,7 @@ namespace alice2 {
         // For TRS matrices: inverse = S^-1 * R^-1 * T^-1
         Mat4 invScale = Mat4::scale(Vec3(1.0f / m_scale.x, 1.0f / m_scale.y, 1.0f / m_scale.z));
         Mat4 invRotation = m_rotation.conjugate().toMatrix();  // Quaternion conjugate is the inverse rotation
-        Mat4 invTranslation = Mat4::translation(-m_position);
+        Mat4 invTranslation = Mat4::translation(-m_translation);
 
         return invScale * invRotation * invTranslation;
     }
@@ -82,9 +82,9 @@ namespace alice2 {
 
     Vec3 Transform::getWorldPosition() const {
         if (m_parent) {
-            return m_parent->getWorldMatrix().transformPoint(m_position);
+            return m_parent->getWorldMatrix().transformPoint(m_translation);
         }
-        return m_position;
+        return m_translation;
     }
 
     Vec3 Transform::getWorldScale() const {
@@ -119,7 +119,7 @@ namespace alice2 {
     }
 
     void Transform::lookAt(const Vec3& target, const Vec3& up) {
-        Vec3 forward = (target - m_position).normalized();
+        Vec3 forward = (target - m_translation).normalized();
         m_rotation = Quaternion::lookAt(forward, up);
         markDirty();
     }
@@ -140,7 +140,7 @@ namespace alice2 {
     }
 
     void Transform::updateMatrix() const {
-        Mat4 translation = Mat4::translation(m_position);
+        Mat4 translation = Mat4::translation(m_translation);
         Mat4 rotation = m_rotation.toMatrix();
         Mat4 scale = Mat4::scale(m_scale);
 
