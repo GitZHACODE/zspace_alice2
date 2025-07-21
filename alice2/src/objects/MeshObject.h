@@ -92,6 +92,22 @@ namespace alice2 {
         void createPlane(float width = 1.0f, float height = 1.0f, int subdivisionsX = 1, int subdivisionsY = 1);
         void createSphere(float radius = 1.0f, int segments = 16, int rings = 8);
 
+        // Create mesh from custom data (for marching cubes and other procedural generation)
+        void createFromVerticesAndFaces(const std::vector<Vec3>& positions,
+                                       const std::vector<std::vector<int>>& faceIndices,
+                                       const std::vector<Vec3>& normals = {},
+                                       const std::vector<Color>& colors = {});
+        void createFromTriangles(const std::vector<Vec3>& vertices,
+                                const std::vector<Vec3>& normals = {},
+                                const std::vector<Color>& colors = {});
+
+        // Utility methods for mesh data manipulation
+        void generateEdgesFromFaces();
+        void recalculateNormals();
+        void centerMesh();
+        void scaleMesh(float scale);
+        void translateMesh(const Vec3& offset);
+
         // Rendering mode
         void setRenderMode(MeshRenderMode mode) { m_renderMode = mode; }
         MeshRenderMode getRenderMode() const { return m_renderMode; }

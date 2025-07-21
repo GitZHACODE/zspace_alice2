@@ -3,6 +3,7 @@
 #include "../core/Camera.h"
 #include <algorithm>
 #include <cmath>
+#include <set>
 
 namespace alice2 {
 
@@ -507,6 +508,174 @@ namespace alice2 {
 
         m_meshData->calculateNormals();
         m_meshData->triangulationDirty = true;
+        calculateBounds();
+    }
+
+    // Create mesh from custom vertices and faces (for marching cubes and other procedural generation)
+    void MeshObject::createFromVerticesAndFaces(const std::vector<Vec3>& positions,
+                                               const std::vector<std::vector<int>>& faceIndices,
+                                               const std::vector<Vec3>& normals,
+                                               const std::vector<Color>& colors) {
+        if (!m_meshData) {
+            m_meshData = std::make_shared<MeshData>();
+        }
+
+        m_meshData->clear();
+
+        // Create vertices
+        for (size_t i = 0; i < positions.size(); ++i) {
+            MeshVertex vertex;
+            vertex.position = positions[i];
+            vertex.normal = (i < normals.size()) ? normals[i] : Vec3(0, 0, 1);
+            vertex.color = (i < colors.size()) ? colors[i] : Color(0.8f, 0.8f, 0.9f);
+            m_meshData->vertices.push_back(vertex);
+        }
+
+        // Create faces
+        for (const auto& face : faceIndices) {
+            if (face.size() >= 3) {
+                MeshFace meshFace;
+                meshFace.vertices = face;
+                meshFace.color = Color(0.8f, 0.8f, 0.9f);
+
+                // Calculate face normal if not provided
+                if (face.size() >= 3) {
+                    meshFace.normal = m_meshData->calculateFaceNormal(meshFace);
+                }
+
+                m_meshData->faces.push_back(meshFace);
+            }
+        }
+
+        // Generate edges from faces
+        generateEdgesFromFaces();
+
+        // Calculate normals if not provided
+        if (normals.empty()) {
+            m_meshData->calculateNormals();
+        }
+
+        m_meshData->triangulationDirty = true;
+        calculateBounds();
+    }
+
+    // Create mesh from triangles (assumes every 3 vertices form a triangle)
+    void MeshObject::createFromTriangles(const std::vector<Vec3>& vertices,
+                                        const std::vector<Vec3>& normals,
+                                        const std::vector<Color>& colors) {
+        if (vertices.size() % 3 != 0) {
+            throw std::invalid_argument("Vertex count must be divisible by 3 for triangle mesh");
+        }
+
+        if (!m_meshData) {
+            m_meshData = std::make_shared<MeshData>();
+        }
+
+        m_meshData->clear();
+
+        // Create vertices
+        for (size_t i = 0; i < vertices.size(); ++i) {
+            MeshVertex vertex;
+            vertex.position = vertices[i];
+            vertex.normal = (i < normals.size()) ? normals[i] : Vec3(0, 0, 1);
+            vertex.color = (i < colors.size()) ? colors[i] : Color(0.8f, 0.8f, 0.9f);
+            m_meshData->vertices.push_back(vertex);
+        }
+
+        // Create triangular faces
+        for (size_t i = 0; i < vertices.size(); i += 3) {
+            MeshFace face;
+            face.vertices = {static_cast<int>(i), static_cast<int>(i + 1), static_cast<int>(i + 2)};
+            face.color = Color(0.8f, 0.8f, 0.9f);
+
+            // Calculate face normal
+            face.normal = m_meshData->calculateFaceNormal(face);
+
+            m_meshData->faces.push_back(face);
+        }
+
+        // Generate edges from faces
+        generateEdgesFromFaces();
+
+        // Calculate normals if not provided
+        if (normals.empty()) {
+            m_meshData->calculateNormals();
+        }
+
+        m_meshData->triangulationDirty = true;
+        calculateBounds();
+    }
+
+    // Generate edges from faces
+    void MeshObject::generateEdgesFromFaces() {
+        if (!m_meshData) return;
+
+        m_meshData->edges.clear();
+        std::set<std::pair<int, int>> edgeSet;
+
+        // Extract edges from faces
+        for (const auto& face : m_meshData->faces) {
+            for (size_t i = 0; i < face.vertices.size(); ++i) {
+                int v1 = face.vertices[i];
+                int v2 = face.vertices[(i + 1) % face.vertices.size()];
+
+                // Ensure consistent edge ordering (smaller index first)
+                if (v1 > v2) std::swap(v1, v2);
+
+                edgeSet.insert({v1, v2});
+            }
+        }
+
+        // Convert set to edge list
+        for (const auto& edge : edgeSet) {
+            m_meshData->edges.emplace_back(edge.first, edge.second, Color(1, 1, 1));
+        }
+    }
+
+    // Recalculate normals
+    void MeshObject::recalculateNormals() {
+        if (!m_meshData) return;
+        m_meshData->calculateNormals();
+    }
+
+    // Center mesh at origin
+    void MeshObject::centerMesh() {
+        if (!m_meshData || m_meshData->vertices.empty()) return;
+
+        // Calculate center
+        Vec3 center(0, 0, 0);
+        for (const auto& vertex : m_meshData->vertices) {
+            center += vertex.position;
+        }
+        center = center / static_cast<float>(m_meshData->vertices.size());
+
+        // Translate all vertices
+        for (auto& vertex : m_meshData->vertices) {
+            vertex.position -= center;
+        }
+
+        calculateBounds();
+    }
+
+    // Scale mesh
+    void MeshObject::scaleMesh(float scale) {
+        if (!m_meshData) return;
+
+        for (auto& vertex : m_meshData->vertices) {
+            vertex.position *= scale;
+        }
+
+        calculateBounds();
+    }
+
+    // Translate mesh
+    void MeshObject::translateMesh(const Vec3& offset) {
+        if (!m_meshData) return;
+
+        for (auto& vertex : m_meshData->vertices) {
+            vertex.position += offset;
+        }
+
         calculateBounds();
     }
 
