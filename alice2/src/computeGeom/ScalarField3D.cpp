@@ -630,7 +630,8 @@ namespace alice2 {
                 for (int i = 0; i < m_res_x - 1; ++i) {
                     GridCell cell = get_grid_cell(i, j, k);
                     int triangles_before = static_cast<int>(triangles.size());
-                    polygonize_cell(cell, isolevel, triangles);
+                    // polygonize_cell(cell, isolevel, triangles);
+                    polygonize_cell_tetra(cell, isolevel, triangles);
                     int triangles_after = static_cast<int>(triangles.size());
 
                     processed_cells++;
@@ -884,5 +885,132 @@ namespace alice2 {
 
         return ntriang;
     }
+
+    // Marching tetrahedra
+    // 6 tetrahedra per cube, expressed with the cube's 8 MC vertices (0..7)
+static const int TET_IN_CUBE[6][4] = {
+    {0,5,1,6},
+    {0,1,2,6},
+    {0,2,3,6},
+    {0,3,7,6},
+    {0,7,4,6},
+    {0,4,5,6}
+};
+
+// edges of a tetrahedron (local indices 0..3)
+const int TET_EDGES[6][2] = {
+    {0,1}, {1,2}, {2,0}, {0,3}, {1,3}, {2,3}
+};
+
+// Triangulation table for a tetrahedron
+// Each row: up to 2 triangles (6 edge indices); -1 terminator
+const int TET_TRI_TABLE[16][7] = {
+    {-1,-1,-1,-1,-1,-1,-1},           // 0  (0000)  no verts inside
+    {0,3,2,-1,-1,-1,-1},               // 1  (0001)
+    {0,1,4,-1,-1,-1,-1},               // 2  (0010)
+    {1,4,2,  2,4,3,-1},                // 3  (0011)
+    {1,2,5,-1,-1,-1,-1},               // 4  (0100)
+    {0,3,5,  0,5,1,-1},                // 5  (0101)
+    {0,2,5,  0,5,4,-1},                // 6  (0110)
+    {5,4,3,-1,-1,-1,-1},               // 7  (0111)
+    {5,4,3,-1,-1,-1,-1},               // 8  (1000)  complement of 7
+    {0,2,5,  0,5,4,-1},                // 9  (1001)  complement of 6
+    {0,3,5,  0,5,1,-1},                // 10 (1010)  complement of 5
+    {1,2,5,-1,-1,-1,-1},               // 11 (1011)  complement of 4
+    {1,4,2,  2,4,3,-1},                // 12 (1100)  complement of 3
+    {0,1,4,-1,-1,-1,-1},               // 13 (1101)  complement of 2
+    {0,3,2,-1,-1,-1,-1},               // 14 (1110)  complement of 1
+    {-1,-1,-1,-1,-1,-1,-1}            // 15 (1111)  all inside
+};
+
+
+   int ScalarField3D::polygonize_tetra(const Vec3 p[4], const float val[4],
+                                    float iso, std::vector<MCTriangle>& out) const
+{
+    // 1) case code
+    int code = 0;
+    if (val[0] < iso) code |= 1;
+    if (val[1] < iso) code |= 2;
+    if (val[2] < iso) code |= 4;
+    if (val[3] < iso) code |= 8;
+
+    const int* row = TET_TRI_TABLE[code];
+    if (row[0] == -1) return 0;
+
+    // 2) cache edge intersections
+    Vec3 epos[6];
+    auto interpEdge = [&](int e)->const Vec3& {
+        int a = TET_EDGES[e][0], b = TET_EDGES[e][1];
+
+        // robust interpolation
+        const float v1 = val[a], v2 = val[b];
+        if (std::fabs(iso - v1) < 1e-6f) { epos[e] = p[a]; return epos[e]; }
+        if (std::fabs(iso - v2) < 1e-6f) { epos[e] = p[b]; return epos[e]; }
+        if (std::fabs(v1 - v2) < 1e-6f)  { epos[e] = p[a]; return epos[e]; }
+
+        float mu = (iso - v1) / (v2 - v1);
+        epos[e] = p[a] + (p[b] - p[a]) * mu;
+        return epos[e];
+    };
+
+    // 3) inside reference point (any point guaranteed inside the iso-surface)
+    Vec3 insideCtr(0.0f, 0.0f, 0.0f);
+    int  insideCnt = 0;
+    for (int i = 0; i < 4; ++i) {
+        if (val[i] < iso) { insideCtr += p[i]; ++insideCnt; }
+    }
+    if (insideCnt > 0) insideCtr /= (float)insideCnt;
+
+    int n = 0;
+    for (int i = 0; row[i] != -1; i += 3) {
+        MCTriangle tri;
+        tri.vertices[0] = interpEdge(row[i  ]);
+        tri.vertices[1] = interpEdge(row[i+1]);
+        tri.vertices[2] = interpEdge(row[i+2]);
+
+        Vec3 nrm = (tri.vertices[1] - tri.vertices[0]).cross(tri.vertices[2] - tri.vertices[0]);
+        float len = nrm.length();
+        if (len <= 1e-6f) continue;
+
+        // 4) orientation check: make normals point *out* of the inside region
+        if (insideCnt > 0) {
+            Vec3 triCtr = (tri.vertices[0] + tri.vertices[1] + tri.vertices[2]) * (1.0f / 3.0f);
+            Vec3 toInside = insideCtr - triCtr;
+            if (nrm.dot(toInside) > 0.0f) {           // pointing toward inside -> flip
+                std::swap(tri.vertices[1], tri.vertices[2]);
+                nrm = -nrm;
+            }
+        }
+
+        tri.normal = nrm / len;
+        out.push_back(tri);
+        ++n;
+    }
+    return n;
+}
+
+int ScalarField3D::polygonize_cell_tetra(const GridCell& cell,
+                                         float iso,
+                                         std::vector<MCTriangle>& tris) const
+{
+    int total = 0;
+    // For each of the 6 tets
+    for (int t=0; t<6; ++t) {
+        int i0 = TET_IN_CUBE[t][0];
+        int i1 = TET_IN_CUBE[t][1];
+        int i2 = TET_IN_CUBE[t][2];
+        int i3 = TET_IN_CUBE[t][3];
+
+        Vec3 p[4]   = { cell.vertices[i0], cell.vertices[i1],
+                        cell.vertices[i2], cell.vertices[i3] };
+        float v[4]  = { cell.values[i0],   cell.values[i1],
+                        cell.values[i2],   cell.values[i3] };
+
+        total += polygonize_tetra(p, v, iso, tris);
+    }
+    return total;
+}
+
+
 
 } // namespace alice2

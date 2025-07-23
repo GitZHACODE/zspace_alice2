@@ -30,8 +30,8 @@ namespace alice2 {
 
         // Window management
         void setWindowTitle(const std::string& title);
-        void setWindowSize(int width, int height);
-        void getWindowSize(int& width, int& height) const;
+        void setWindowSize(int width, int height) {m_windowWidth = width; m_windowHeight = height;};
+        void getWindowSize(int& width, int& height) const {width = m_windowWidth; height = m_windowHeight;};
 
         // Core components access
         Scene& getScene() { return *m_scene; }

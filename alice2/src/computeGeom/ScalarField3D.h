@@ -77,6 +77,9 @@ namespace alice2 {
         Vec3 vertex_interpolate(float isolevel, const Vec3& p1, const Vec3& p2, float val1, float val2) const;
         GridCell get_grid_cell(int x, int y, int z) const;
         int polygonize_cell(const GridCell& cell, float isolevel, std::vector<MCTriangle>& triangles) const;
+        int polygonize_cell_tetra(const GridCell& cell,
+                                         float iso,
+                                         std::vector<MCTriangle>& tris) const;
 
     public:
         // Constructor with RAII principles
@@ -137,6 +140,9 @@ namespace alice2 {
         void draw_points(Renderer& renderer, int step = 4) const;
         void draw_values(Renderer& renderer, int step = 8) const;
         void draw_slice(Renderer& renderer, int z_slice, float point_size = 2.0f) const;
+
+        // Tetra
+        int polygonize_tetra(const Vec3 p[4], const float val[4], float iso, std::vector<MCTriangle> &out) const;
     };
 
 } // namespace alice2

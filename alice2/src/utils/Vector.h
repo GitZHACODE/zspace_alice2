@@ -41,6 +41,7 @@ namespace alice2 {
         Vec3& operator+=(const Vec3& other) { x += other.x; y += other.y; z += other.z; return *this; }
         Vec3& operator-=(const Vec3& other) { x -= other.x; y -= other.y; z -= other.z; return *this; }
         Vec3& operator*=(float scalar) { x *= scalar; y *= scalar; z *= scalar; return *this; }
+        Vec3& operator/=(float scalar) { x /= scalar; y /= scalar; z /= scalar; return *this; }
 
         bool operator==(const Vec3 &o) const
         {
@@ -114,7 +115,8 @@ namespace alice2 {
         
         Vec4& operator+=(const Vec4& other) { r += other.r; g += other.g; b += other.b; a += other.a; return *this; }
         Vec4& operator-=(const Vec4& other) { r -= other.r; g -= other.g; b -= other.b; a -= other.a; return *this; }
-        Vec4& operator*=(float scalar) { r *= scalar; g *= scalar; b *= scalar; a*= scalar; return *this; }
+        Vec4& operator*=(float scalar) { r *= scalar; g *= scalar; b *= scalar; a *= scalar; return *this; }
+        Vec4& operator/=(float scalar) { r /= scalar; g /= scalar; b /= scalar; a /= scalar; return *this; }
 
         bool operator==(const Vec4 &o) const
         {
