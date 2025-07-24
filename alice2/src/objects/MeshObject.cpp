@@ -153,8 +153,7 @@ namespace alice2 {
     void MeshObject::renderImpl(Renderer& renderer, Camera& camera) {
         if (!m_meshData || m_meshData->vertices.empty()) {
             // Render placeholder when no mesh data
-            renderer.setColor(Color(0.5f, 0.5f, 0.5f));
-            renderer.drawCube(1.0f);
+            std::cout << "MeshObject::renderImpl: No mesh data" << std::endl;
             return;
         }
 
