@@ -142,9 +142,15 @@ namespace alice2 {
     class ComputeMesh : public MeshObject {
     public:
         ComputeMesh(const std::string& name = "ComputeMesh");
-        ComputeMesh(const std::string& name, const MeshData& meshData);
+        ComputeMesh(const std::string& name, const MeshData& meshData, bool enableHalfEdge = true);
         
         void createHalfEdgeMesh(const MeshData& meshData);
+
+        // Update Halfedge data from mesh data
+        void updateHalfEdgeData();
+
+        // Mesh operations
+        void weld(float epsilon = 1e-6f);
 
         // Override object type
         ObjectType getType() const override { return ObjectType::Mesh; }
@@ -167,7 +173,7 @@ namespace alice2 {
         // Face access
         std::shared_ptr<HeMeshFace> getFace(int id) const;
         const std::vector<std::shared_ptr<HeMeshFace>>& getFaces() const { return m_heMeshData.faces; }
-        
+
     private:
         HeMeshData m_heMeshData;
         
