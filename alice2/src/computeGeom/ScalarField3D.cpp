@@ -924,7 +924,7 @@ const int TET_TRI_TABLE[16][7] = {
 };
 
 
-   int ScalarField3D::polygonize_tetra(const Vec3 p[4], const float val[4],
+int ScalarField3D::polygonize_tetra(const Vec3 p[4], const float val[4],
                                     float iso, std::vector<MCTriangle>& out) const
 {
     // 1) case code
@@ -953,13 +953,18 @@ const int TET_TRI_TABLE[16][7] = {
         return epos[e];
     };
 
-    // 3) inside reference point (any point guaranteed inside the iso-surface)
+    // 3) Pre-calculate inside reference point once per tetrahedron (OPTIMIZATION)
     Vec3 insideCtr(0.0f, 0.0f, 0.0f);
     int  insideCnt = 0;
     for (int i = 0; i < 4; ++i) {
         if (val[i] < iso) { insideCtr += p[i]; ++insideCnt; }
     }
-    if (insideCnt > 0) insideCtr /= (float)insideCnt;
+
+    // Pre-calculate normalized inside center and determine if orientation check is needed
+    bool needOrientationCheck = (insideCnt > 0);
+    if (needOrientationCheck) {
+        insideCtr /= (float)insideCnt;
+    }
 
     int n = 0;
     for (int i = 0; row[i] != -1; i += 3) {
@@ -972,10 +977,11 @@ const int TET_TRI_TABLE[16][7] = {
         float len = nrm.length();
         if (len <= 1e-6f) continue;
 
-        // 4) orientation check: make normals point *out* of the inside region
-        if (insideCnt > 0) {
-            Vec3 triCtr = (tri.vertices[0] + tri.vertices[1] + tri.vertices[2]) * (1.0f / 3.0f);
-            Vec3 toInside = insideCtr - triCtr;
+        // 4) Optimized orientation check: make normals point *out* of the inside region
+        if (needOrientationCheck) {
+            // Use first vertex as reference point instead of triangle center for efficiency
+            // This is mathematically equivalent for orientation testing
+            Vec3 toInside = insideCtr - tri.vertices[0];
             if (nrm.dot(toInside) > 0.0f) {           // pointing toward inside -> flip
                 std::swap(tri.vertices[1], tri.vertices[2]);
                 nrm = -nrm;
