@@ -571,13 +571,39 @@ namespace alice2 {
         normalize_field();
     }
 
-    // Vertex interpolation for marching cubes
-    Vec3 ScalarField3D::vertex_interpolate(float isolevel, const Vec3& p1, const Vec3& p2, float val1, float val2) const {
-        if (std::abs(isolevel - val1) < 0.00001f) return p1;
-        if (std::abs(isolevel - val2) < 0.00001f) return p2;
-        if (std::abs(val1 - val2) < 0.00001f) return p1;
+    // Vertex classification for extended marching cubes
+    alice2::VertexClass ScalarField3D::classify_vertex(float value, float isolevel, float tolerance) const {
+        float diff = value - isolevel;
+        if (std::abs(diff) <= tolerance) {
+            return alice2::VertexClass::ZERO;
+        }
+        return (diff > 0) ? alice2::VertexClass::POSITIVE : alice2::VertexClass::NEGATIVE;
+    }
 
-        float mu = (isolevel - val1) / (val2 - val1);
+    // Original vertex interpolation for marching cubes (kept for compatibility)
+    Vec3 ScalarField3D::vertex_interpolate(float isolevel, const Vec3& p1, const Vec3& p2, float val1, float val2) const {
+        return vertex_interpolate_robust(isolevel, p1, p2, val1, val2);
+    }
+
+    // Robust vertex interpolation for marching cubes with better numerical stability
+    Vec3 ScalarField3D::vertex_interpolate_robust(float isolevel, const Vec3& p1, const Vec3& p2, float val1, float val2) const {
+        const float tolerance = 1e-6f;
+
+        // Check if isolevel is very close to either vertex value
+        if (std::abs(isolevel - val1) < tolerance) return p1;
+        if (std::abs(isolevel - val2) < tolerance) return p2;
+
+        // Check for degenerate case where both values are nearly equal
+        float value_diff = val2 - val1;
+        if (std::abs(value_diff) < tolerance) {
+            // Return midpoint for nearly equal values to avoid division by zero
+            return (p1 + p2) * 0.5f;
+        }
+
+        // Compute interpolation parameter with clamping for numerical stability
+        float mu = (isolevel - val1) / value_diff;
+        mu = std::clamp(mu, 0.0f, 1.0f);  // Ensure mu stays in valid range
+
         return p1 + (p2 - p1) * mu;
     }
 
@@ -591,6 +617,7 @@ namespace alice2 {
             for (int i = 0; i < 8; ++i) {
                 cell.vertices[i] = Vec3(0, 0, 0);
                 cell.values[i] = 0.0f;
+                cell.classes[i] = alice2::VertexClass::NEGATIVE;
             }
             return cell;
         }
@@ -615,7 +642,52 @@ namespace alice2 {
         cell.values[6] = m_field_values[get_index(x + 1, y + 1, z + 1)];
         cell.values[7] = m_field_values[get_index(x, y + 1, z + 1)];
 
+        // Initialize vertex classifications (will be set by polygonize_cell)
+        for (int i = 0; i < 8; ++i) {
+            cell.classes[i] = alice2::VertexClass::NEGATIVE;  // Default, will be updated
+        }
+
         return cell;
+    }
+
+    // Check if a triangle is degenerate (has zero or near-zero area)
+    bool ScalarField3D::is_triangle_degenerate(const MCTriangle& triangle, float tolerance) const {
+        Vec3 v1 = triangle.vertices[1] - triangle.vertices[0];
+        Vec3 v2 = triangle.vertices[2] - triangle.vertices[0];
+        Vec3 cross = v1.cross(v2);
+        return cross.length() < tolerance;
+    }
+
+    // Validate triangle quality (area and aspect ratio)
+    bool ScalarField3D::validate_triangle_quality(const MCTriangle& triangle, float min_area) const {
+        Vec3 v1 = triangle.vertices[1] - triangle.vertices[0];
+        Vec3 v2 = triangle.vertices[2] - triangle.vertices[0];
+        Vec3 v3 = triangle.vertices[2] - triangle.vertices[1];
+
+        // Check for degenerate triangle (zero area)
+        Vec3 cross = v1.cross(v2);
+        float area = cross.length() * 0.5f;
+        if (area < min_area) {
+            return false;
+        }
+
+        // Check for extremely thin triangles (aspect ratio check)
+        float edge1_len = v1.length();
+        float edge2_len = v2.length();
+        float edge3_len = v3.length();
+
+        // Find the longest edge
+        float max_edge = std::max({edge1_len, edge2_len, edge3_len});
+
+        // Aspect ratio check: area should be reasonable relative to longest edge
+        if (max_edge > 0.0f) {
+            float aspect_ratio = area / (max_edge * max_edge);
+            if (aspect_ratio < 1e-6f) {  // Very thin triangle
+                return false;
+            }
+        }
+
+        return true;
     }
 
     // Extract triangles using proper marching cubes algorithm
@@ -630,8 +702,8 @@ namespace alice2 {
                 for (int i = 0; i < m_res_x - 1; ++i) {
                     GridCell cell = get_grid_cell(i, j, k);
                     int triangles_before = static_cast<int>(triangles.size());
-                    // polygonize_cell(cell, isolevel, triangles);
-                    polygonize_cell_tetra(cell, isolevel, triangles);
+                    polygonize_cell(cell, isolevel, triangles);
+                    // polygonize_cell_tetra(cell, isolevel, triangles);
                     int triangles_after = static_cast<int>(triangles.size());
 
                     processed_cells++;
@@ -642,7 +714,7 @@ namespace alice2 {
             }
         }
 
-        std::cout << "Marching cubes processed " << processed_cells << " cells, "
+        std::cout << "Enhanced Marching Cubes processed " << processed_cells << " cells, "
                   << active_cells << " generated triangles, total triangles: "
                   << triangles.size() << std::endl;
 
@@ -802,20 +874,32 @@ namespace alice2 {
         return 0.0f; // Simple stub
     }
 
-    // Proper marching cubes polygonize cell implementation
+    // Enhanced marching cubes polygonize cell implementation with robust vertex classification
     int ScalarField3D::polygonize_cell(const GridCell& cell, float isolevel, std::vector<MCTriangle>& triangles) const {
         int cubeindex = 0;
         Vec3 vertlist[12];
 
-        // Determine which vertices are inside the surface
-        if (cell.values[0] < isolevel) cubeindex |= 1;
-        if (cell.values[1] < isolevel) cubeindex |= 2;
-        if (cell.values[2] < isolevel) cubeindex |= 4;
-        if (cell.values[3] < isolevel) cubeindex |= 8;
-        if (cell.values[4] < isolevel) cubeindex |= 16;
-        if (cell.values[5] < isolevel) cubeindex |= 32;
-        if (cell.values[6] < isolevel) cubeindex |= 64;
-        if (cell.values[7] < isolevel) cubeindex |= 128;
+        // Classify vertices using enhanced three-state classification
+        alice2::VertexClass vertex_classes[8];
+        bool has_zero_vertices = false;
+
+        for (int i = 0; i < 8; ++i) {
+            vertex_classes[i] = classify_vertex(cell.values[i], isolevel);
+            if (vertex_classes[i] == alice2::VertexClass::ZERO) {
+                has_zero_vertices = true;
+            }
+        }
+
+        // Build cube index using enhanced classification
+        // For vertices exactly on the isosurface (ZERO), treat as positive to avoid degeneracies
+        if (vertex_classes[0] != alice2::VertexClass::NEGATIVE) cubeindex |= 1;
+        if (vertex_classes[1] != alice2::VertexClass::NEGATIVE) cubeindex |= 2;
+        if (vertex_classes[2] != alice2::VertexClass::NEGATIVE) cubeindex |= 4;
+        if (vertex_classes[3] != alice2::VertexClass::NEGATIVE) cubeindex |= 8;
+        if (vertex_classes[4] != alice2::VertexClass::NEGATIVE) cubeindex |= 16;
+        if (vertex_classes[5] != alice2::VertexClass::NEGATIVE) cubeindex |= 32;
+        if (vertex_classes[6] != alice2::VertexClass::NEGATIVE) cubeindex |= 64;
+        if (vertex_classes[7] != alice2::VertexClass::NEGATIVE) cubeindex |= 128;
 
         // Bounds check for cube index
         if (cubeindex < 0 || cubeindex >= 256) return 0;
@@ -823,33 +907,33 @@ namespace alice2 {
         // Cube is entirely in/out of the surface
         if (EDGE_TABLE[cubeindex] == 0) return 0;
 
-        // Find vertices where the surface intersects the cube edges
+        // Find vertices where the surface intersects the cube edges using robust interpolation
         if (EDGE_TABLE[cubeindex] & 1)
-            vertlist[0] = vertex_interpolate(isolevel, cell.vertices[0], cell.vertices[1], cell.values[0], cell.values[1]);
+            vertlist[0] = vertex_interpolate_robust(isolevel, cell.vertices[0], cell.vertices[1], cell.values[0], cell.values[1]);
         if (EDGE_TABLE[cubeindex] & 2)
-            vertlist[1] = vertex_interpolate(isolevel, cell.vertices[1], cell.vertices[2], cell.values[1], cell.values[2]);
+            vertlist[1] = vertex_interpolate_robust(isolevel, cell.vertices[1], cell.vertices[2], cell.values[1], cell.values[2]);
         if (EDGE_TABLE[cubeindex] & 4)
-            vertlist[2] = vertex_interpolate(isolevel, cell.vertices[2], cell.vertices[3], cell.values[2], cell.values[3]);
+            vertlist[2] = vertex_interpolate_robust(isolevel, cell.vertices[2], cell.vertices[3], cell.values[2], cell.values[3]);
         if (EDGE_TABLE[cubeindex] & 8)
-            vertlist[3] = vertex_interpolate(isolevel, cell.vertices[3], cell.vertices[0], cell.values[3], cell.values[0]);
+            vertlist[3] = vertex_interpolate_robust(isolevel, cell.vertices[3], cell.vertices[0], cell.values[3], cell.values[0]);
         if (EDGE_TABLE[cubeindex] & 16)
-            vertlist[4] = vertex_interpolate(isolevel, cell.vertices[4], cell.vertices[5], cell.values[4], cell.values[5]);
+            vertlist[4] = vertex_interpolate_robust(isolevel, cell.vertices[4], cell.vertices[5], cell.values[4], cell.values[5]);
         if (EDGE_TABLE[cubeindex] & 32)
-            vertlist[5] = vertex_interpolate(isolevel, cell.vertices[5], cell.vertices[6], cell.values[5], cell.values[6]);
+            vertlist[5] = vertex_interpolate_robust(isolevel, cell.vertices[5], cell.vertices[6], cell.values[5], cell.values[6]);
         if (EDGE_TABLE[cubeindex] & 64)
-            vertlist[6] = vertex_interpolate(isolevel, cell.vertices[6], cell.vertices[7], cell.values[6], cell.values[7]);
+            vertlist[6] = vertex_interpolate_robust(isolevel, cell.vertices[6], cell.vertices[7], cell.values[6], cell.values[7]);
         if (EDGE_TABLE[cubeindex] & 128)
-            vertlist[7] = vertex_interpolate(isolevel, cell.vertices[7], cell.vertices[4], cell.values[7], cell.values[4]);
+            vertlist[7] = vertex_interpolate_robust(isolevel, cell.vertices[7], cell.vertices[4], cell.values[7], cell.values[4]);
         if (EDGE_TABLE[cubeindex] & 256)
-            vertlist[8] = vertex_interpolate(isolevel, cell.vertices[0], cell.vertices[4], cell.values[0], cell.values[4]);
+            vertlist[8] = vertex_interpolate_robust(isolevel, cell.vertices[0], cell.vertices[4], cell.values[0], cell.values[4]);
         if (EDGE_TABLE[cubeindex] & 512)
-            vertlist[9] = vertex_interpolate(isolevel, cell.vertices[1], cell.vertices[5], cell.values[1], cell.values[5]);
+            vertlist[9] = vertex_interpolate_robust(isolevel, cell.vertices[1], cell.vertices[5], cell.values[1], cell.values[5]);
         if (EDGE_TABLE[cubeindex] & 1024)
-            vertlist[10] = vertex_interpolate(isolevel, cell.vertices[2], cell.vertices[6], cell.values[2], cell.values[6]);
+            vertlist[10] = vertex_interpolate_robust(isolevel, cell.vertices[2], cell.vertices[6], cell.values[2], cell.values[6]);
         if (EDGE_TABLE[cubeindex] & 2048)
-            vertlist[11] = vertex_interpolate(isolevel, cell.vertices[3], cell.vertices[7], cell.values[3], cell.values[7]);
+            vertlist[11] = vertex_interpolate_robust(isolevel, cell.vertices[3], cell.vertices[7], cell.values[3], cell.values[7]);
 
-        // Create triangles using the triangle table
+        // Create triangles using the triangle table with enhanced quality validation
         int ntriang = 0;
         for (int i = 0; i < 16 && TRI_TABLE[cubeindex][i] != -1; i += 3) {
             // Bounds check for triangle indices
@@ -869,19 +953,53 @@ namespace alice2 {
             triangle.vertices[1] = vertlist[idx1];
             triangle.vertices[2] = vertlist[idx2];
 
-            // Calculate normal with safety check
+            // Enhanced triangle quality validation
+            if (is_triangle_degenerate(triangle)) {
+                continue;  // Skip degenerate triangles
+            }
+
+            if (!validate_triangle_quality(triangle)) {
+                continue;  // Skip poor quality triangles
+            }
+
+            // Calculate normal with improved robustness
             Vec3 v1 = triangle.vertices[1] - triangle.vertices[0];
             Vec3 v2 = triangle.vertices[2] - triangle.vertices[0];
             Vec3 normal = v1.cross(v2);
 
-            // Check for degenerate triangles
             float length = normal.length();
-            if (length > 0.0001f) {
+            if (length > 1e-8f) {  // More strict threshold for normal calculation
                 triangle.normal = normal / length;
+
+                // Ensure consistent winding order for better topology
+                // (This helps prevent T-junction issues between adjacent cells)
+                if (has_zero_vertices) {
+                    // For cells with vertices on the isosurface, be extra careful with orientation
+                    // Check if normal points in consistent direction
+                    Vec3 cell_center = (cell.vertices[0] + cell.vertices[1] + cell.vertices[2] + cell.vertices[3] +
+                                       cell.vertices[4] + cell.vertices[5] + cell.vertices[6] + cell.vertices[7]) * 0.125f;
+                    Vec3 triangle_center = (triangle.vertices[0] + triangle.vertices[1] + triangle.vertices[2]) / 3.0f;
+                    Vec3 to_center = cell_center - triangle_center;
+
+                    // Flip normal if it points toward the cell center (inside)
+                    if (triangle.normal.dot(to_center) > 0.0f) {
+                        // triangle.normal = -triangle.normal;
+                        std::swap(triangle.vertices[1], triangle.vertices[2]);
+                    }
+                }
+
                 triangles.push_back(triangle);
                 ntriang++;
             }
         }
+
+        // Debug output for quality improvements
+        // static int debug_counter = 0;
+        // if (++debug_counter % 1000 == 0) {  // Print every 1000 cells
+        //     std::cout << "Enhanced MC: Cell " << debug_counter
+        //               << ", triangles generated: " << ntriang
+        //               << ", zero vertices: " << (has_zero_vertices ? "yes" : "no") << std::endl;
+        // }
 
         return ntriang;
     }

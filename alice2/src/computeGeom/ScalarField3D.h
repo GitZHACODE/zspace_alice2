@@ -20,10 +20,18 @@ namespace alice2 {
     extern const int EDGE_TABLE[256];
     extern const int TRI_TABLE[256][16];
 
+    // Vertex classification for extended marching cubes
+    enum class VertexClass {
+        NEGATIVE = -1,  // value < isolevel
+        ZERO = 0,       // value == isolevel (within tolerance)
+        POSITIVE = 1    // value > isolevel
+    };
+
     // Grid cell structure for marching cubes
     struct GridCell {
-        Vec3 vertices[8];    // 8 corner vertices of the cube
-        float values[8];     // Scalar values at each vertex
+        Vec3 vertices[8];           // 8 corner vertices of the cube
+        float values[8];            // Scalar values at each vertex
+        alice2::VertexClass classes[8];     // Vertex classifications for extended MC
     };
 
     // Triangle structure for marching cubes output
@@ -74,9 +82,13 @@ namespace alice2 {
         void normalize_field();
 
         // Marching cubes helper methods
+        alice2::VertexClass classify_vertex(float value, float isolevel, float tolerance = 1e-6f) const;
         Vec3 vertex_interpolate(float isolevel, const Vec3& p1, const Vec3& p2, float val1, float val2) const;
+        Vec3 vertex_interpolate_robust(float isolevel, const Vec3& p1, const Vec3& p2, float val1, float val2) const;
         GridCell get_grid_cell(int x, int y, int z) const;
         int polygonize_cell(const GridCell& cell, float isolevel, std::vector<MCTriangle>& triangles) const;
+        bool is_triangle_degenerate(const MCTriangle& triangle, float tolerance = 1e-6f) const;
+        bool validate_triangle_quality(const MCTriangle& triangle, float min_area = 1e-8f) const;
         int polygonize_cell_tetra(const GridCell& cell,
                                          float iso,
                                          std::vector<MCTriangle>& tris) const;

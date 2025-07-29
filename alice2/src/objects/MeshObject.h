@@ -108,6 +108,10 @@ namespace alice2 {
         void scaleMesh(float scale);
         void translateMesh(const Vec3& offset);
 
+        // Read & Write
+        void readFromObj(const std::string& filename);
+        void writeToObj(const std::string& filename) const;
+
         // Rendering mode
         void setRenderMode(MeshRenderMode mode) { m_renderMode = mode; }
         MeshRenderMode getRenderMode() const { return m_renderMode; }
