@@ -7,8 +7,6 @@
 #include "../utils/Math.h"
 #include <vector>
 #include <memory>
-#include <unordered_map>
-#include <unordered_set>
 
 namespace alice2 {
 
@@ -150,7 +148,6 @@ namespace alice2 {
         void updateHalfEdgeData();
 
         // Mesh operations
-        void weld(float epsilon = 1e-6f);
 
         // Override object type
         ObjectType getType() const override { return ObjectType::Mesh; }

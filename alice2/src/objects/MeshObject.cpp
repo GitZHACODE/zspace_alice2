@@ -4,6 +4,12 @@
 #include <algorithm>
 #include <cmath>
 #include <set>
+#include <fstream>
+#include <sstream>
+#include <filesystem>
+#include <stdexcept>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace alice2 {
 
@@ -148,6 +154,31 @@ namespace alice2 {
             m_meshData->triangulationDirty = true;
         }
         calculateBounds();
+    }
+
+    MeshObject MeshObject::duplicate() const{
+        MeshObject copy;
+
+        // Mesh data
+        if(m_meshData)
+            copy.setMeshData(std::make_shared<MeshData>(*m_meshData));
+
+        // Normal shading colors
+        copy.m_frontColor = m_frontColor;
+        copy.m_backColor = m_backColor;
+
+        // Overlay controls
+        copy.m_showVertices = m_showVertices;
+        copy.m_showEdges = m_showEdges;
+        copy.m_showFaces = m_showFaces;
+
+        // Rendering properties
+        copy.setRenderMode(m_renderMode);
+        copy.m_vertexSize = m_vertexSize;
+        copy.m_edgeWidth = m_edgeWidth;
+        copy.m_vertexSize = m_vertexSize;
+
+        return copy;
     }
 
     void MeshObject::renderImpl(Renderer& renderer, Camera& camera) {
@@ -361,6 +392,18 @@ namespace alice2 {
     void MeshObject::ensureTriangulation() {
         if (m_meshData && m_meshData->triangulationDirty) {
             m_meshData->triangulate();
+        }
+    }
+
+    void MeshObject::printMeshInfo(){
+        if (m_meshData && m_meshData->vertices.size() != 0 && m_meshData->edges.size() != 0 && m_meshData->faces.size() != 0){
+            std::cout<< 
+            " V: " << m_meshData->vertices.size() <<
+            " E: " << m_meshData->edges.size() <<
+            " F: " << m_meshData->faces.size() << std::endl;
+        }
+        else{
+            std::cout << "Mesh is empty" << std::endl;
         }
     }
 
@@ -657,11 +700,13 @@ namespace alice2 {
     }
 
     // Scale mesh
-    void MeshObject::scaleMesh(float scale) {
+    void MeshObject::scaleMesh(const Vec3& scale) {
         if (!m_meshData) return;
 
         for (auto& vertex : m_meshData->vertices) {
-            vertex.position *= scale;
+            vertex.position.x *= scale.x;
+            vertex.position.y *= scale.y;
+            vertex.position.z *= scale.z;
         }
 
         calculateBounds();
@@ -678,4 +723,289 @@ namespace alice2 {
         calculateBounds();
     }
 
+    void MeshObject::weld(float epsilon)
+    {
+        struct Key
+        {
+            int x, y, z;
+            bool operator==(Key const &o) const { return x == o.x && y == o.y && z == o.z; }
+        };
+        struct KeyHash
+        {
+            size_t operator()(Key const &k) const
+            {
+                // use a few large primes for a 3D grid hash
+                return (size_t)k.x * 73856093u ^ (size_t)k.y * 19349663u ^ (size_t)k.z * 83492791u;
+            }
+        };
+
+        float invEps = 1.0f / epsilon;
+        std::unordered_map<Key, int, KeyHash> map;
+        map.reserve(getMeshData()->vertices.size());
+
+        std::vector<MeshVertex> newVerts;
+        newVerts.reserve(getMeshData()->vertices.size());
+        std::vector<int> remap(getMeshData()->vertices.size());
+
+        // 1) build new vertex list + remapping
+        for (size_t i = 0; i < getMeshData()->vertices.size(); ++i)
+        {
+            auto &v = getMeshData()->vertices[i].position;
+            Key k{
+                static_cast<int>(std::floor(v.x * invEps + 0.5f)),
+                static_cast<int>(std::floor(v.y * invEps + 0.5f)),
+                static_cast<int>(std::floor(v.z * invEps + 0.5f))};
+            auto it = map.find(k);
+            if (it == map.end())
+            {
+                int newIndex = (int)newVerts.size();
+                map[k] = newIndex;
+                newVerts.push_back(getMeshData()->vertices[i]);
+                remap[i] = newIndex;
+            }
+            else
+            {
+                remap[i] = it->second;
+            }
+        }
+
+        // 2) reindex faces, dropping degenerate ones
+        std::vector<MeshFace> newFaces;
+        newFaces.reserve(getMeshData()->faces.size());
+        for (auto &face : getMeshData()->faces)
+        {
+            std::vector<int> idx;
+            idx.reserve(face.vertices.size());
+            for (int vid : face.vertices)
+                idx.push_back(remap[vid]);
+            // remove consecutive duplicates
+            idx.erase(std::unique(idx.begin(), idx.end()), idx.end());
+            if (idx.size() >= 3)
+            {
+                MeshFace f(idx, getMeshData()->calculateFaceNormal({idx, {}, {}}), face.color);
+                newFaces.push_back(f);
+            }
+        }
+
+        // 3) rebuild edges from faces
+        std::set<std::pair<int, int>> edgeSet;
+        for (auto &f : newFaces)
+        {
+            for (size_t i = 0; i < f.vertices.size(); ++i)
+            {
+                int a = f.vertices[i], b = f.vertices[(i + 1) % f.vertices.size()];
+                if (a > b)
+                    std::swap(a, b);
+                edgeSet.insert({a, b});
+            }
+        }
+
+        // 4) commit
+        getMeshData()->vertices.swap(newVerts);
+        getMeshData()->faces.swap(newFaces);
+        getMeshData()->edges.clear();
+        getMeshData()->edges.reserve(edgeSet.size());
+        for (auto &e : edgeSet)
+            getMeshData()->edges.emplace_back(e.first, e.second, Color(1, 1, 1));
+
+        getMeshData()->calculateNormals();
+        getMeshData()->triangulationDirty = true;
+    }
+
+    void MeshObject::combineWith(const MeshObject &other)
+    {
+        // nothing to do if the other mesh is empty
+        if (!other.m_meshData || other.m_meshData->vertices.empty())
+            return;
+
+        // ensure we have a meshData to append into
+        if (!m_meshData)
+        {
+            m_meshData = std::make_shared<MeshData>();
+            m_meshData->clear();
+        }
+
+        // reserve enough space to avoid reallocation
+        m_meshData->vertices.reserve(m_meshData->vertices.size() + other.m_meshData->vertices.size());
+        m_meshData->faces.reserve(m_meshData->faces.size() + other.m_meshData->faces.size());
+
+        // 1) record how many verts we have now
+        const size_t vertOffset = m_meshData->vertices.size();
+
+        // 2) copy all vertices from other
+        //    (MeshVertex has position, normal, [color])
+        m_meshData->vertices.insert(
+            m_meshData->vertices.end(),
+            other.m_meshData->vertices.begin(),
+            other.m_meshData->vertices.end());
+
+        // 3) copy all faces, offsetting their indices
+        for (const auto &f : other.m_meshData->faces)
+        {
+            std::vector<int> newIdx;
+            newIdx.reserve(f.vertices.size());
+            for (int vi : f.vertices)
+            {
+                newIdx.push_back(int(vi) + int(vertOffset));
+            }
+            m_meshData->faces.emplace_back(std::move(newIdx));
+        }
+
+        // 4) rebuild derived data (edges, smooth normals, triangulation, bounds)
+        generateEdgesFromFaces();
+        m_meshData->calculateNormals();
+        m_meshData->triangulationDirty = true;
+        calculateBounds();
+    }
+
+    void MeshObject::readFromObj(const std::string &filename)
+    {
+        std::ifstream in(filename);
+        if (!in)
+            throw std::runtime_error("Failed to open OBJ file: " + filename);
+
+        std::vector<Vec3> positions;
+        std::vector<Vec3> normals;
+        std::vector<std::vector<int>> facePosIdx;
+        std::vector<std::vector<int>> faceNormIdx;
+
+        std::string line;
+        while (std::getline(in, line))
+        {
+            if (line.empty() || line[0] == '#')
+                continue;
+            std::istringstream iss(line);
+            std::string tag;
+            iss >> tag;
+
+            if (tag == "v")
+            {
+                // vertex position
+                Vec3 p;
+                iss >> p.x >> p.y >> p.z;
+                positions.push_back(p);
+            }
+            else if (tag == "vn")
+            {
+                // vertex normal
+                Vec3 n;
+                iss >> n.x >> n.y >> n.z;
+                normals.push_back(n);
+            }
+            else if (tag == "f")
+            {
+                // face: expecting v//vn (no texcoords)
+                std::vector<int> pidx, nidx;
+                std::string token;
+                while (iss >> token)
+                {
+                    // split at "//"
+                    auto pos = token.find("//");
+                    if (pos == std::string::npos)
+                        throw std::runtime_error("Unsupported face format (need v//vn): " + token);
+                    int vi = std::stoi(token.substr(0, pos));
+                    int ni = std::stoi(token.substr(pos + 2));
+                    // handle negative (relative) indices
+                    if (vi < 0)
+                        vi = int(positions.size()) + vi + 1;
+                    if (ni < 0)
+                        ni = int(normals.size()) + ni + 1;
+                    pidx.push_back(vi - 1);
+                    nidx.push_back(ni - 1);
+                }
+                if (pidx.size() >= 3)
+                {
+                    facePosIdx.push_back(pidx);
+                    faceNormIdx.push_back(nidx);
+                }
+            }
+        }
+
+        // build mesh
+        m_meshData = std::make_shared<MeshData>();
+        m_meshData->clear();
+
+        // create vertices: we’ll stash normals per‐vertex here
+        // if a vertex is shared by faces with different normals, you may want to duplicate it
+        for (size_t i = 0; i < positions.size(); ++i)
+        {
+            Vec3 n = (i < normals.size() ? normals[i] : Vec3(0, 0, 1));
+            m_meshData->vertices.emplace_back(positions[i], n);
+        }
+
+        // faces: ignore normal‐index array (we assume one normal per vertex)
+        for (auto &fp : facePosIdx)
+        {
+            m_meshData->faces.emplace_back(fp);
+        }
+
+        // regenerate derived data
+        generateEdgesFromFaces();
+        m_meshData->calculateNormals();
+        m_meshData->triangulationDirty = true;
+        calculateBounds();
+
+        printMeshInfo();
+    }
+
+    void MeshObject::writeToObj(const std::string &filename) const
+    {
+        if (!m_meshData)
+        {
+            std::cout << "No mesh data to write" << std::endl;
+            return;
+        }
+        std::filesystem::path outPath(filename);
+        if (outPath.has_parent_path())
+        {
+            std::error_code ec;
+            std::filesystem::create_directories(outPath.parent_path(), ec);
+            if (ec)
+            {
+                std::cerr << "Failed to create directory '"
+                          << outPath.parent_path().string()
+                          << "': " << ec.message() << "\n";
+                return;
+            }
+        }
+
+        std::ofstream out(filename, std::ios::out | std::ios::trunc);
+        if (!out)
+        {
+            std::cout << "Failed to open OBJ file: " + filename << std::endl;
+            return;
+        }
+
+        // positions
+        for (auto &v : m_meshData->vertices)
+        {
+            out << "v "
+                << v.position.x << ' '
+                << v.position.y << ' '
+                << v.position.z << '\n';
+        }
+
+        // normals
+        for (auto &v : m_meshData->vertices)
+        {
+            out << "vn "
+                << v.normal.x << ' '
+                << v.normal.y << ' '
+                << v.normal.z << '\n';
+        }
+
+        // faces using v//vn
+        for (auto &f : m_meshData->faces)
+        {
+            out << "f";
+            for (int vidx : f.vertices)
+            {
+                int i = vidx + 1; // OBJ is 1‑based
+                out << ' ' << i << "//" << i;
+            }
+            out << '\n';
+        }
+
+        std::cout << "Successfully exported mesh to: " + filename << std::endl;
+    }
 } // namespace alice2

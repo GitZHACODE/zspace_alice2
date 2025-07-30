@@ -86,6 +86,7 @@ namespace alice2 {
         // Mesh data management
         void setMeshData(std::shared_ptr<MeshData> meshData);
         std::shared_ptr<MeshData> getMeshData() const { return m_meshData; }
+        MeshObject duplicate() const;
         
         // Create simple mesh shapes for testing
         void createCube(float size = 1.0f);
@@ -105,8 +106,12 @@ namespace alice2 {
         void generateEdgesFromFaces();
         void recalculateNormals();
         void centerMesh();
-        void scaleMesh(float scale);
+        void scaleMesh(const Vec3& scale);
         void translateMesh(const Vec3& offset);
+
+        // Mesh operations
+        void weld(float epsilon = 1e-6f);
+        void combineWith(const MeshObject &other);
 
         // Read & Write
         void readFromObj(const std::string& filename);
@@ -178,6 +183,7 @@ namespace alice2 {
 
         // Helper methods
         void ensureTriangulation();
+        void printMeshInfo();
     };
 
 } // namespace alice2

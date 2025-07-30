@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <unordered_map>
 #include <set>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace alice2 {
 
@@ -252,96 +254,7 @@ namespace alice2 {
     }
 
     // Mesh operations
-    void ComputeMesh::weld(float epsilon)
-    {
-        struct Key
-        {
-            int x, y, z;
-            bool operator==(Key const &o) const { return x == o.x && y == o.y && z == o.z; }
-        };
-        struct KeyHash
-        {
-            size_t operator()(Key const &k) const
-            {
-                // use a few large primes for a 3D grid hash
-                return (size_t)k.x * 73856093u ^ (size_t)k.y * 19349663u ^ (size_t)k.z * 83492791u;
-            }
-        };
 
-        float invEps = 1.0f / epsilon;
-        std::unordered_map<Key, int, KeyHash> map;
-        map.reserve(getMeshData()->vertices.size());
-
-        std::vector<MeshVertex> newVerts;
-        newVerts.reserve(getMeshData()->vertices.size());
-        std::vector<int> remap(getMeshData()->vertices.size());
-
-        // 1) build new vertex list + remapping
-        for (size_t i = 0; i < getMeshData()->vertices.size(); ++i)
-        {
-            auto &v = getMeshData()->vertices[i].position;
-            Key k{
-                static_cast<int>(std::floor(v.x * invEps + 0.5f)),
-                static_cast<int>(std::floor(v.y * invEps + 0.5f)),
-                static_cast<int>(std::floor(v.z * invEps + 0.5f))};
-            auto it = map.find(k);
-            if (it == map.end())
-            {
-                int newIndex = (int)newVerts.size();
-                map[k] = newIndex;
-                newVerts.push_back(getMeshData()->vertices[i]);
-                remap[i] = newIndex;
-            }
-            else
-            {
-                remap[i] = it->second;
-            }
-        }
-
-        // 2) reindex faces, dropping degenerate ones
-        std::vector<MeshFace> newFaces;
-        newFaces.reserve(getMeshData()->faces.size());
-        for (auto &face : getMeshData()->faces)
-        {
-            std::vector<int> idx;
-            idx.reserve(face.vertices.size());
-            for (int vid : face.vertices)
-                idx.push_back(remap[vid]);
-            // remove consecutive duplicates
-            idx.erase(std::unique(idx.begin(), idx.end()), idx.end());
-            if (idx.size() >= 3)
-            {
-                MeshFace f(idx, getMeshData()->calculateFaceNormal({idx, {}, {}}), face.color);
-                newFaces.push_back(f);
-            }
-        }
-
-        // 3) rebuild edges from faces
-        std::set<std::pair<int, int>> edgeSet;
-        for (auto &f : newFaces)
-        {
-            for (size_t i = 0; i < f.vertices.size(); ++i)
-            {
-                int a = f.vertices[i], b = f.vertices[(i + 1) % f.vertices.size()];
-                if (a > b)
-                    std::swap(a, b);
-                edgeSet.insert({a, b});
-            }
-        }
-
-        // 4) commit
-        getMeshData()->vertices.swap(newVerts);
-        getMeshData()->faces.swap(newFaces);
-        getMeshData()->edges.clear();
-        getMeshData()->edges.reserve(edgeSet.size());
-        for (auto &e : edgeSet)
-            getMeshData()->edges.emplace_back(e.first, e.second, Color(1, 1, 1));
-
-        getMeshData()->triangulationDirty = true;
-
-        // Build half-edge structure using the updated mesh data
-        createHalfEdgeMesh(*getMeshData());
-    }
 
     std::shared_ptr<HeMeshVertex> ComputeMesh::getVertex(int id) const {
         if (id >= 0 && id < static_cast<int>(m_heMeshData.vertices.size())) {
