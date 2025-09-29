@@ -78,6 +78,8 @@ namespace alice2 {
             return x >= 0 && x < m_res_x && y >= 0 && y < m_res_y && z >= 0 && z < m_res_z;
         }
 
+        bool is_inside_bounds(const Vec3& p) const;
+        Vec3 clamp_to_bounds(const Vec3& p) const;
         void initialize_grid();
         void normalize_field();
 
@@ -123,6 +125,10 @@ namespace alice2 {
         float sample_nearest(const Vec3& p) const;
         float sample_trilinear(const Vec3& p) const;
         Vec3 gradient_at(const Vec3& p) const;
+        Vec3 gradient_normalized(const Vec3& p) const;
+        Vec3 project_onto_isosurface(const Vec3& start, float isoLevel = 0.0f, int maxIterations = 8, float tolerance = 1e-4f) const;
+        Vec3 get_cell_size() const;
+        bool contains_point(const Vec3& p) const;
 
         // Field generation methods (snake_case naming)
         void clear_field();
@@ -160,3 +166,4 @@ namespace alice2 {
 } // namespace alice2
 
 #endif // ALICE2_SCALAR_FIELD_3D_H
+

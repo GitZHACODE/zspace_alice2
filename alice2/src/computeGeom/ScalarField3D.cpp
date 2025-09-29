@@ -366,6 +366,20 @@ namespace alice2 {
         return *this;
     }
 
+    bool ScalarField3D::is_inside_bounds(const Vec3& p) const {
+        return p.x >= m_min_bounds.x && p.x <= m_max_bounds.x &&
+               p.y >= m_min_bounds.y && p.y <= m_max_bounds.y &&
+               p.z >= m_min_bounds.z && p.z <= m_max_bounds.z;
+    }
+
+    Vec3 ScalarField3D::clamp_to_bounds(const Vec3& p) const {
+        return Vec3(
+            std::clamp(p.x, m_min_bounds.x, m_max_bounds.x),
+            std::clamp(p.y, m_min_bounds.y, m_max_bounds.y),
+            std::clamp(p.z, m_min_bounds.z, m_max_bounds.z)
+        );
+    }
+
     void ScalarField3D::initialize_grid() {
         m_grid_points.clear();
         
@@ -417,6 +431,18 @@ namespace alice2 {
         }
         int index = get_index(x, y, z);
         return m_grid_points[index];
+    }
+
+    Vec3 ScalarField3D::get_cell_size() const {
+        return Vec3(
+            (m_max_bounds.x - m_min_bounds.x) / std::max(1, m_res_x - 1),
+            (m_max_bounds.y - m_min_bounds.y) / std::max(1, m_res_y - 1),
+            (m_max_bounds.z - m_min_bounds.z) / std::max(1, m_res_z - 1)
+        );
+    }
+
+    bool ScalarField3D::contains_point(const Vec3& p) const {
+        return is_inside_bounds(p);
     }
 
     float ScalarField3D::sample_nearest(const Vec3& p) const {
@@ -808,6 +834,34 @@ namespace alice2 {
         return Vec3(dx, dy, dz) * 0.5f;
     }
 
+    Vec3 ScalarField3D::gradient_normalized(const Vec3& p) const {
+        Vec3 g = gradient_at(p);
+        float len = g.length();
+        if (len <= 1e-6f) {
+            return Vec3(0.0f, 0.0f, 0.0f);
+        }
+        return g * (1.0f / len);
+    }
+
+    Vec3 ScalarField3D::project_onto_isosurface(const Vec3& start, float isoLevel, int maxIterations, float tolerance) const {
+        Vec3 p = clamp_to_bounds(start);
+        for (int i = 0; i < maxIterations; ++i) {
+            float value = sample_trilinear(p);
+            float diff = value - isoLevel;
+            if (std::abs(diff) <= tolerance) {
+                break;
+            }
+            Vec3 grad = gradient_at(p);
+            float gradLenSq = grad.x * grad.x + grad.y * grad.y + grad.z * grad.z;
+            if (gradLenSq < 1e-8f) {
+                break;
+            }
+            p = p - grad * (diff / gradLenSq);
+            p = clamp_to_bounds(p);
+        }
+        return p;
+    }
+
     // Rendering methods
     void ScalarField3D::draw_points(Renderer& renderer, int step) const {
         for (int k = 0; k < m_res_z; k += step) {
@@ -1138,3 +1192,4 @@ int ScalarField3D::polygonize_cell_tetra(const GridCell& cell,
 
 
 } // namespace alice2
+
