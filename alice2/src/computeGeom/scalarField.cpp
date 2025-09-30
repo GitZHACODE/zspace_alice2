@@ -1,4 +1,8 @@
-#include <computeGeom/scalarField.h>
+#include <computeGeom/ScalarField.h>
+#include "../objects/GraphObject.h"
+#include <unordered_map>
+#include <cmath>
+#include <limits>
 
 
 // Implementation of key methods
@@ -396,18 +400,79 @@ void ScalarField2D::draw_values(Renderer& renderer, int step) const {
 
 // Legacy compatibility method for contour drawing
 void ScalarField2D::drawIsocontours(Renderer& renderer, float threshold) const {
-    const ContourData contours = get_contours(threshold);
+    GraphObject contours = get_contours(threshold);
+    auto data = contours.getGraphData();
+    if (!data) {
+        return;
+    }
 
-    for (const auto& segment : contours.line_segments) {
-        renderer.drawLine(segment.first, segment.second, renderer.getCurrentColor(), 2.0f);
+    for (const auto& edge : data->edges) {
+        if (edge.vertexA < 0 || edge.vertexB < 0 ||
+            edge.vertexA >= static_cast<int>(data->vertices.size()) ||
+            edge.vertexB >= static_cast<int>(data->vertices.size())) {
+            continue;
+        }
+
+        const Vec3& start = data->vertices[edge.vertexA].position;
+        const Vec3& end = data->vertices[edge.vertexB].position;
+        renderer.drawLine(start, end, renderer.getCurrentColor(), 2.0f);
     }
 }
 
 // Analysis methods - simplified implementations
-ContourData ScalarField2D::get_contours(float threshold) const {
-    ContourData result(threshold);
+GraphObject ScalarField2D::get_contours(float threshold) const {
+    GraphObject graph("ScalarFieldContours");
+    auto data = graph.getGraphData();
+    if (!data) {
+        return graph;
+    }
 
-    // Simple marching squares implementation for contour extraction
+    struct VecKey {
+        int x;
+        int y;
+        int z;
+
+        bool operator==(const VecKey& other) const {
+            return x == other.x && y == other.y && z == other.z;
+        }
+    };
+
+    struct VecKeyHash {
+        std::size_t operator()(const VecKey& key) const {
+            std::size_t h1 = std::hash<int>{}(key.x);
+            std::size_t h2 = std::hash<int>{}(key.y);
+            std::size_t h3 = std::hash<int>{}(key.z);
+            return h1 ^ (h2 << 1) ^ (h3 << 2);
+        }
+    };
+
+    const float quantizeScale = 10000.0f;
+    std::unordered_map<VecKey, int, VecKeyHash> vertexLookup;
+
+    auto getOrCreateVertex = [&](const Vec3& position) -> int {
+        VecKey key{
+            static_cast<int>(std::round(position.x * quantizeScale)),
+            static_cast<int>(std::round(position.y * quantizeScale)),
+            static_cast<int>(std::round(position.z * quantizeScale))
+        };
+
+        if (auto it = vertexLookup.find(key); it != vertexLookup.end()) {
+            return it->second;
+        }
+
+        int index = data->addVertex(position);
+        vertexLookup.emplace(key, index);
+        return index;
+    };
+
+    auto addCrossing = [&](float valueA, float valueB, const Vec3& pointA, const Vec3& pointB, std::vector<Vec3>& crossings) {
+        if ((valueA < threshold && valueB >= threshold) || (valueB < threshold && valueA >= threshold)) {
+            float denom = valueB - valueA;
+            float t = (std::abs(denom) > 1e-6f) ? (threshold - valueA) / denom : 0.5f;
+            crossings.push_back(Vec3::lerp(pointA, pointB, t));
+        }
+    };
+
     for (int j = 0; j < m_res_y - 1; ++j) {
         for (int i = 0; i < m_res_x - 1; ++i) {
             const int idx00 = get_index(i, j);
@@ -420,34 +485,23 @@ ContourData ScalarField2D::get_contours(float threshold) const {
             const float v01 = m_field_values[idx01];
             const float v11 = m_field_values[idx11];
 
-            // Check for threshold crossings and create line segments
             std::vector<Vec3> crossings;
+            crossings.reserve(4);
 
-            // Check each edge of the quad
-            if ((v00 < threshold && v10 >= threshold) || (v10 < threshold && v00 >= threshold)) {
-                const float t = (threshold - v00) / (v10 - v00);
-                crossings.push_back(Vec3::lerp(m_grid_points[idx00], m_grid_points[idx10], t));
-            }
-            if ((v10 < threshold && v11 >= threshold) || (v11 < threshold && v10 >= threshold)) {
-                const float t = (threshold - v10) / (v11 - v10);
-                crossings.push_back(Vec3::lerp(m_grid_points[idx10], m_grid_points[idx11], t));
-            }
-            if ((v11 < threshold && v01 >= threshold) || (v01 < threshold && v11 >= threshold)) {
-                const float t = (threshold - v11) / (v01 - v11);
-                crossings.push_back(Vec3::lerp(m_grid_points[idx11], m_grid_points[idx01], t));
-            }
-            if ((v01 < threshold && v00 >= threshold) || (v00 < threshold && v01 >= threshold)) {
-                const float t = (threshold - v01) / (v00 - v01);
-                crossings.push_back(Vec3::lerp(m_grid_points[idx01], m_grid_points[idx00], t));
-            }
+            addCrossing(v00, v10, m_grid_points[idx00], m_grid_points[idx10], crossings);
+            addCrossing(v10, v11, m_grid_points[idx10], m_grid_points[idx11], crossings);
+            addCrossing(v11, v01, m_grid_points[idx11], m_grid_points[idx01], crossings);
+            addCrossing(v01, v00, m_grid_points[idx01], m_grid_points[idx00], crossings);
 
             if (crossings.size() == 2) {
-                result.line_segments.emplace_back(crossings[0], crossings[1]);
+                int vertexA = getOrCreateVertex(crossings[0]);
+                int vertexB = getOrCreateVertex(crossings[1]);
+                data->addEdge(vertexA, vertexB);
             }
         }
     }
 
-    return result;
+    return graph;
 }
 
 std::vector<Vec3> ScalarField2D::get_gradient() const {
@@ -484,3 +538,10 @@ void ScalarField2D::boolean_difference(const ScalarField2D& other) {
     // Difference is A - B = A ∩ ¬B = max(A, -B)
     boolean_subtract(other);
 }
+
+
+
+
+
+
+

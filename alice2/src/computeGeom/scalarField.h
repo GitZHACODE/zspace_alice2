@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <vector>
 #include <algorithm>
@@ -10,10 +10,11 @@
 #include <stdexcept>
 #include <alice2.h>
 
-using namespace alice2;
+namespace alice2 {
+    class GraphObject;
+}
 
-// Forward declarations
-struct ContourData;
+using namespace alice2;
 
 // Utility functions for scalar field operations
 namespace ScalarFieldUtils {
@@ -70,7 +71,7 @@ inline float clampf(float x, float lo, float hi) {
     return x < lo ? lo : (x > hi ? hi : x);
 }
 
-// helper: HSV→RGB (H in degrees [0,360), S,V in [0,1])
+// helper: HSV?RGB (H in degrees [0,360), S,V in [0,1])
 inline void hsv2rgb(float H, float S, float V, float &R, float &G, float &B) {
     H = fmodf(H, 360.0f);
     float C = V * S;
@@ -90,12 +91,12 @@ inline void hsv2rgb(float H, float S, float V, float &R, float &G, float &B) {
     B = clampf(B + m, 0.0f, 1.0f);
 }
 
-// your new “jet-like” but white-friendly mapper
+// your new �jet-like� but white-friendly mapper
 inline void get_hsv_color(float value, float& r, float& g, float& b) {
     // 1. normalize
     float t = clampf((value + 1.0f) * 0.5f, 0.0f, 1.0f);
 
-    // 2. compute hue from blue→red
+    // 2. compute hue from blue?red
     float hue = 240.0f - 240.0f * t;
 
     // 3. fixed saturation/value for good contrast on white
@@ -108,16 +109,6 @@ inline void get_hsv_color(float value, float& r, float& g, float& b) {
 }
 
 // Contour data structure
-struct ContourData {
-    std::vector<std::vector<Vec3>> contours;
-    std::vector<std::pair<Vec3, Vec3>> line_segments;
-    std::vector<Color> colors; // color per segment
-    float threshold;
-
-    ContourData() : threshold(0.0f) {}
-    explicit ContourData(float t) : threshold(t) {}
-};
-
 /**
  * Modern C++ 2D Scalar Field class with RAII principles
  * Supports dynamic resolution, proper memory management, and clean API
@@ -135,10 +126,7 @@ private:
     std::vector<float> m_field_values;
     std::vector<float> m_normalized_values;
     std::vector<Vec3> m_gradient_field;
-
-    // Cached contour data
-    mutable std::vector<ContourData> m_cached_contours;
-
+     
     // Helper methods
     inline int get_index(int x, int y) const {
         return y * m_res_x + x;
@@ -214,7 +202,7 @@ public:
     void interpolate(const ScalarField2D& other, float t);
 
     // Analysis methods
-    ContourData get_contours(float threshold) const;
+    GraphObject get_contours(float threshold) const;
     std::vector<Vec3> get_gradient() const;
 
     // Rendering methods
@@ -230,3 +218,9 @@ public:
     void drawIsocontours(Renderer& renderer, float threshold) const;
     void normalise() { normalize_field(); }
 };
+
+
+
+
+
+
