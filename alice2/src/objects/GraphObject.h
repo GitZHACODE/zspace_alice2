@@ -5,6 +5,7 @@
 
 #include "SceneObject.h"
 #include "../utils/Math.h"
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
@@ -51,7 +52,16 @@ namespace alice2 {
 
         void setGraphData(std::shared_ptr<GraphData> graphData);
         std::shared_ptr<GraphData> getGraphData() const { return m_graphData; }
+
         GraphObject duplicate() const;
+
+        bool isClosed() const { return m_isClosed; }
+        bool isPolyline() const { return m_isPolyline; }
+
+        void weld(float epsilon = 1e-6f);
+        void combineWith(const GraphObject& other);
+        void resample(float sampleDistance);
+        std::vector<GraphObject> separate() const;
 
         void createFromPositionsAndEdges(const std::vector<Vec3>& positions,
                                          const std::vector<std::pair<int, int>>& edges,
@@ -81,7 +91,13 @@ namespace alice2 {
         void calculateBounds() override;
 
     private:
+        void updateTopologyFlags();
+        bool buildAdjacency(std::vector<std::vector<int>>& adjacency, std::vector<int>& degree, size_t& validEdgeCount) const;
+        std::vector<int> buildPolylineOrder(const std::vector<std::vector<int>>& adjacency, const std::vector<int>& degree, size_t validEdgeCount) const;
+
         std::shared_ptr<GraphData> m_graphData;
+        bool m_isClosed;
+        bool m_isPolyline;
         bool m_showVertices;
         bool m_showEdges;
         float m_vertexSize;
