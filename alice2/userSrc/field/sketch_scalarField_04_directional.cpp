@@ -7,6 +7,7 @@
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
 #include <computeGeom/scalarField.h>
+#include <objects/GraphObject.h>
 #include <cmath>
 #include <random>
 
@@ -43,8 +44,8 @@ private:
     Vec3 m_sunDirection;    // 2D sun direction vector
     bool m_manualSunControl;
 
-    ContourData m_init_contours_lower;
-    ContourData m_init_contours_upper;
+    GraphObject m_init_contours_lower;
+    GraphObject m_init_contours_upper;
 
     // Blending parameters
     float m_blendFactor;
@@ -80,7 +81,7 @@ private:
     
     // Tower visualization parameters
     std::vector<float> m_towerLevels;
-    std::vector<std::vector<std::pair<Vec3, Vec3>>> m_towerContours;
+    std::vector<GraphObject> m_towerContours;
 
 public:
     ScalarField04DirectionalSketch()
@@ -245,7 +246,12 @@ private:
         m_field_upper.apply_scalar_rect(m_rectCenter, m_rectSize, 0.523599f); // 30 degrees in radians
 
         m_init_contours_lower = m_field_lower.get_contours(0.0f);
+        m_init_contours_lower.setShowVertices(false);
+        m_init_contours_lower.setEdgeWidth(2.0f);
+
         m_init_contours_upper = m_field_upper.get_contours(0.0f);
+        m_init_contours_upper.setShowVertices(false);
+        m_init_contours_upper.setEdgeWidth(2.0f);
     }
     
     void updateCircleClusters(float deltaTime) {
@@ -264,7 +270,7 @@ private:
         updateCluster(m_clusterB_upper,m_init_contours_upper, deltaTime);
     }
 
-    void updateCluster(CircleCluster& cluster, ContourData& contours, float deltaTime) {
+    void updateCluster(CircleCluster& cluster, GraphObject& contours, float deltaTime) {
         // Update cluster velocity towards target direction
         Vec3 targetVelocity = cluster.targetDirection * m_clusterSpeed;
         cluster.clusterVelocity = Vec3::lerp(cluster.clusterVelocity, targetVelocity, deltaTime * 2.0f);
@@ -282,31 +288,27 @@ private:
         detectAndResolveCollisions(cluster, m_collisionFactor);
     }
 
-    void constrainToBoundary(Circle& circle, const ContourData& contours, float factor = 1.0f) {
-    if (contours.line_segments.empty()) return;
+    void constrainToBoundary(Circle& circle, const GraphObject& contours, float factor = 1.0f) {
+    auto data = contours.getGraphData();
+    if (!data || data->edges.empty()) {
+        return;
+    }
 
-    // Track the smallest distance and its corresponding data
     float minDist = std::numeric_limits<float>::max();
     Vec3 closestPoint;
     Vec3 bestNormal;
     bool foundConstraint = false;
 
-    // Find the closest point on any contour segment
-    for (const auto& line : contours.line_segments) {
-        const Vec3& A = line.first;
-        const Vec3& B = line.second;
+    auto evaluateEdge = [&](const Vec3& A, const Vec3& B) {
         Vec3 AB = B - A;
-
-        // Handle degenerate segments
         float segmentLengthSq = AB.dot(AB);
-        if (segmentLengthSq < 1e-6f) continue;
+        if (segmentLengthSq < 1e-6f) {
+            return;
+        }
 
         Vec3 AP = circle.position - A;
-
-        // Project AP onto AB, clamped to [0,1] to stay on the segment
         float t = std::clamp(AP.dot(AB) / segmentLengthSq, 0.0f, 1.0f);
 
-        // Closest point on this segment
         Vec3 closest = A + AB * t;
         Vec3 diff = circle.position - closest;
         float dist = diff.length();
@@ -315,35 +317,46 @@ private:
             minDist = dist;
             closestPoint = closest;
 
-            // Calculate normal: perpendicular to segment, pointing away from circle
             if (dist > 1e-6f) {
                 bestNormal = diff / dist;
             } else {
-                // If circle is exactly on the segment, use perpendicular to segment
                 Vec3 segmentDir = AB.normalized();
-                bestNormal = Vec3(-segmentDir.y, segmentDir.x, 0.0f); // 2D perpendicular
+                bestNormal = Vec3(-segmentDir.y, segmentDir.x, 0.0f);
             }
+
             foundConstraint = true;
         }
+    };
+
+    for (const auto& edge : data->edges) {
+        if (edge.vertexA < 0 || edge.vertexB < 0 ||
+            edge.vertexA >= static_cast<int>(data->vertices.size()) ||
+            edge.vertexB >= static_cast<int>(data->vertices.size())) {
+            continue;
+        }
+
+        const Vec3& A = data->vertices[edge.vertexA].position;
+        const Vec3& B = data->vertices[edge.vertexB].position;
+        evaluateEdge(A, B);
     }
 
-    if (!foundConstraint) return;
+    if (!foundConstraint) {
+        return;
+    }
 
-    // Check if circle is penetrating the boundary
     float rScaled = circle.radius * factor;
 
     if (minDist < rScaled) {
         float penetration = rScaled - minDist;
-
-        // 1) Push the circle out along the normal
         circle.position += bestNormal * penetration;
 
-        // 2) Reflect velocity component that's going into the boundary
         float vDotN = circle.velocity.dot(bestNormal);
-        if (vDotN < 0.0f) { // Only reflect if moving into the boundary
+        if (vDotN < 0.0f) {
             circle.velocity = circle.velocity - bestNormal * ((1.0f + m_collisionDamping) * vDotN);
         }
     }
+
+    if (!foundConstraint) return;
 }
 
     void detectAndResolveCollisions(CircleCluster& cluster, float factor = 1.0f) {
@@ -421,6 +434,7 @@ private:
     
     void generateTowerContours() {
         m_towerContours.clear();
+        m_towerContours.resize(m_towerLevels.size());
 
         // Extract contours at each tower level
         for (size_t i = 0; i < m_towerLevels.size(); ++i) {
@@ -433,8 +447,10 @@ private:
             
             // Get contours
             float threshold = 0.1f; // Adjust threshold for each level
-            ContourData contours = m_resultField.get_contours(threshold);
-            m_towerContours[i] = contours.line_segments;
+            GraphObject contours = m_resultField.get_contours(threshold);
+            contours.setShowVertices(false);
+            contours.setEdgeWidth(2.0f);
+            m_towerContours[i] = contours;
         }
     }
     
@@ -486,9 +502,20 @@ private:
             renderer.setColor(color);
 
             // Draw contours at this level with tower offset
-            for (const auto& segment : m_towerContours[i]) {
-                Vec3 start = segment.first + towerOffset + Vec3(0, 0, z);
-                Vec3 end = segment.second + towerOffset + Vec3(0, 0, z);
+            auto contourData = m_towerContours[i].getGraphData();
+            if (!contourData) {
+                continue;
+            }
+
+            for (const auto& edge : contourData->edges) {
+                if (edge.vertexA < 0 || edge.vertexB < 0 ||
+                    edge.vertexA >= static_cast<int>(contourData->vertices.size()) ||
+                    edge.vertexB >= static_cast<int>(contourData->vertices.size())) {
+                    continue;
+                }
+
+                Vec3 start = contourData->vertices[edge.vertexA].position + towerOffset + Vec3(0, 0, z);
+                Vec3 end = contourData->vertices[edge.vertexB].position + towerOffset + Vec3(0, 0, z);
                 renderer.drawLine(start, end, color, 2.0f);
             }
 
@@ -680,6 +707,12 @@ public:
 };
 
 // Register the sketch with alice2
-//ALICE2_REGISTER_SKETCH_AUTO(ScalarField04DirectionalSketch)
+// ALICE2_REGISTER_SKETCH_AUTO(ScalarField04DirectionalSketch)
 
 #endif // __MAIN__
+
+
+
+
+
+

@@ -10,6 +10,7 @@
 #include <sketches/SketchRegistry.h>
 #include <computeGeom/scalarField.h>
 #include <array>
+#include <objects/GraphObject.h>
 
 using namespace alice2;
 
@@ -29,7 +30,7 @@ public:
 
     // Fields and contours
     ScalarField2D fieldRect, fieldCircle, fieldCorner, fieldEnd, fieldBlend;
-    std::vector<std::vector<std::pair<Vec3, Vec3>>> m_contours;
+    std::vector<GraphObject> m_contours;
     std::vector<float> m_levels;
 
     void setup() override {
@@ -75,7 +76,11 @@ public:
         for (int i = 0; i < numFloors; ++i) {
             fieldBlend = fieldCorner;
             fieldBlend.interpolate(fieldEnd, m_levels[i]);
-            m_contours[i] = std::move(fieldBlend.get_contours(0.0f).line_segments);
+            GraphObject contour = fieldBlend.get_contours(0.0f);
+            contour.setShowVertices(false);
+            contour.setEdgeWidth(1.0f);
+            contour.setEdgeColor(Color(1, 1, 1));
+            m_contours[i] = std::move(contour);
         }
     }
 
@@ -86,14 +91,24 @@ public:
         const float spacing = 0.4f;
         for (size_t i = 0; i < m_contours.size(); ++i) {
             float z = float(i) * spacing;
-            for (auto& seg : m_contours[i]) {
-                Vec3 A = seg.first  + Vec3(0,0,z);
-                Vec3 B = seg.second + Vec3(0,0,z);
-                renderer.drawLine(A, B, Color(1,1,1), 1.0f);
+            auto data = m_contours[i].getGraphData();
+            if (!data) {
+                continue;
+            }
+
+            for (const auto& edge : data->edges) {
+                if (edge.vertexA < 0 || edge.vertexB < 0 ||
+                    edge.vertexA >= static_cast<int>(data->vertices.size()) ||
+                    edge.vertexB >= static_cast<int>(data->vertices.size())) {
+                    continue;
+                }
+
+                Vec3 A = data->vertices[edge.vertexA].position + Vec3(0, 0, z);
+                Vec3 B = data->vertices[edge.vertexB].position + Vec3(0, 0, z);
+                renderer.drawLine(A, B, Color(1, 1, 1), 1.0f);
             }
         }
     }
-
     std::string getName() const override { return "SDF Tower Sketch"; }
     std::string getDescription() const override { return "Configurable corner circles & smooth blend"; }
     std::string getAuthor() const override { return "alice2 User"; }
@@ -102,3 +117,7 @@ public:
 //ALICE2_REGISTER_SKETCH_AUTO(SdfTowerSketch)
 
 #endif // __MAIN__
+
+
+
+

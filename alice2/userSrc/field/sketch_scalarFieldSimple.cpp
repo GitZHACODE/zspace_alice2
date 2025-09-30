@@ -7,6 +7,7 @@
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
 #include <computeGeom/scalarField.h>
+#include <objects/GraphObject.h>
 #include <cmath>
 
 using namespace alice2;
@@ -15,7 +16,7 @@ class SimpleScalarFieldSketch : public ISketch {
 private:
     ScalarField2D m_scalarField;
     ScalarField2D m_scalarField_other;
-    std::vector<ContourData> m_isolines;
+    std::vector<GraphObject> m_isolines;
     float m_time;
     bool m_fieldGenerated;
     bool d_iso = false;
@@ -98,14 +99,20 @@ public:
         //m_scalarField.boolean_subtract(m_scalarField_other);
 
 
-        if (m_isolines.size() < 100 && (int)deltaTime%10 == 0)
+        if (m_isolines.size() < 100 && static_cast<int>(deltaTime) % 10 == 0)
         {
-            ContourData contour = m_scalarField.get_contours(0.0f);
-            for (auto &line : contour.line_segments)
+            GraphObject contour = m_scalarField.get_contours(0.0f);
+            auto data = contour.getGraphData();
+            if (data)
             {
-                line.first = Vec3(line.first.x, line.first.y, line.first.z + contour_spacing);
-                line.second = Vec3(line.second.x, line.second.y, line.second.z + contour_spacing);
+                for (auto& vertex : data->vertices)
+                {
+                    vertex.position.z += contour_spacing;
+                }
             }
+            contour.setShowVertices(false);
+            contour.setEdgeColor(Color(1.0f, 1.0f, 1.0f));
+            contour.setEdgeWidth(2.0f);
             m_isolines.push_back(contour);
             contour_spacing += 0.2f;
         }
@@ -137,10 +144,26 @@ public:
             // }
             //m_scalarField.drawIsocontours(renderer, 0.5f);
 
-            for(auto &contour : m_isolines)
+            for (auto& contour : m_isolines)
             {
-                for(auto& line : contour.line_segments)
-                renderer.drawLine(line.first,line.second, Color(1.0f, 1.0f, 1.0f), 2.0f);
+                auto data = contour.getGraphData();
+                if (!data) {
+                    continue;
+                }
+
+                for (const auto& edge : data->edges)
+                {
+                    if (edge.vertexA < 0 || edge.vertexB < 0 ||
+                        edge.vertexA >= static_cast<int>(data->vertices.size()) ||
+                        edge.vertexB >= static_cast<int>(data->vertices.size()))
+                    {
+                        continue;
+                    }
+
+                    const Vec3& start = data->vertices[edge.vertexA].position;
+                    const Vec3& end = data->vertices[edge.vertexB].position;
+                    renderer.drawLine(start, end, Color(1.0f, 1.0f, 1.0f), 2.0f);
+                }
             }
         }
 
@@ -221,3 +244,6 @@ public:
 //ALICE2_REGISTER_SKETCH_AUTO(SimpleScalarFieldSketch)
 
 #endif // __MAIN__
+
+
+

@@ -7,6 +7,7 @@
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
 #include <computeGeom/scalarField.h>
+#include <objects/GraphObject.h>
 #include <cmath>
 
 using namespace alice2;
@@ -54,7 +55,7 @@ private:
 
     // Tower visualization parameters
     std::vector<float> m_towerLevels;  // Z-levels for tower: 20 floors, 0 to 57
-    std::vector<std::vector<std::pair<Vec3, Vec3>>> m_towerContours; // Contours at each level
+    std::vector<GraphObject> m_towerContours; // Contours at each level
 
 public:
     ScalarField03BlendingSketch()
@@ -224,20 +225,18 @@ private:
     
     void generateTowerContours() {
         m_towerContours.clear();
+        m_towerContours.resize(m_towerLevels.size());
 
-        // Extract contours at each tower level
         for (size_t i = 0; i < m_towerLevels.size(); ++i) {
-            // Apply smooth minimum blending with upper field (rectangle with union operations)
             m_blended_field = m_field_lower;
             float wt = static_cast<float>(i) / (m_towerLevels.size() - 1);
-            //wt = 0.0f ? 0.01f : wt;
-            //m_blended_field.boolean_smin_weighted(m_field_upper, m_blendFactor, wt);
             m_blended_field.interpolate(m_field_upper, wt);
-            
-            // Get contours
-            float threshold = 0.1f; // Adjust threshold for each level
-            ContourData contours = m_blended_field.get_contours(threshold);
-            m_towerContours[i] = contours.line_segments;
+
+            float threshold = 0.1f;
+            GraphObject contours = m_blended_field.get_contours(threshold);
+            contours.setShowVertices(false);
+            contours.setEdgeWidth(2.0f);
+            m_towerContours[i] = std::move(contours);
         }
     }
     
@@ -287,9 +286,20 @@ private:
             renderer.setColor(color);
 
             // Draw contours at this level with tower offset
-            for (const auto& segment : m_towerContours[i]) {
-                Vec3 start = segment.first + towerOffset + Vec3(0, 0, z);
-                Vec3 end = segment.second + towerOffset + Vec3(0, 0, z);
+            auto data = m_towerContours[i].getGraphData();
+            if (!data) {
+                continue;
+            }
+
+            for (const auto& edge : data->edges) {
+                if (edge.vertexA < 0 || edge.vertexB < 0 ||
+                    edge.vertexA >= static_cast<int>(data->vertices.size()) ||
+                    edge.vertexB >= static_cast<int>(data->vertices.size())) {
+                    continue;
+                }
+
+                Vec3 start = data->vertices[edge.vertexA].position + towerOffset + Vec3(0, 0, z);
+                Vec3 end = data->vertices[edge.vertexB].position + towerOffset + Vec3(0, 0, z);
                 renderer.drawLine(start, end, color, 2.0f);
             }
 
@@ -406,6 +416,10 @@ public:
 };
 
 // Register the sketch with alice2
-//ALICE2_REGISTER_SKETCH_AUTO(ScalarField03BlendingSketch)
+// ALICE2_REGISTER_SKETCH_AUTO(ScalarField03BlendingSketch)
 
 #endif // __MAIN__
+
+
+
+
