@@ -1,4 +1,4 @@
-#define __MAIN__
+//#define __MAIN__
 #ifdef __MAIN__
 
 #include <alice2.h>
