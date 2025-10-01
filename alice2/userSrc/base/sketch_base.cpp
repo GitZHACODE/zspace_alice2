@@ -34,7 +34,7 @@ public:
         // This is called once when the sketch is loaded
         
         // Example: Set background color
-        scene().setBackgroundColor(Color(0.15f, 0.15f, 0.15f));
+        scene().setBackgroundColor(Color(0.1f, 0.1f, 0.1f));
         std::cout << "Background color set to light gray" << std::endl;
 
         // Note: alice2 uses Z-up coordinate system by default (zspace compatibility)
@@ -47,6 +47,18 @@ public:
         // Example: Enable axes
         scene().setShowAxes(true);
         scene().setAxesLength(2.0f);
+
+        // --- Simple UI setup ---
+        m_ui = std::make_unique<SimpleUI>(input());
+        // toggles
+        m_ui->addToggle("Show Points", UIRect{10, 90, 140, 26}, m_showPoints);
+        m_ui->addToggle("Wireframe",   UIRect{10, 122, 140, 26}, m_wireframe);
+
+        // button group (render mode)
+        m_ui->addButtonGroup({"Points", "Lines", "Triangles"}, Vec2{10, 158}, 88.0f, 26.0f, 6.0f, m_modeIdx);
+
+        // slider (point size)
+        m_ui->addSlider("Point Size", Vec2{10, 210}, 160.0f, 1.0f, 16.0f, m_pointSize);
 
     }
 
@@ -68,10 +80,12 @@ public:
         // renderer.popMatrix();
 
         // Example: Draw some points using enhanced renderer methods
-        for (int i = 0; i < 10; i++) {
-            Vec3 pos(0, 0, i);
-            Color color(0.2f, 1.0f, 0.5f); // Green color
-            renderer.drawPoint(pos, color, 5.0f); // Position, color, size
+        if (m_showPoints) {
+            for (int i = 0; i < 10; i++) {
+                Vec3 pos(0, 0, i);
+                Color color(0.2f, 1.0f, 0.5f); // Green color
+                renderer.drawPoint(pos, color, m_pointSize); // Position, color, size
+            }
         }
 
         // Example: Draw some lines using enhanced renderer methods
@@ -91,14 +105,27 @@ public:
         renderer.drawString("FPS: " + std::to_string((Application::getInstance()->getFPS())), 10, 70);
 
         renderer.setColor(Color(0.75f, 0.75f, 0.75f));
-        renderer.drawString("'ESC' - Exit ", 10, 200);
-        renderer.drawString("'F'   - Extend view ", 10, 220);
-        renderer.drawString("'N'   - Switch to the next sketch ", 10, 240);
-        renderer.drawString("'P'   - Switch to the previous sketch ", 10, 260);
+        renderer.drawString("'ESC' - Exit ", 10, 260);
+        renderer.drawString("'F'   - Extend view ", 10, 280);
+        renderer.drawString("'N'   - Next sketch ", 10, 300);
+        renderer.drawString("'P'   - Prev sketch ", 10, 320);
 
         // Test 3D text rendering (billboard text in world space with screen-space sizing)
-        renderer.setColor(Color(1.0f, 0.0f, 0.5f)); // Yellow text
+        renderer.setColor(Color(1.0f, 0.0f, 0.5f)); // Pink text
         renderer.drawText("Hello from alice2 !", Vec3(0, 0, 2.0f), 1.2f);
+
+        // Apply wireframe based on UI
+        renderer.setWireframe(m_wireframe);
+
+        // Adjust render mode from group selection
+        switch (m_modeIdx) {
+            case 0: renderer.setRenderMode(RenderMode::Points); break;
+            case 1: renderer.setRenderMode(RenderMode::Lines); break;
+            default: renderer.setRenderMode(RenderMode::Triangles); break;
+        }
+
+        // Draw UI last
+        if (m_ui) m_ui->draw(renderer);
     }
 
     void cleanup() override {
@@ -118,20 +145,29 @@ public:
     }
 
     bool onMousePress(int button, int state, int x, int y) override {
-        // Handle mouse button input
-        // button: 0=left, 1=middle, 2=right
-        // state: 0=down, 1=up
-        return false; // Not handled - allow default camera controls
+        if (m_ui && m_ui->onMousePress(button, state, x, y)) {
+            return true; // UI consumed -> block default camera behavior
+        }
+        return false; // Not handled by UI
     }
 
     bool onMouseMove(int x, int y) override {
-        // Handle mouse movement
-        return false; // Not handled - allow default camera controls
+        if (m_ui && m_ui->onMouseMove(x, y)) {
+            return true; // UI dragging
+        }
+        return false; // Not handled by UI
     }
+private:
+    // UI state
+    std::unique_ptr<SimpleUI> m_ui;
+    bool  m_showPoints{true};
+    bool  m_wireframe{false};
+    int   m_modeIdx{2}; // 0=Points,1=Lines,2=Triangles
+    float m_pointSize{6.0f};
 };
 
 // Register the sketch with alice2 (both old and new systems)
-ALICE2_REGISTER_SKETCH_AUTO(BaseSketch)
+// ALICE2_REGISTER_SKETCH_AUTO(BaseSketch)
 
 #endif // __MAIN__
 
