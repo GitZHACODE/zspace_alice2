@@ -128,6 +128,7 @@ namespace alice2 {
         Vec3 gradient_normalized(const Vec3& p) const;
         Vec3 project_onto_isosurface(const Vec3& start, float isoLevel = 0.0f, int maxIterations = 8, float tolerance = 1e-4f) const;
         Vec3 get_cell_size() const;
+        float value_at(const Vec3& p) const;
         bool contains_point(const Vec3& p) const;
 
         // Field generation methods (snake_case naming)

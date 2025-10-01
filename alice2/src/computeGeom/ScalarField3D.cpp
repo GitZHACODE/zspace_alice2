@@ -834,6 +834,20 @@ namespace alice2 {
         return Vec3(dx, dy, dz) * 0.5f;
     }
 
+    float ScalarField3D::value_at(const Vec3& p) const{
+        if (m_field_values.empty()) {
+            return 0.0f;
+        }
+
+        Vec3 samplePoint = contains_point(p) ? p : clamp_to_bounds(p);
+
+        if (m_res_x <= 1 || m_res_y <= 1 || m_res_z <= 1) {
+            return sample_nearest(samplePoint);
+        }
+
+        return sample_trilinear(samplePoint);
+    }
+
     Vec3 ScalarField3D::gradient_normalized(const Vec3& p) const {
         Vec3 g = gradient_at(p);
         float len = g.length();
@@ -1192,4 +1206,5 @@ int ScalarField3D::polygonize_cell_tetra(const GridCell& cell,
 
 
 } // namespace alice2
+
 
