@@ -54,6 +54,7 @@ namespace alice2 {
         std::shared_ptr<GraphData> getGraphData() const { return m_graphData; }
 
         GraphObject duplicate() const;
+        float getLength() const;
 
         bool isClosed() const { return m_isClosed; }
         bool isPolyline() const { return m_isPolyline; }
@@ -61,6 +62,7 @@ namespace alice2 {
         void weld(float epsilon = 1e-6f);
         void combineWith(const GraphObject& other);
         void resample(float sampleDistance);
+        void resampleByCount(int sampleCount);
         std::vector<GraphObject> separate() const;
 
         void createFromPositionsAndEdges(const std::vector<Vec3>& positions,

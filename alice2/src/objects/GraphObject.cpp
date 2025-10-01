@@ -116,6 +116,17 @@ namespace alice2 {
         return copy;
     }
 
+    float GraphObject::getLength() const {
+        float totalLength = 0.0f;
+        for(auto edge : m_graphData->edges){
+            const Vec3 posA = m_graphData->vertices[edge.vertexA].position;
+            const Vec3 posB = m_graphData->vertices[edge.vertexB].position;
+            float edgeLength = posA.distanceTo(posB);
+            totalLength += edgeLength;
+        }
+        return totalLength;
+    }
+
     void GraphObject::weld(float epsilon) {
         if (!m_graphData || m_graphData->vertices.size() < 2) {
             return;
@@ -396,6 +407,16 @@ namespace alice2 {
         calculateBounds();
         updateTopologyFlags();
     }
+
+    void GraphObject::resampleByCount(int sampleCount) {
+        if (!m_graphData || sampleCount <= 2) {
+            return;
+        }
+
+        float sampleDistance = getLength() / static_cast<float>(sampleCount);
+        resample(sampleDistance);
+    }
+
 
     std::vector<GraphObject> GraphObject::separate() const {
         std::vector<GraphObject> components;
