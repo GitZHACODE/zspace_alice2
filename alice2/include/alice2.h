@@ -26,6 +26,9 @@
 #include "../src/sketches/SketchManager.h"
 #include "../src/sketches/ISketch.h"
 
+// UI includes
+#include "../src/ui/SimpleUI.h"
+
 // Utility includes
 #include "../src/utils/Math.h"
 #include "../src/utils/OpenGL.h"
