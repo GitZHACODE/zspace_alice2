@@ -4,6 +4,9 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <fstream>
+#include <sstream>
+#include <filesystem>
 #include <limits>
 #include <queue>
 #include <unordered_map>
@@ -127,6 +130,160 @@ namespace alice2 {
         return totalLength;
     }
 
+    void GraphObject::readFromObj(const std::string& filename) {
+        std::ifstream input(filename);
+        if (!input) {
+            std::cout << "Failed to open OBJ file: " << filename << std::endl;
+            return;
+        }
+
+        if (!m_graphData) {
+            m_graphData = std::make_shared<GraphData>();
+        }
+        m_graphData->clear();
+
+        std::string line;
+        while (std::getline(input, line)) {
+            size_t commentPos = line.find('#');
+            if (commentPos != std::string::npos) {
+                line = line.substr(0, commentPos);
+            }
+
+            std::istringstream iss(line);
+            std::string tag;
+            if (!(iss >> tag)) {
+                continue;
+            }
+
+            if (tag == "v") {
+                Vec3 position;
+                if (!(iss >> position.x >> position.y >> position.z)) {
+                    std::cout << "GraphObject::readFromObj: Invalid vertex line: " << line << std::endl;
+                    continue;
+                }
+
+                float r, g, b;
+                Color color = m_defaultVertexColor;
+                if (iss >> r >> g >> b) {
+                    color = Color(r, g, b);
+                }
+
+                m_graphData->vertices.emplace_back(position, color);
+            }
+            else if (tag == "l") {
+                const int vertexCount = static_cast<int>(m_graphData->vertices.size());
+                std::vector<int> indices;
+                std::string token;
+                while (iss >> token) {
+                    if (token.empty()) {
+                        continue;
+                    }
+
+                    size_t slashPos = token.find('/');
+                    if (slashPos != std::string::npos) {
+                        token = token.substr(0, slashPos);
+                    }
+
+                    std::istringstream tokenStream(token);
+                    int idx = 0;
+                    if (!(tokenStream >> idx)) {
+                        std::cout << "GraphObject::readFromObj: Failed to parse index token: " << token << std::endl;
+                        continue;
+                    }
+
+                    if (idx < 0) {
+                        idx = vertexCount + idx + 1;
+                    }
+
+                    idx -= 1;
+                    if (idx < 0 || idx >= vertexCount) {
+                        std::cout << "GraphObject::readFromObj: Invalid vertex index: " << token << std::endl;
+                        continue;
+                    }
+
+                    indices.push_back(idx);
+                }
+
+                for (size_t i = 1; i < indices.size(); ++i) {
+                    int a = indices[i - 1];
+                    int b = indices[i];
+
+                    if (a != b) {
+                        m_graphData->edges.emplace_back(a, b);
+                    }
+                }
+            }
+        }
+
+        calculateBounds();
+        updateTopologyFlags();
+
+        std::cout << "Loaded graph from OBJ: " << filename
+                  << " (" << m_graphData->vertices.size() << " vertices, "
+                  << m_graphData->edges.size() << " edges)" << std::endl;
+    }
+
+    void GraphObject::writeToObj(const std::string& filename) const {
+        if (!m_graphData) {
+            std::cout << "No graph data to write" << std::endl;
+            return;
+        }
+
+        std::filesystem::path outPath(filename);
+        if (outPath.has_parent_path()) {
+            std::error_code ec;
+            std::filesystem::create_directories(outPath.parent_path(), ec);
+            if (ec) {
+                std::cerr << "Failed to create directory '"
+                          << outPath.parent_path().string()
+                          << "': " << ec.message() << "\n";
+                return;
+            }
+        }
+
+        std::ofstream output(filename, std::ios::out | std::ios::trunc);
+        if (!output) {
+            std::cout << "Failed to open OBJ file: " << filename << std::endl;
+            return;
+        }
+
+        for (const auto& vertex : m_graphData->vertices) {
+            output << "v "
+                   << vertex.position.x << ' '
+                   << vertex.position.y << ' '
+                   << vertex.position.z << ' '
+                   << vertex.color.r << ' '
+                   << vertex.color.g << ' '
+                   << vertex.color.b << '\n';
+        }
+
+        auto makeEdgeKey = [](int a, int b) {
+            if (a > b) {
+                std::swap(a, b);
+            }
+            return (static_cast<std::uint64_t>(a) << 32) | static_cast<std::uint32_t>(b);
+        };
+
+        std::unordered_set<std::uint64_t> uniqueEdges;
+        uniqueEdges.reserve(m_graphData->edges.size());
+
+        const int vertexCount = static_cast<int>(m_graphData->vertices.size());
+        for (const auto& edge : m_graphData->edges) {
+            int a = edge.vertexA;
+            int b = edge.vertexB;
+            if (a < 0 || b < 0 || a >= vertexCount || b >= vertexCount || a == b) {
+                continue;
+            }
+
+            if (!uniqueEdges.insert(makeEdgeKey(a, b)).second) {
+                continue;
+            }
+
+            output << "l " << (a + 1) << ' ' << (b + 1) << '\n';
+        }
+
+        std::cout << "Successfully exported graph to: " << filename << std::endl;
+    }
     void GraphObject::weld(float epsilon) {
         if (!m_graphData || m_graphData->vertices.size() < 2) {
             return;
@@ -829,3 +986,4 @@ namespace alice2 {
     }
 
 } // namespace alice2
+

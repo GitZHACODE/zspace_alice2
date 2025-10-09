@@ -56,6 +56,9 @@ namespace alice2 {
         GraphObject duplicate() const;
         float getLength() const;
 
+        void readFromObj(const std::string& filename);
+        void writeToObj(const std::string& filename) const;
+
         bool isClosed() const { return m_isClosed; }
         bool isPolyline() const { return m_isPolyline; }
 
@@ -114,3 +117,4 @@ namespace alice2 {
 } // namespace alice2
 
 #endif // ALICE2_GRAPH_OBJECT_H
+
