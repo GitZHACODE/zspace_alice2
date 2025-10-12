@@ -1,10 +1,15 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(alice2 VERSION 1.0.0 LANGUAGES CXX)
+project(alice2 VERSION 1.0.0 LANGUAGES CXX CUDA)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+    set(CMAKE_CUDA_ARCHITECTURES 75)
+endif()
 
 # Set build type if not specified
 if(NOT CMAKE_BUILD_TYPE)
@@ -22,6 +27,7 @@ set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "_deps/CMakeTargets")
 
 # Find required packages
 find_package(OpenGL REQUIRED)
+find_package(CUDAToolkit REQUIRED)
 
 # Use depends path
 set(ALICE2_DEPENDS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/depends")
@@ -127,6 +133,7 @@ include_directories(
     ${GLFW_INCLUDE_DIRS}
     ${EIGEN_DIR}
     ${NLOHMANN_JSON_INCLUDE_DIRS}
+    ${CUDAToolkit_INCLUDE_DIRS}
 )
 
 # Collect all .cpp files under src/ and userSrc/
@@ -134,6 +141,12 @@ file(GLOB_RECURSE ALICE2_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/*.cpp"
 )
+
+# Collect all .cu files under src/
+file(GLOB_RECURSE ALICE2_CUDA_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cu"
+)
+list(APPEND ALICE2_SOURCES ${ALICE2_CUDA_SOURCES})
 
 # Collect all .h files under include/, src/, and userSrc/
 file(GLOB_RECURSE ALICE2_HEADERS
@@ -168,6 +181,8 @@ target_link_libraries(alice2
     ${OPENGL_LIBRARIES}
     ${GLEW_LIBRARIES}
     ${GLFW_LIBRARIES}
+    CUDA::cublas
+    CUDA::cudart
 )
 
 # Platform-specific linking for GLFW
@@ -182,7 +197,11 @@ endif()
 
 # Compiler-specific options
 if(MSVC)
-    target_compile_options(alice2 PRIVATE /W4 /wd4100 /wd4244)
+    target_compile_options(alice2 PRIVATE
+        $<$<COMPILE_LANGUAGE:CXX>:/W4>
+        $<$<COMPILE_LANGUAGE:CXX>:/wd4100>
+        $<$<COMPILE_LANGUAGE:CXX>:/wd4244>
+    )
     target_compile_definitions(alice2 PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
     target_compile_options(alice2 PRIVATE -Wall -Wextra -Wpedantic)
