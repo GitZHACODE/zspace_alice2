@@ -1,44 +1,37 @@
 @echo off
-echo ========================================
-echo Alice2 3D Viewer - Build Script
-echo ========================================
-echo.
+setlocal
 
-:: Check if we're in the right directory
-if not exist "CMakeLists.txt" (
-    echo ERROR: CMakeLists.txt not found!
-    echo Please run this script from the alice2 root directory.
-    pause
-    exit /b 1
+REM Usage:
+REM   build.bat        -> normal build in "build"
+REM   build.bat cuda   -> CUDA build in "build_cuda"
+
+set "CONFIG=Release"
+set "BUILD_DIR=build"
+set "EXTRA_FLAGS="
+
+if /I "%~1"=="cuda" (
+    set BUILD_DIR=build_cuda
+    set EXTRA_FLAGS=-DALICE2_ENABLE_CUDA=ON
 )
 
-:: Configure with CMake
-echo [1/3] Configuring project with CMake...
-cmake . -B build -G "Visual Studio 17 2022" -A x64
-if errorlevel 1 (
-    echo ERROR: CMake configuration failed!
-    pause
-    exit /b 1
-)
+echo.
+echo [alice2] Configuring into "%BUILD_DIR%" (%CONFIG%) %EXTRA_FLAGS%
+if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
 
-:: Build the project
-echo.
-echo [2/3] Building project (Release configuration)...
-cmake --build build --config Release
-if errorlevel 1 (
-    echo ERROR: Build failed!
-    pause
-    exit /b 1
-)
+REM Configure (generator-agnostic)
+cmake -S . -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%CONFIG% %EXTRA_FLAGS%
+if errorlevel 1 goto :fail
 
-:: Build complete
 echo.
-echo [3/3] Build complete!
+echo [alice2] Building...
+cmake --build "%BUILD_DIR%" --config %CONFIG% -- /m
+if errorlevel 1 goto :fail
+
 echo.
-echo Executable location: build\bin\Release\alice2.exe
-echo DLLs copied automatically to executable directory.
+echo [alice2] Build finished successfully.
+goto :eof
+
+:fail
 echo.
-echo To create a distribution package, run:
-echo   cmake --install build --prefix dist
-echo.
-echo Build successful! You can now run the alice2 viewer.
+echo [alice2] Build failed.
+exit /b 1
