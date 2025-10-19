@@ -573,8 +573,10 @@ void TinyAutoDecoderCUDA::syncLatentsToHost(){
 }
 
 void TinyAutoDecoderCUDA::trainMicroBatchGPU(int B, Sampler& sampler, std::mt19937& rng,
-                                             float lrW,float lrZ)
+                                             float lrW,float lrZ,
+                                             const std::vector<std::vector<float>>& shapes)
 {
+    sampler.setShapes(&shapes);
     std::uniform_int_distribution<int> pick(0, numShapes_-1);
     impl_->hShapeIdx.resize(B); impl_->hXs.resize(B); impl_->hYs.resize(B); impl_->hTgt.resize(B);
 

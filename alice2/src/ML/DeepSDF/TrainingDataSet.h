@@ -12,6 +12,21 @@
 
 namespace DeepSDF {
 
+enum class ShapeType : int {
+    Circle = 0,
+    Box = 1,
+    TriangleUp = 2
+};
+
+inline const std::vector<std::vector<float>>& defaultShapeSpecs() {
+    static const std::vector<std::vector<float>> kDefaults = {
+        { static_cast<float>(ShapeType::Circle), 0.6f },
+        { static_cast<float>(ShapeType::Box),    0.55f, 0.55f },
+        { static_cast<float>(ShapeType::TriangleUp), 1.1f }
+    };
+    return kDefaults;
+}
+
 // ----------------- Utility -----------------
 inline float clampSDF(float d, float beta = 0.1f) {
     float v = d / beta;
@@ -53,6 +68,34 @@ inline float labelFromSDF(float d, float eps = 0.02f) {
     return 0.0f;
 }
 
+inline float evalShapeSDF(const std::vector<float>& shape, float x, float y) {
+    if (shape.empty()) return 1e9f;
+    const int type = static_cast<int>(shape[0]);
+    switch (type) {
+        case static_cast<int>(ShapeType::Circle): {
+            const float r = (shape.size() > 1) ? shape[1] : 0.6f;
+            return sdCircle(x, y, r);
+        }
+        case static_cast<int>(ShapeType::Box): {
+            const float hx = (shape.size() > 1) ? shape[1] : 0.55f;
+            const float hy = (shape.size() > 2) ? shape[2] : hx;
+            return sdBox(x, y, hx, hy);
+        }
+        case static_cast<int>(ShapeType::TriangleUp): {
+            const float s = (shape.size() > 1) ? shape[1] : 1.1f;
+            return sdTriangleUp(x, y, s);
+        }
+        default:
+            return 1e9f;
+    }
+}
+
+inline float evalShapeSDF(const std::vector<std::vector<float>>& shapes,
+                          int shapeIdx, float x, float y) {
+    if (shapeIdx < 0 || shapeIdx >= (int)shapes.size()) return 1e9f;
+    return evalShapeSDF(shapes[size_t(shapeIdx)], x, y);
+}
+
 // ---------- Sampler ----------
 struct Sampler {
     float range = 1.2f;
@@ -63,15 +106,20 @@ struct Sampler {
     std::mt19937 rng;
     std::uniform_real_distribution<float> U;
 
-    Sampler(unsigned seed = 999) : rng(seed), U(-1.f, 1.f) {}
+    const std::vector<std::vector<float>>* shapes = nullptr;
 
-    static float sdf(int shapeIdx, float x, float y) {
-        switch (shapeIdx) {
-            case 0: return sdCircle(x, y, 0.6f);
-            case 1: return sdBox(x, y, 0.55f, 0.55f);
-            case 2: return sdTriangleUp(x, y, 1.1f);
-            default: return 1e9f;
-        }
+    Sampler(unsigned seed = 999,
+            const std::vector<std::vector<float>>* shapesPtr = nullptr)
+        : rng(seed), U(-1.f, 1.f),
+          shapes(shapesPtr ? shapesPtr : &defaultShapeSpecs()) {}
+
+    void setShapes(const std::vector<std::vector<float>>* shapesPtr) {
+        shapes = shapesPtr ? shapesPtr : &defaultShapeSpecs();
+    }
+
+    float sdf(int shapeIdx, float x, float y) const {
+        if (!shapes) return 1e9f;
+        return evalShapeSDF(*shapes, shapeIdx, x, y);
     }
 
     std::tuple<float,float,float> sampleForShape(int shapeIdx) {
@@ -107,8 +155,25 @@ struct Sampler {
 
 // ---------- TrainingDataSet ----------
 struct TrainingDataset {
+    std::vector<std::vector<float>> shapes;
     std::vector<int>   shapeIdx;
     std::vector<float> x, y, target, pred;
+
+    TrainingDataset() {
+        setDefaultShapes();
+    }
+
+    void setShapes(std::vector<std::vector<float>> customShapes) {
+        shapes = std::move(customShapes);
+    }
+
+    void setDefaultShapes() {
+        shapes = defaultShapeSpecs();
+    }
+
+    void ensureShapes() {
+        if (shapes.empty()) setDefaultShapes();
+    }
 
     void reserve(size_t n){
         shapeIdx.reserve(n); x.reserve(n); y.reserve(n); target.reserve(n); pred.reserve(n);
@@ -130,6 +195,7 @@ struct TrainingDataset {
             j["version"] = 1;
             j["count"]   = size();
             j["shapeIdx"] = shapeIdx;
+            j["shapes"]   = shapes;
             j["x"]        = x;
             j["y"]        = y;
             j["target"]   = target;
@@ -154,6 +220,11 @@ struct TrainingDataset {
                 !j.contains("target") || !j.contains("pred")) return false;
 
             std::vector<int>   s  = j["shapeIdx"].get<std::vector<int>>();
+            if (j.contains("shapes")) {
+                shapes = j["shapes"].get<std::vector<std::vector<float>>>();
+            } else {
+                ensureShapes();
+            }
             std::vector<float> vx = j["x"].get<std::vector<float>>();
             std::vector<float> vy = j["y"].get<std::vector<float>>();
             std::vector<float> vt = j["target"].get<std::vector<float>>();
@@ -174,10 +245,11 @@ struct TrainingDataset {
     // Generate a default dataset (current behaviour): empty (fresh) or a tiny seed.
     void generateDefault(bool withTinySeed=false) {
         clear();
+        ensureShapes();
         if (!withTinySeed) return;
         // Minimal seed: one sample per shape at origin
-        for (int s=0; s<3; ++s) {
-            float d = clampSDF(Sampler::sdf(s, 0.f, 0.f));
+        for (int s=0; s<(int)shapes.size(); ++s) {
+            float d = clampSDF(evalShapeSDF(shapes, s, 0.f, 0.f));
             add(s, 0.f, 0.f, d, d);
         }
     }

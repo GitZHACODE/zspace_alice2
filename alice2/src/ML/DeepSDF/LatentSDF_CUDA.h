@@ -15,14 +15,15 @@ struct uchar4;
 
 namespace DeepSDF {
 
-inline void buildAnalyticGrid(int shapeIdx,int resX,int resY,float xMin,float xMax,float yMin,float yMax,
+inline void buildAnalyticGrid(const std::vector<std::vector<float>>& shapes,
+                              int shapeIdx,int resX,int resY,float xMin,float xMax,float yMin,float yMax,
                               std::vector<float>& out,float& vmin,float& vmax){
     out.resize(size_t(resX)*size_t(resY));
     vmin= std::numeric_limits<float>::max(); vmax=-vmin;
     float xStep=(resX>1)?(xMax-xMin)/float(resX-1):0.f, yStep=(resY>1)?(yMax-yMin)/float(resY-1):0.f;
     for(int y=0;y<resY;++y){ float yy=yMin+yStep*float(y);
         for(int x=0;x<resX;++x){ float xx=xMin+xStep*float(x);
-            float v=clampSDF(Sampler::sdf(shapeIdx,xx,yy),0.1f);
+            float v=clampSDF(evalShapeSDF(shapes, shapeIdx, xx, yy),0.1f);
             size_t i=size_t(y)*size_t(resX)+size_t(x);
             out[i]=v; vmin=std::min(vmin,v); vmax=std::max(vmax,v);
         }
@@ -50,7 +51,8 @@ public:
 
     // micro-batch training step (GPU): batch W update, per-sample Z update
     void trainMicroBatchGPU(int B, Sampler& sampler, std::mt19937& rng,
-                            float lrW, float lrZ);
+                            float lrW, float lrZ,
+                            const std::vector<std::vector<float>>& shapes);
 
     // row forward for visualization
     void forwardRowGPU(int shapeIdx, const std::vector<float>& xs, float y,

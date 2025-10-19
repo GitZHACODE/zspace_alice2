@@ -216,7 +216,8 @@ struct TinyAutoDecoder {
 };
 
 // ---------- Build analytic label field ----------
-inline void buildAnalyticGrid(int shapeIdx,
+inline void buildAnalyticGrid(const std::vector<std::vector<float>>& shapes,
+                              int shapeIdx,
                               int resX, int resY,
                               float xMin, float xMax, float yMin, float yMax,
                               std::vector<float>& out, float& vmin, float& vmax)
@@ -232,7 +233,7 @@ inline void buildAnalyticGrid(int shapeIdx,
         const float yy = yMin + yStep * float(y);
         for (int x = 0; x < resX; ++x) {
             const float xx = xMin + xStep * float(x);
-            const float d  = Sampler::sdf(shapeIdx, xx, yy);
+            const float d  = evalShapeSDF(shapes, shapeIdx, xx, yy);
             const float v  = labelFromSDF(d, 0.02f); // -1 / 0 / +1
             const size_t idx = size_t(y) * size_t(resX) + size_t(x);
             out[idx] = v;
@@ -273,9 +274,10 @@ public:
         domain.xMin = xMin;  domain.xMax = xMax;
         domain.yMin = yMin;  domain.yMax = yMax;
 
+        dataset.ensureShapes();
         original.assign(numShapes, GridField{});
         for (int s = 0; s < numShapes; ++s) {
-            buildAnalyticGrid(s, domain.resX, domain.resY,
+            buildAnalyticGrid(dataset.shapes, s, domain.resX, domain.resY,
                               domain.xMin, domain.xMax, domain.yMin, domain.yMax,
                               original[s].values, original[s].minValue, original[s].maxValue);
         }
@@ -292,7 +294,9 @@ public:
                     unsigned dataSeed = 2025, unsigned sampSeed = 777,
                     bool recordDataset = true)
     {
+        dataset.ensureShapes();
         Sampler samp(sampSeed);
+        samp.setShapes(&dataset.shapes);
         std::uniform_int_distribution<int> pick(0, ad.numShapes - 1);
         std::mt19937 rng(dataSeed);
 
