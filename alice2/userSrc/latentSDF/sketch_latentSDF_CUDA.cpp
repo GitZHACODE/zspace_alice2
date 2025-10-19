@@ -6,6 +6,7 @@
 
 #include <ML/DeepSDF/LatentSDF_CUDA.h>
 #include <ML/DeepSDF/LatentNavigator_CUDA.h>
+#include <computeGeom/scalarField.h>
 
 #include <random>
 #include <algorithm>
@@ -35,9 +36,19 @@ public:
         domain_.yMin = yMin_;
         domain_.yMax = yMax_;
 
+        shapes_ = {
+            { static_cast<float>(ShapeType::Circle),     0.6f },
+            { static_cast<float>(ShapeType::Box),        0.55f, 0.55f },
+            { static_cast<float>(ShapeType::TriangleUp), 1.1f }
+        };
+
+        loadShapesFromJSON(inShapePath, shapes_);
+
+        numShapes_ = static_cast<int>(shapes_.size());
+
         originals_.resize(numShapes_);
         for (int s = 0; s < numShapes_; ++s) {
-            buildAnalyticGrid(s, domain_.resX, domain_.resY,
+            buildAnalyticGrid(shapes_, s, domain_.resX, domain_.resY,
                               domain_.xMin, domain_.xMax,
                               domain_.yMin, domain_.yMax,
                               originals_[s].values,
@@ -101,7 +112,7 @@ public:
             Sampler sampler(sampleSeed_);
             for (int e = 0; e < trainEpochs_; ++e) {
                 for (int s = 0; s < stepsPerEpoch_; ++s) {
-                    decoder_.trainMicroBatchGPU(microBatchB_, sampler, rng, lrW_, lrZ_);
+                    decoder_.trainMicroBatchGPU(microBatchB_, sampler, rng, lrW_, lrZ_, shapes_);
                 }
                 epochsDone_++;
             }
@@ -137,7 +148,7 @@ public:
 
                 originals_.resize(numShapes_);
                 for (int s = 0; s < numShapes_; ++s) {
-                    buildAnalyticGrid(s, domain_.resX, domain_.resY,
+                    buildAnalyticGrid(shapes_, s, domain_.resX, domain_.resY,
                                       domain_.xMin, domain_.xMax,
                                       domain_.yMin, domain_.yMax,
                                       originals_[s].values,
@@ -167,6 +178,93 @@ private:
         int   debugMode = 0;
         float tileSize  = 220.0f;
     };
+
+    bool loadShapesFromJSON(const std::string& filePath,
+                            std::vector<std::vector<float>>& shapes)
+    {
+        shapes.clear();
+
+        std::ifstream file(filePath);
+        if (!file.is_open()) {
+            std::cerr << "Failed to open JSON file: " << filePath << "\n";
+            return false;
+        }
+
+        nlohmann::json j;
+        try {
+            file >> j;
+        } catch (const std::exception& e) {
+            std::cerr << "Failed to parse JSON: " << e.what() << "\n";
+            return false;
+        }
+
+        if (!j.contains("shapes") || !j["shapes"].is_array()) {
+            std::cerr << "JSON file missing 'shapes' array.\n";
+            return false;
+        }
+
+        Vec3 minBB(-1.2f, -1.2f, 0.0f);
+        Vec3 maxBB( 1.2f,  1.2f, 0.0f);
+        if (const auto bboxIt = j.find("bbox"); bboxIt != j.end()) {
+            const auto& bbox = *bboxIt;
+            if (bbox.contains("minbb") && bbox["minbb"].is_array() && bbox["minbb"].size() >= 2) {
+                minBB.x = bbox["minbb"][0].get<float>();
+                minBB.y = bbox["minbb"][1].get<float>();
+            }
+            if (bbox.contains("maxbb") && bbox["maxbb"].is_array() && bbox["maxbb"].size() >= 2) {
+                maxBB.x = bbox["maxbb"][0].get<float>();
+                maxBB.y = bbox["maxbb"][1].get<float>();
+            }
+        }
+
+        minBB.z = 0.0f;
+        maxBB.z = 0.0f;
+
+        xMin_ = minBB.x;
+        xMax_ = maxBB.x;
+        yMin_ = minBB.y;
+        yMax_ = maxBB.y;
+
+        if (std::fabs(xMax_ - xMin_) < 1e-6f) {
+            xMin_ -= 0.5f;
+            xMax_ += 0.5f;
+        }
+        if (std::fabs(yMax_ - yMin_) < 1e-6f) {
+            yMin_ -= 0.5f;
+            yMax_ += 0.5f;
+        }
+
+        ScalarField2D field(minBB, maxBB, gridResX_, gridResY_);
+        shapes.reserve(j["shapes"].size());
+
+        for (const auto& branch : j["shapes"]) {
+            field.clear_field();
+
+            if (branch.contains("polys") && branch["polys"].is_array()) {
+                for (const auto& poly : branch["polys"]) {
+                    if (!poly.is_array() || poly.empty()) continue;
+                    std::vector<Vec3> pts;
+                    pts.reserve(poly.size());
+                    for (const auto& p : poly) {
+                        if (!p.is_array() || p.size() < 2) continue;
+                        const float px = p[0].get<float>();
+                        const float py = p[1].get<float>();
+                        const float pz = (p.size() > 2) ? p[2].get<float>() : 0.0f;
+                        pts.emplace_back(px, py, pz);
+                    }
+                    if (!pts.empty()) {
+                        field.apply_scalar_polygon(pts);
+                    }
+                }
+            }
+
+            const auto& values = field.get_values();
+            shapes.emplace_back(values.begin(), values.end());
+        }
+
+        std::printf("Loaded %zu shapes from JSON\n", shapes.size());
+        return !shapes.empty();
+    }
 
     void buildScanlineXs() {
         xs_.resize(domain_.resX);
@@ -246,11 +344,13 @@ private:
 private:
     DisplayConfig displayCfg_;
     FieldDomain domain_;
+    std::vector<std::vector<float>> shapes_;
     std::vector<GridField> originals_;
     std::vector<GridField> recon_;
 
     TinyAutoDecoderCUDA decoder_;
     std::string modelPath_ = "latent_model.json";
+    std::string inShapePath = "inShapes.json";
 
     int   gridResX_ = 128;
     int   gridResY_ = 128;
