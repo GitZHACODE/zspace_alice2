@@ -42,7 +42,22 @@ public:
             { static_cast<float>(ShapeType::TriangleUp), 1.1f }
         };
 
-        loadShapesFromJSON(inShapePath, shapes_);
+        const bool loadedShapes = loadShapesFromJSON(inShapePath, shapes_);
+        if (loadedShapes && !shapes_.empty()) {
+            domain_.xMin = xMin_;
+            domain_.xMax = xMax_;
+            domain_.yMin = yMin_;
+            domain_.yMax = yMax_;
+        } else if (shapes_.empty()) {
+            shapes_ = defaultShapeSpecs();
+            xMin_ = -1.2f; xMax_ = 1.2f;
+            yMin_ = -1.2f; yMax_ = 1.2f;
+        }
+
+        domain_.xMin = xMin_;
+        domain_.xMax = xMax_;
+        domain_.yMin = yMin_;
+        domain_.yMax = yMax_;
 
         numShapes_ = static_cast<int>(shapes_.size());
 
@@ -220,25 +235,23 @@ private:
         minBB.z = 0.0f;
         maxBB.z = 0.0f;
 
-        xMin_ = minBB.x;
-        xMax_ = maxBB.x;
-        yMin_ = minBB.y;
-        yMax_ = maxBB.y;
+        // const Vec3 spanBB = maxBB - minBB;
+        // const float maxSpan = std::max(std::fabs(spanBB.x), std::fabs(spanBB.y));
+        // const float margin = std::max(0.05f * maxSpan, 1.0f);
+        // minBB.x -= margin;
+        // minBB.y -= margin;
+        // maxBB.x += margin;
+        // maxBB.y += margin;
 
-        if (std::fabs(xMax_ - xMin_) < 1e-6f) {
-            xMin_ -= 0.5f;
-            xMax_ += 0.5f;
-        }
-        if (std::fabs(yMax_ - yMin_) < 1e-6f) {
-            yMin_ -= 0.5f;
-            yMax_ += 0.5f;
-        }
+        // xMin_ = minBB.x;
+        // xMax_ = maxBB.x;
+        // yMin_ = minBB.y;
+        // yMax_ = maxBB.y;
 
-        ScalarField2D field(minBB, maxBB, gridResX_, gridResY_);
         shapes.reserve(j["shapes"].size());
 
         for (const auto& branch : j["shapes"]) {
-            field.clear_field();
+            ScalarField2D field(minBB, maxBB, gridResX_, gridResY_);
 
             if (branch.contains("polys") && branch["polys"].is_array()) {
                 for (const auto& poly : branch["polys"]) {
@@ -258,8 +271,36 @@ private:
                 }
             }
 
+            const auto& values_before = field.get_values();
+            if (!values_before.empty()) {
+                auto [minIt_before, maxIt_before] = std::minmax_element(values_before.begin(), values_before.end());
+                const float minVal_before = *minIt_before;
+                const float maxVal_before = *maxIt_before;
+                std::printf("field min max before: %.6f %.6f\n", minVal_before, maxVal_before);
+            }
+
+            field.normalise();
             const auto& values = field.get_values();
-            shapes.emplace_back(values.begin(), values.end());
+            if (!values.empty()) {
+                auto [minIt, maxIt] = std::minmax_element(values.begin(), values.end());
+                const float minVal = *minIt;
+                const float maxVal = *maxIt;
+                std::printf("field min max: %.6f %.6f\n", minVal, maxVal);
+            }
+
+            if (values.size() == size_t(gridResX_) * size_t(gridResY_)) {
+                std::vector<float> packed;
+                packed.reserve(7 + values.size());
+                packed.push_back(kShapeGridMarker);
+                packed.push_back(static_cast<float>(gridResX_));
+                packed.push_back(static_cast<float>(gridResY_));
+                packed.push_back(xMin_);
+                packed.push_back(yMin_);
+                packed.push_back(xMax_);
+                packed.push_back(yMax_);
+                packed.insert(packed.end(), values.begin(), values.end());
+                shapes.emplace_back(std::move(packed));
+            }
         }
 
         std::printf("Loaded %zu shapes from JSON\n", shapes.size());

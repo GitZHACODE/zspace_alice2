@@ -93,23 +93,26 @@ void ScalarField2D::initialize_grid() {
 void ScalarField2D::normalize_field() {
     if (m_field_values.empty()) return;
 
-    // find extrema
-    auto [min_it, max_it] = std::minmax_element(m_field_values.begin(),
-                                                 m_field_values.end());
+    const auto [min_it, max_it] = std::minmax_element(m_field_values.begin(), m_field_values.end());
     const float min_val = *min_it;
     const float max_val = *max_it;
-    const float range   = std::max(max_val - min_val, 1e-6f);
 
-    // do we need a [-1,1] stretch?
-    const bool use_bipolar = (min_val < 0.0f);
+    m_normalized_values.resize(m_field_values.size(), 0.0f);
+
+    const bool has_neg = (min_val < 0.0f);
+    const bool has_pos = (max_val > 0.0f);
+    const float neg_scale = has_neg ? (-1.0f / min_val) : 0.0f;
+    const float pos_scale = has_pos ? ( 1.0f / max_val) : 0.0f;
 
     for (size_t i = 0, n = m_field_values.size(); i < n; ++i) {
-        // first normalize into [0,1]
-        float t = (m_field_values[i] - min_val) / range;
-        // if any value was negative, remap [0,1] -> [-1,1]
-        m_normalized_values[i] = use_bipolar ? (t * 2.0f - 1.0f)
-                                              :  t;
+        const float v = m_field_values[i];
+        float out = 0.0f;
+        if (v < 0.0f && has_neg) out = v * neg_scale;
+        else if (v > 0.0f && has_pos) out = v * pos_scale;
+        m_normalized_values[i] = std::clamp(out, -1.0f, 1.0f);
     }
+
+    m_is_normalized = true;
 }
 
 void ScalarField2D::clear_field() {

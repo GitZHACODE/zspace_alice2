@@ -6,6 +6,7 @@
 #include <limits>
 #include <memory>
 #include <random>
+#include <cmath>
 
 // Include nlohmann/json for JSON parsing
 #include <nlohmann/json.hpp>
@@ -26,6 +27,8 @@ inline const std::vector<std::vector<float>>& defaultShapeSpecs() {
     };
     return kDefaults;
 }
+
+constexpr float kShapeGridMarker = -9999.0f;
 
 // ----------------- Utility -----------------
 inline float clampSDF(float d, float beta = 0.1f) {
@@ -68,7 +71,84 @@ inline float labelFromSDF(float d, float eps = 0.02f) {
     return 0.0f;
 }
 
+struct GridShapeView {
+    int   resX   = 0;
+    int   resY   = 0;
+    float xMin   = 0.0f;
+    float yMin   = 0.0f;
+    float xMax   = 0.0f;
+    float yMax   = 0.0f;
+    const float* values = nullptr;
+    size_t valueCount   = 0;
+    bool  valid         = false;
+};
+
+inline GridShapeView gridShapeView(const std::vector<float>& shape) {
+    GridShapeView view;
+    if (shape.size() < 7) return view;
+    if (shape[0] != kShapeGridMarker) return view;
+
+    view.resX = std::max(0, static_cast<int>(std::round(shape[1])));
+    view.resY = std::max(0, static_cast<int>(std::round(shape[2])));
+    view.xMin = shape[3];
+    view.yMin = shape[4];
+    view.xMax = shape[5];
+    view.yMax = shape[6];
+
+    if (view.resX <= 0 || view.resY <= 0) return GridShapeView{};
+
+    const size_t expected = size_t(view.resX) * size_t(view.resY);
+    if (shape.size() < 7 + expected) return GridShapeView{};
+
+    view.values = shape.data() + 7;
+    view.valueCount = expected;
+    view.valid = true;
+    return view;
+}
+
+inline float sampleGridSDF(const GridShapeView& grid, float x, float y) {
+    if (!grid.valid || !grid.values) return 1e9f;
+    const float spanX = grid.xMax - grid.xMin;
+    const float spanY = grid.yMax - grid.yMin;
+    if (std::fabs(spanX) < 1e-6f || std::fabs(spanY) < 1e-6f) return 1e9f;
+
+    const float scaleX = (grid.resX > 1) ? float(grid.resX - 1) / spanX : 0.0f;
+    const float scaleY = (grid.resY > 1) ? float(grid.resY - 1) / spanY : 0.0f;
+
+    float gx = (x - grid.xMin) * scaleX;
+    float gy = (y - grid.yMin) * scaleY;
+
+    gx = std::clamp(gx, 0.0f, float(std::max(0, grid.resX - 1)));
+    gy = std::clamp(gy, 0.0f, float(std::max(0, grid.resY - 1)));
+
+    const int ix0 = std::min(static_cast<int>(std::floor(gx)), grid.resX - 1);
+    const int iy0 = std::min(static_cast<int>(std::floor(gy)), grid.resY - 1);
+    const int ix1 = std::min(ix0 + 1, grid.resX - 1);
+    const int iy1 = std::min(iy0 + 1, grid.resY - 1);
+
+    const float tx = gx - float(ix0);
+    const float ty = gy - float(iy0);
+
+    const auto idx = [&](int iy, int ix) {
+        return size_t(iy) * size_t(grid.resX) + size_t(ix);
+    };
+
+    const float v00 = grid.values[idx(iy0, ix0)];
+    const float v10 = grid.values[idx(iy0, ix1)];
+    const float v01 = grid.values[idx(iy1, ix0)];
+    const float v11 = grid.values[idx(iy1, ix1)];
+
+    const float vx0 = v00 + (v10 - v00) * tx;
+    const float vx1 = v01 + (v11 - v01) * tx;
+    return vx0 + (vx1 - vx0) * ty;
+}
+
 inline float evalShapeSDF(const std::vector<float>& shape, float x, float y) {
+    const GridShapeView grid = gridShapeView(shape);
+    if (grid.valid) {
+        return sampleGridSDF(grid, x, y);
+    }
+
     if (shape.empty()) return 1e9f;
     const int type = static_cast<int>(shape[0]);
     switch (type) {
@@ -119,12 +199,37 @@ struct Sampler {
 
     float sdf(int shapeIdx, float x, float y) const {
         if (!shapes) return 1e9f;
-        return evalShapeSDF(*shapes, shapeIdx, x, y);
+        if (shapeIdx < 0 || shapeIdx >= static_cast<int>(shapes->size())) return 1e9f;
+        return evalShapeSDF((*shapes)[size_t(shapeIdx)], x, y);
     }
 
     std::tuple<float,float,float> sampleForShape(int shapeIdx) {
-        std::uniform_real_distribution<float> Udom(-range, range);
         std::uniform_real_distribution<float> U01(0.f, 1.f);
+
+        float xMin = -range, xMax = range;
+        float yMin = -range, yMax = range;
+
+        GridShapeView gridView;
+        float boundaryTol = boundaryBand;
+        if (shapes && shapeIdx >= 0 && shapeIdx < static_cast<int>(shapes->size())) {
+            gridView = gridShapeView((*shapes)[size_t(shapeIdx)]);
+            if (gridView.valid) {
+                xMin = gridView.xMin;
+                xMax = gridView.xMax;
+                yMin = gridView.yMin;
+                yMax = gridView.yMax;
+                const float spanX = gridView.xMax - gridView.xMin;
+                const float spanY = gridView.yMax - gridView.yMin;
+                const float avgSpan = 0.5f * (std::fabs(spanX) + std::fabs(spanY));
+                boundaryTol = boundaryBand * std::max(1.0f, avgSpan);
+            }
+        }
+
+        if (!(xMax > xMin)) { xMin = -range; xMax = range; }
+        if (!(yMax > yMin)) { yMin = -range; yMax = range; }
+
+        std::uniform_real_distribution<float> UdomX(xMin, xMax);
+        std::uniform_real_distribution<float> UdomY(yMin, yMax);
 
         auto emit = [&](float X, float Y){
             float d = sdf(shapeIdx, X, Y);
@@ -134,21 +239,21 @@ struct Sampler {
         float r = U01(rng);
         if (r < cornerFrac) {
             for (int tries=0; tries<200; ++tries){
-                float x = Udom(rng)*0.8f;
-                float y = Udom(rng)*0.8f;
+                float x = UdomX(rng);
+                float y = UdomY(rng);
                 float d = sdf(shapeIdx, x, y);
-                if (std::fabs(d) < boundaryBand*1.5f && (std::fabs(x)+std::fabs(y) > 0.6f))
+                if (std::fabs(d) < boundaryTol*1.5f)
                     return emit(x,y);
             }
         }
         if (r < cornerFrac + boundaryFrac) {
             for (int tries = 0; tries < 200; ++tries) {
-                float x = Udom(rng), y = Udom(rng);
+                float x = UdomX(rng), y = UdomY(rng);
                 float d = sdf(shapeIdx, x, y);
-                if (std::fabs(d) < boundaryBand) return emit(x,y);
+                if (std::fabs(d) < boundaryTol) return emit(x,y);
             }
         }
-        float x = Udom(rng), y = Udom(rng);
+        float x = UdomX(rng), y = UdomY(rng);
         return emit(x,y);
     }
 };
