@@ -4,7 +4,6 @@
 #ifdef ALICE2_USE_CUDA
 
 #include <vector>
-#include <array>
 #include <memory>
 #include <optional>
 
@@ -21,13 +20,17 @@ public:
     LatentNavigator_CUDA();
     ~LatentNavigator_CUDA();
 
+    struct Coord2 {
+        float x = 0.0f;
+        float y = 0.0f;
+    };
+
     void initialize(TinyAutoDecoderCUDA* decoder,
                     const FieldDomain* domain,
                     const std::vector<std::vector<float>>* latentSource);
     void shutdown();
 
     void setPanelResolution(int N, int tileRes, int gap);
-    void setCornerIndices(const std::array<int,4>& indices);
     void setLatentSource(const std::vector<std::vector<float>>* latentSource);
 
     void setDetailResolution(int res);
@@ -46,12 +49,12 @@ public:
                    float left, float top, float size,
                    const FieldRenderConfig& cfg) const;
 
-    const std::array<int,4>& cornerIndices() const { return cornerIdx_; }
-
 private:
     bool ensurePanelResources();
     bool rebuildPanel(const FieldRenderConfig& cfg);
     bool decodeLatent(const std::vector<float>& latent, GridField& out);
+    void updateLatentEmbedding();
+    bool computeLatentBlend(float cx, float cy, std::vector<float>& outLatent);
 
     TinyAutoDecoderCUDA* decoder_ = nullptr;
     const FieldDomain* domain_ = nullptr;
@@ -61,7 +64,6 @@ private:
     int panelN_    = 5;
     int tileRes_   = 56;
     int tileGap_   = 4;
-    std::array<int,4> cornerIdx_{0,1,2,3};
 
     // Device resources
     float* dPanelField_   = nullptr;
@@ -73,6 +75,7 @@ private:
     GLuint panelTexture_ = 0;
     cudaGraphicsResource* panelResource_ = nullptr;
 
+    int   tileCapacity_ = 0;
     int   panelW_ = 0;
     int   panelH_ = 0;
     int   fieldScratchRes_ = 0;
@@ -82,6 +85,13 @@ private:
 
     float* dFieldScratch_ = nullptr;
     std::vector<float> scratchLatentHost_;
+
+    std::vector<Coord2> latentCoords2D_;
+    Coord2 latentBBoxMin_{};
+    Coord2 latentBBoxMax_{};
+    Coord2 latentSampleMin_{-1.0f, -1.0f};
+    Coord2 latentSampleMax_{1.0f, 1.0f};
+    Coord2 latentSampleRange_{2.0f, 2.0f};
 };
 
 } // namespace DeepSDF

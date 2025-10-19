@@ -46,7 +46,6 @@ public:
 
         navigator_.initialize(&decoder_, &domain_, &decoder_.latents());
         navigator_.setPanelResolution(panelN_, panelTileRes_, panelGap_);
-        navigator_.setCornerIndices({0, 1, 2, 3});
         navigator_.markPanelDirty();
 
         updateDetailField(0.5f, 0.5f);
@@ -129,7 +128,6 @@ public:
                 navigator_.shutdown();
                 navigator_.initialize(&decoder_, &domain_, &decoder_.latents());
                 navigator_.setPanelResolution(panelN_, panelTileRes_, panelGap_);
-                navigator_.setCornerIndices({0, 1, 2, 3});
                 navigator_.markPanelDirty();
                 updateDetailField(0.5f, 0.5f);
                 hoverUV_.reset();

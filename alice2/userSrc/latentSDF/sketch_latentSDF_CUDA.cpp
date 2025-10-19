@@ -393,8 +393,8 @@ private:
     std::string modelPath_ = "latent_model.json";
     std::string inShapePath = "inShapes.json";
 
-    int   gridResX_ = 128;
-    int   gridResY_ = 128;
+    int   gridResX_ = 256;
+    int   gridResY_ = 256;
     float xMin_ = -1.2f, xMax_ = 1.2f;
     float yMin_ = -1.2f, yMax_ = 1.2f;
 

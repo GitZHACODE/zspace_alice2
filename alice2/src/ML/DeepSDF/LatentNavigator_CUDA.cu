@@ -9,6 +9,8 @@
 #include <cstdlib>
 #include <cmath>
 #include <algorithm>
+#include <array>
+#include <limits>
 
 namespace DeepSDF {
 
@@ -32,6 +34,7 @@ void LatentNavigator_CUDA::initialize(TinyAutoDecoderCUDA* decoder,
     decoder_ = decoder;
     domain_  = domain;
     latents_ = latentSource;
+    updateLatentEmbedding();
     markPanelDirty();
 }
 
@@ -52,6 +55,7 @@ void LatentNavigator_CUDA::shutdown()
     if (dTileMax_)      { checkCuda("cudaFree(tileMax)", cudaFree(dTileMax_)); dTileMax_ = nullptr; }
     if (dFieldScratch_) { checkCuda("cudaFree(fieldScratch)", cudaFree(dFieldScratch_)); dFieldScratch_ = nullptr; }
     fieldScratchRes_ = 0;
+    tileCapacity_ = 0;
     decoder_ = nullptr;
     domain_  = nullptr;
     latents_ = nullptr;
@@ -65,15 +69,10 @@ void LatentNavigator_CUDA::setPanelResolution(int N, int tileRes, int gap)
     markPanelDirty();
 }
 
-void LatentNavigator_CUDA::setCornerIndices(const std::array<int,4>& indices)
-{
-    cornerIdx_ = indices;
-    markPanelDirty();
-}
-
 void LatentNavigator_CUDA::setLatentSource(const std::vector<std::vector<float>>* latentSource)
 {
     latents_ = latentSource;
+    updateLatentEmbedding();
     markPanelDirty();
 }
 
@@ -85,6 +84,71 @@ void LatentNavigator_CUDA::setDetailResolution(int /*res*/)
 void LatentNavigator_CUDA::markPanelDirty()
 {
     panelDirty_ = true;
+}
+
+void LatentNavigator_CUDA::updateLatentEmbedding()
+{
+    latentCoords2D_.clear();
+    latentBBoxMin_ = Coord2{};
+    latentBBoxMax_ = Coord2{};
+    latentSampleMin_ = Coord2{-1.0f, -1.0f};
+    latentSampleMax_ = Coord2{1.0f, 1.0f};
+    latentSampleRange_ = Coord2{2.0f, 2.0f};
+
+    if (!latents_ || latents_->empty()) return;
+
+    const int latentCount = static_cast<int>(latents_->size());
+    int latentDim = 0;
+    if (decoder_) latentDim = decoder_->latentDim();
+    if (latentDim <= 0 && latentCount > 0) {
+        latentDim = static_cast<int>((*latents_)[0].size());
+    }
+    if (latentDim <= 0) return;
+
+    latentCoords2D_.reserve(latentCount);
+
+    Coord2 minV{ std::numeric_limits<float>::max(),  std::numeric_limits<float>::max() };
+    Coord2 maxV{-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max()};
+
+    for (const auto& latent : *latents_) {
+        float x = (latentDim > 0 && latent.size() > 0) ? latent[0] : 0.0f;
+        float y = (latentDim > 1 && latent.size() > 1) ? latent[1] : 0.0f;
+        latentCoords2D_.push_back(Coord2{x, y});
+        minV.x = std::min(minV.x, x);
+        minV.y = std::min(minV.y, y);
+        maxV.x = std::max(maxV.x, x);
+        maxV.y = std::max(maxV.y, y);
+    }
+
+    if (latentCoords2D_.empty()) return;
+
+    latentBBoxMin_ = minV;
+    latentBBoxMax_ = maxV;
+
+    float spanX = maxV.x - minV.x;
+    float spanY = maxV.y - minV.y;
+
+    float padX = std::max(spanX * 0.05f, 0.01f);
+    float padY = std::max(spanY * 0.05f, 0.01f);
+
+    latentSampleMin_.x = minV.x - padX;
+    latentSampleMin_.y = minV.y - padY;
+    latentSampleMax_.x = maxV.x + padX;
+    latentSampleMax_.y = maxV.y + padY;
+
+    latentSampleRange_.x = latentSampleMax_.x - latentSampleMin_.x;
+    latentSampleRange_.y = latentSampleMax_.y - latentSampleMin_.y;
+
+    if (latentSampleRange_.x < 1e-5f) {
+        latentSampleMin_.x -= 0.5f;
+        latentSampleMax_.x += 0.5f;
+        latentSampleRange_.x = latentSampleMax_.x - latentSampleMin_.x;
+    }
+    if (latentSampleRange_.y < 1e-5f) {
+        latentSampleMin_.y -= 0.5f;
+        latentSampleMax_.y += 0.5f;
+        latentSampleRange_.y = latentSampleMax_.y - latentSampleMin_.y;
+    }
 }
 
 bool LatentNavigator_CUDA::ensurePanelResources()
@@ -112,12 +176,18 @@ bool LatentNavigator_CUDA::ensurePanelResources()
     }
 
     const int tileCount = panelN_ * panelN_;
-    if (!dTileMin_) {
+    bool resizedTiles = false;
+    if (!dTileMin_ || tileCapacity_ < tileCount) {
+        if (dTileMin_) checkCuda("cudaFree(tileMin)", cudaFree(dTileMin_));
         checkCuda("cudaMalloc(tileMin)", cudaMalloc(&dTileMin_, size_t(tileCount) * sizeof(float)));
+        resizedTiles = true;
     }
-    if (!dTileMax_) {
+    if (!dTileMax_ || tileCapacity_ < tileCount) {
+        if (dTileMax_) checkCuda("cudaFree(tileMax)", cudaFree(dTileMax_));
         checkCuda("cudaMalloc(tileMax)", cudaMalloc(&dTileMax_, size_t(tileCount) * sizeof(float)));
+        resizedTiles = true;
     }
+    if (resizedTiles) tileCapacity_ = tileCount;
 
     if (panelTexture_ == 0 || panelW_ != newW || panelH_ != newH) {
         if (panelResource_) {
@@ -153,41 +223,155 @@ bool LatentNavigator_CUDA::ensurePanelResources()
     return true;
 }
 
+bool LatentNavigator_CUDA::computeLatentBlend(float cx, float cy, std::vector<float>& outLatent)
+{
+    if (!decoder_ || !latents_ || latents_->empty()) return false;
+
+    if (latentCoords2D_.size() != latents_->size()) {
+        updateLatentEmbedding();
+        if (latentCoords2D_.size() != latents_->size()) return false;
+    }
+
+    const int latentDim = decoder_->latentDim();
+    if (latentDim <= 0) return false;
+
+    if (static_cast<int>(outLatent.size()) != latentDim) {
+        outLatent.assign(size_t(latentDim), 0.0f);
+    } else {
+        std::fill(outLatent.begin(), outLatent.end(), 0.0f);
+    }
+
+    const int count = static_cast<int>(latentCoords2D_.size());
+    if (count == 0) return false;
+
+    constexpr int kNearest = 4;
+    std::array<int, kNearest> indices{};
+    std::array<float, kNearest> distances{};
+    indices.fill(-1);
+    distances.fill(std::numeric_limits<float>::max());
+
+    int closestIdx = -1;
+    float closestDist = std::numeric_limits<float>::max();
+
+    for (int i = 0; i < count; ++i) {
+        const Coord2& c = latentCoords2D_[size_t(i)];
+        const float dx = cx - c.x;
+        const float dy = cy - c.y;
+        const float distSq = dx * dx + dy * dy;
+
+        if (distSq < closestDist) {
+            closestDist = distSq;
+            closestIdx = i;
+        }
+
+        for (int k = 0; k < kNearest; ++k) {
+            if (distSq < distances[k]) {
+                for (int s = kNearest - 1; s > k; --s) {
+                    distances[s] = distances[s - 1];
+                    indices[s] = indices[s - 1];
+                }
+                distances[k] = distSq;
+                indices[k] = i;
+                break;
+            }
+        }
+    }
+
+    if (closestIdx >= 0 && closestDist < 1e-8f) {
+        const auto& latent = (*latents_)[size_t(closestIdx)];
+        if (static_cast<int>(latent.size()) != latentDim) return false;
+        std::copy_n(latent.begin(), latentDim, outLatent.begin());
+        return true;
+    }
+
+    float weightSum = 0.0f;
+    for (int k = 0; k < kNearest; ++k) {
+        const int idx = indices[k];
+        if (idx < 0) continue;
+        float distSq = distances[k];
+        float weight = 0.0f;
+        if (distSq < 1e-12f) {
+            weight = 1.0f;
+        } else {
+            weight = 1.0f / (distSq + 1e-6f);
+        }
+        const auto& latent = (*latents_)[size_t(idx)];
+        if (static_cast<int>(latent.size()) != latentDim) continue;
+        for (int j = 0; j < latentDim; ++j) {
+            outLatent[size_t(j)] += weight * latent[size_t(j)];
+        }
+        weightSum += weight;
+    }
+
+    if (weightSum <= 0.0f) {
+        if (closestIdx >= 0) {
+            const auto& latent = (*latents_)[size_t(closestIdx)];
+            if (static_cast<int>(latent.size()) != latentDim) return false;
+            std::copy_n(latent.begin(), latentDim, outLatent.begin());
+            return true;
+        }
+        return false;
+    }
+
+    const float invTotal = 1.0f / weightSum;
+    for (int j = 0; j < latentDim; ++j) {
+        outLatent[size_t(j)] *= invTotal;
+    }
+    return true;
+}
+
 bool LatentNavigator_CUDA::rebuildPanel(const FieldRenderConfig& cfg)
 {
-    if (!ensurePanelResources()) return false;
     if (!latents_ || latents_->empty()) return false;
 
+    updateLatentEmbedding();
+
     const auto& allLatents = *latents_;
-    auto pickLatent = [&](int idx) -> const std::vector<float>& {
-        if (idx >= 0 && idx < (int)allLatents.size()) return allLatents[idx];
-        return allLatents.front();
-    };
+    const int latentCount = static_cast<int>(allLatents.size());
 
-    const auto& z00 = pickLatent(cornerIdx_[0]);
-    const auto& z10 = pickLatent(cornerIdx_[1]);
-    const auto& z01 = pickLatent(cornerIdx_[2]);
-    const auto& z11 = pickLatent(cornerIdx_[3]);
+    int requiredPanelN = panelN_;
+    if (latentCount > panelN_ * panelN_) {
+        requiredPanelN = static_cast<int>(std::ceil(std::sqrt(static_cast<float>(latentCount))));
+    }
+    if (requiredPanelN != panelN_) {
+        panelN_ = std::max(1, requiredPanelN);
+        panelDirty_ = true;
+    }
 
-    if ((int)z00.size() != decoder_->latentDim()) return false;
+    if (!ensurePanelResources()) return false;
+    if (decoder_->latentDim() <= 0) return false;
+
+    const int latentDim = decoder_->latentDim();
+
+    if (scratchLatentHost_.size() != size_t(latentDim)) {
+        scratchLatentHost_.assign(size_t(latentDim), 0.0f);
+    }
 
     for (int gy = 0; gy < panelN_; ++gy) {
-        const float v = (panelN_ == 1) ? 0.0f : float(gy) / float(panelN_ - 1);
         for (int gx = 0; gx < panelN_; ++gx) {
-            const float u = (panelN_ == 1) ? 0.0f : float(gx) / float(panelN_ - 1);
-            const float a = (1.0f - u) * (1.0f - v);
-            const float b = u * (1.0f - v);
-            const float c = (1.0f - u) * v;
-            const float d = u * v;
+            const float u = (panelN_ == 1) ? 0.5f : float(gx) / float(panelN_ - 1);
+            const float v = (panelN_ == 1) ? 0.5f : float(gy) / float(panelN_ - 1);
+            const float cx = latentSampleMin_.x + u * latentSampleRange_.x;
+            const float cy = latentSampleMin_.y + v * latentSampleRange_.y;
 
-            for (int i = 0; i < decoder_->latentDim(); ++i) {
-                scratchLatentHost_[i] = a * z00[i] + b * z10[i] + c * z01[i] + d * z11[i];
+            const float* latentData = nullptr;
+            if (computeLatentBlend(cx, cy, scratchLatentHost_)) {
+                latentData = scratchLatentHost_.data();
+            } else {
+                const int fallbackIdx = std::min(gy * panelN_ + gx, latentCount - 1);
+                const auto& latent = allLatents[size_t(fallbackIdx)];
+                if (static_cast<int>(latent.size()) == latentDim) {
+                    latentData = latent.data();
+                } else {
+                    std::fill(scratchLatentHost_.begin(), scratchLatentHost_.end(), 0.0f);
+                    latentData = scratchLatentHost_.data();
+                }
             }
 
             const int offsetX = gx * tileRes_ + std::max(0, gx) * tileGap_;
             const int offsetY = gy * tileRes_ + std::max(0, gy) * tileGap_;
 
-            decoder_->decodeLatentGridToDevice(scratchLatentHost_.data(),
+            decoder_->decodeLatentGridToDevice(latentData,
                                                tileRes_, tileRes_,
                                                domain_->xMin, domain_->xMax,
                                                domain_->yMin, domain_->yMax,
@@ -325,28 +509,22 @@ bool LatentNavigator_CUDA::getFieldAt(const std::vector<float>& latent, GridFiel
 bool LatentNavigator_CUDA::getBlendedField(float u, float v, GridField& out)
 {
     if (!latents_ || latents_->empty()) return false;
-    const auto& allLatents = *latents_;
-    auto pickLatent = [&](int idx) -> const std::vector<float>& {
-        if (idx >= 0 && idx < (int)allLatents.size()) return allLatents[idx];
-        return allLatents.front();
-    };
+    if (!decoder_) return false;
 
-    const auto& z00 = pickLatent(cornerIdx_[0]);
-    const auto& z10 = pickLatent(cornerIdx_[1]);
-    const auto& z01 = pickLatent(cornerIdx_[2]);
-    const auto& z11 = pickLatent(cornerIdx_[3]);
+    updateLatentEmbedding();
 
-    if ((int)z00.size() != decoder_->latentDim()) return false;
+    const float eps = std::numeric_limits<float>::epsilon();
+    const float uClamped = std::clamp(u, 0.0f, 1.0f - eps);
+    const float vClamped = std::clamp(v, 0.0f, 1.0f - eps);
 
-    scratchLatentHost_.resize(decoder_->latentDim());
+    const float cx = latentSampleMin_.x + uClamped * latentSampleRange_.x;
+    const float cy = latentSampleMin_.y + vClamped * latentSampleRange_.y;
 
-    const float a = (1.0f - u) * (1.0f - v);
-    const float b = u * (1.0f - v);
-    const float c = (1.0f - u) * v;
-    const float d = u * v;
-
-    for (int i = 0; i < decoder_->latentDim(); ++i) {
-        scratchLatentHost_[i] = a * z00[i] + b * z10[i] + c * z01[i] + d * z11[i];
+    if (!computeLatentBlend(cx, cy, scratchLatentHost_)) {
+        if (latents_->empty()) return false;
+        const auto& fallback = latents_->front();
+        if (static_cast<int>(fallback.size()) != decoder_->latentDim()) return false;
+        return decodeLatent(fallback, out);
     }
     return decodeLatent(scratchLatentHost_, out);
 }
