@@ -126,7 +126,8 @@ private:
     std::vector<float> m_field_values;
     std::vector<float> m_normalized_values;
     std::vector<Vec3> m_gradient_field;
-     
+    bool m_has_valid_sdf = false;
+    
     // Helper methods
     inline int get_index(int x, int y) const {
         return y * m_res_x + x;
