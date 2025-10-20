@@ -16,7 +16,7 @@ namespace DeepSDF {
   fprintf(stderr,"[CUDA] %s failed (%s:%d): %s\n", #x, __FILE__, __LINE__, cudaGetErrorString(e)); abort(); } }while(0)
 
 //=========================== Device helpers ===========================
-__device__ inline float dtanh_from_a(float a){ return 1.f - a*a; }
+__device__ inline float relu_mask(float x){ return x > 0.f ? 1.f : 0.f; }
 
 struct PosEnc2DDev {
     int   numFreqs;
@@ -75,6 +75,14 @@ __global__ void kAddBias(float* Z,const float* b,int m,int n){
     if (row<m && col<n) Z[row*n+col]+=b[row];
 }
 
+__global__ void kReluInplace(float* A,int m,int n){
+    int idx=blockIdx.x*blockDim.x+threadIdx.x;
+    int N=m*n; if (idx<N){
+        float x=A[idx];
+        A[idx] = x>0.f? x : 0.f;
+    }
+}
+
 __global__ void kTanhInplace(float* A,int m,int n){
     int idx=blockIdx.x*blockDim.x+threadIdx.x, N=m*n; if (idx<N) A[idx]=tanhf(A[idx]);
 }
@@ -87,9 +95,10 @@ __global__ void kOutputDelta(const float* __restrict__ y,
 {
     int j = blockIdx.x*blockDim.x + threadIdx.x;
     if (j < B) {
-        float d = y[j] - t[j];
+        float yj = y[j];
+        float d = yj - t[j];
         if (d > 3.f) d = 3.f; else if (d < -3.f) d = -3.f;
-        delta[j] = d;
+        delta[j] = d * (1.f - yj*yj);
     }
 }
 
@@ -120,12 +129,12 @@ __global__ void kRowSum(const float* A, float* out, int rows, int cols){
     out[r] = acc;
 }
 
-// Hidden: deltaPrev = (W^T * delta) ⊙ tanh'(Aprev)
+// Hidden: deltaPrev = (W^T * delta) ⊙ ReLU'(Aprev)
 __global__ void kBackpropDelta(const float* W,const float* delta,const float* Aprev,float* deltaPrev,int outDim,int inDim,int B){
     int col=blockIdx.x*blockDim.x+threadIdx.x; int j=blockIdx.y*blockDim.y+threadIdx.y;
     if (col<inDim && j<B){
         float acc=0.f; for (int r=0;r<outDim;++r) acc += W[r*inDim + col] * delta[r*B + j];
-        float a=Aprev[col*B + j]; deltaPrev[col*B + j] = acc * dtanh_from_a(a);
+        float a=Aprev[col*B + j]; deltaPrev[col*B + j] = acc * relu_mask(a);
     }
 }
 
@@ -471,8 +480,11 @@ void TinyAutoDecoderCUDA::Impl::forwardBatch(int B){
         kAddBias<<<g2,b2>>>(Lr.Z, Lr.b, m,n);
 
         CUDA_CHECK(cudaMemcpy(Lr.A, Lr.Z, m*n*sizeof(float), cudaMemcpyDeviceToDevice));
-        if (l != L-1){
-            int N=m*n; int tpb=256,bpg=(N+tpb-1)/tpb; kTanhInplace<<<bpg, tpb>>>(Lr.A, m,n);
+        int N=m*n; int tpb=256,bpg=(N+tpb-1)/tpb;
+        if (l == L-1){
+            kTanhInplace<<<bpg, tpb>>>(Lr.A, m,n);
+        } else {
+            kReluInplace<<<bpg, tpb>>>(Lr.A, m,n);
         }
     }
 }

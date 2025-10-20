@@ -78,7 +78,7 @@ public:
                             {64, 64, 64},
                             initSeed_,
                             maxBatch_,
-                            6,
+                            3,
                             true);
         decoder_.setLambdaLatent(lambdaLatent_);
         decoder_.setWeightDecayW(weightDecayW_);
