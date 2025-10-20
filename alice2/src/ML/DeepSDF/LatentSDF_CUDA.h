@@ -52,7 +52,8 @@ public:
     // micro-batch training step (GPU): batch W update, per-sample Z update
     void trainMicroBatchGPU(int B, Sampler& sampler, std::mt19937& rng,
                             float lrW, float lrZ,
-                            const std::vector<std::vector<float>>& shapes);
+                            const std::vector<std::vector<float>>& shapes,
+                            bool useRandom = false);
 
     // row forward for visualization
     void forwardRowGPU(int shapeIdx, const std::vector<float>& xs, float y,
@@ -99,7 +100,6 @@ public:
 
     void setLambdaLatent(float v){ lambdaLatent_ = v; }
     void setWeightDecayW(float v){ weightDecayW_ = v; }
-
 private:
     friend class LatentNavigator_CUDA;
 
@@ -110,7 +110,6 @@ private:
     int   coordEncDim_  = 0;
     float lambdaLatent_ = 1e-4f;
     float weightDecayW_ = 1e-6f;
-
     std::vector<std::vector<float>> Z_; // host mirror of latents (used only when you request)
 };
 

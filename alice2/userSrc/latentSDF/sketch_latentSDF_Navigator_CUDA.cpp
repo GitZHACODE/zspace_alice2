@@ -1,4 +1,4 @@
-#define __MAIN__
+//#define __MAIN__
 #ifdef __MAIN__
 
 #include <alice2.h>
@@ -32,7 +32,7 @@ public:
     std::string getAuthor() const override { return "alice2 User"; }
 
     void setup() override {
-        scene().setBackgroundColor(Color(0.0f, 0.0f, 0.0f));
+        scene().setBackgroundColor(Color(0.9f, 0.9f, 0.9f));
         scene().setShowGrid(false);
         scene().setShowAxes(false);
 

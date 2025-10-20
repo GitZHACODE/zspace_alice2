@@ -25,7 +25,7 @@ public:
     std::string getAuthor()      const override { return "alice2 User"; }
 
     void setup() override {
-        scene().setBackgroundColor(Color(0.0f, 0.0f, 0.0f));
+        scene().setBackgroundColor(Color(0.9f, 0.9f, 0.9f));
         scene().setShowGrid(false);
         scene().setShowAxes(false);
 
@@ -133,6 +133,30 @@ public:
             }
             double avgLoss = 0.0, meanZ = 0.0;
             decoder_.syncStatsToHost(avgLoss, meanZ, true);
+
+            deltaLoss = std::abs(previousLoss - avgLoss);
+            struct {
+                float threshold;
+                bool* flag;
+                const char* label;
+            } stages[] = {
+                {1e-3f, &fineTuned1e3_,  "1e-3"},
+                {1e-4f, &fineTuned1e4_,  "1e-4"},
+                {1e-5f, &fineTuned1e5_,  "1e-5"}
+            };
+
+            for (const auto& stage : stages) {
+                if (!*stage.flag && deltaLoss < stage.threshold) {
+                    lrW_ *= lrScale_;
+                    lrZ_ *= lrScale_;
+                    *stage.flag = true;
+                    std::printf("[CUDA][Train] Fine tuning stage (%s) triggered\n", stage.label);
+                    std::printf("[CUDA][Train] lrW changed to %.6f; lrZ changed to %.6f\n",
+                                float(lrW_), float(lrZ_));
+                }
+            }
+            previousLoss = avgLoss;
+
             std::printf("[CUDA][Train] epoch %d  avgLoss=%.6f  mean||z||=%.6f\n",
                         epochsDone_, float(avgLoss), float(meanZ));
             decoder_.syncLatentsToHost();
@@ -407,6 +431,13 @@ private:
     int   microBatchB_ = 16;
     float lrW_ = 5e-2f;
     float lrZ_ = 5e-2f;
+    float lrScale_ = 0.5f;
+    float deltaLoss = 0.0f;
+    float previousLoss = 0.0f;
+    bool fineTuned1e3_ = false;
+    bool fineTuned1e4_ = false;
+    bool fineTuned1e5_ = false;
+
     float lambdaLatent_ = 1e-4f;
     float weightDecayW_ = 1e-6f;
     unsigned initSeed_ = 1234;

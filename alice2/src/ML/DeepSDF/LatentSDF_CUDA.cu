@@ -380,6 +380,7 @@ static void xavierInit(std::vector<float>& w, int rows, int cols, bool last){
 struct TinyAutoDecoderCUDA::Impl {
     int numShapes=0, latentDim=0, coordEncDim=0;
     float lambdaLatent=1e-4f, weightDecayW=1e-6f;
+    int shapeCursor=0;
 
     // MLP
     int L=0, inDim=0, maxB=0;
@@ -574,17 +575,30 @@ void TinyAutoDecoderCUDA::syncLatentsToHost(){
 
 void TinyAutoDecoderCUDA::trainMicroBatchGPU(int B, Sampler& sampler, std::mt19937& rng,
                                              float lrW,float lrZ,
-                                             const std::vector<std::vector<float>>& shapes)
+                                             const std::vector<std::vector<float>>& shapes,
+                                             bool useRandom)
 {
     sampler.setShapes(&shapes);
-    std::uniform_int_distribution<int> pick(0, numShapes_-1);
+    if (numShapes_ <= 0) return;
     impl_->hShapeIdx.resize(B); impl_->hXs.resize(B); impl_->hYs.resize(B); impl_->hTgt.resize(B);
 
     // 1) sample on host
-    for (int j=0; j<B; ++j) {
-        int si = pick(rng);
-        auto [x,y,t] = sampler.sampleForShape(si);
-        impl_->hShapeIdx[j] = si; impl_->hXs[j] = x; impl_->hYs[j] = y; impl_->hTgt[j] = t;
+    if (useRandom) {
+        std::uniform_int_distribution<int> pick(0, numShapes_ - 1);
+        for (int j = 0; j < B; ++j) {
+            int si = pick(rng);
+            auto [x,y,t] = sampler.sampleForShape(si);
+            impl_->hShapeIdx[j] = si; impl_->hXs[j] = x; impl_->hYs[j] = y; impl_->hTgt[j] = t;
+        }
+    } else {
+        (void)rng;
+        impl_->shapeCursor %= numShapes_;
+        for (int j = 0; j < B; ++j) {
+            int si = impl_->shapeCursor;
+            impl_->shapeCursor = (impl_->shapeCursor + 1) % numShapes_;
+            auto [x,y,t] = sampler.sampleForShape(si);
+            impl_->hShapeIdx[j] = si; impl_->hXs[j] = x; impl_->hYs[j] = y; impl_->hTgt[j] = t;
+        }
     }
 
     // 2) copy batch meta to device
