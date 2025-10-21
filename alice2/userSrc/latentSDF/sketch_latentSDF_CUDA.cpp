@@ -78,7 +78,7 @@ public:
                             {64, 64, 64},
                             initSeed_,
                             maxBatch_,
-                            3,
+                            m_numFreqs,
                             true);
         decoder_.setLambdaLatent(lambdaLatent_);
         decoder_.setWeightDecayW(weightDecayW_);
@@ -117,10 +117,22 @@ public:
 
         case 'm': case 'M':
             displayCfg_.softMask = !displayCfg_.softMask; return true;
-        case '[':
-            displayCfg_.tau = std::max(0.005f, displayCfg_.tau * 0.8f); return true;
-        case ']':
-            displayCfg_.tau = std::min(0.5f, displayCfg_.tau * 1.25f); return true;
+        case '9':
+                {
+                    // displayCfg_.tau = std::max(0.005f, displayCfg_.tau * 0.8f); return true;
+                    if(m_numFreqs > 0) m_numFreqs--; 
+                    return true;
+                }
+
+        case '0':
+                {
+                    // displayCfg_.tau = std::min(0.5f, displayCfg_.tau * 1.25f); return true;
+                    if(m_numFreqs < 6) m_numFreqs++; 
+                    return true;
+                } 
+
+        case '7': gridResX_ /= 2; gridResY_ /= 2; setup(); return true;
+        case '8': gridResX_ *= 2; gridResY_ *= 2; setup(); return true;
 
         case 't': case 'T': {
             std::mt19937 rng(trainSeed_);
@@ -394,8 +406,10 @@ private:
 
     void drawHelp(Renderer& renderer, float y) const {
         renderer.setColor(Color(0.7f, 0.7f, 0.7f));
-        renderer.drawString("Keys: T train  R rebuild  M mask  [ ] tau  1-4 debug  J save model  L load model",
-                            20.0f, y);
+        // renderer.drawString("Keys: T train  R rebuild  M mask  [ ] tau  1-4 debug  J save model  L load model", 20.0f, y);
+        renderer.drawString("Keys: T train  R rebuild  M mask  1-4 debug  J save model  L load model", 20.0f, y);
+        renderer.drawString("9/0 numFreqs: " + std::to_string(m_numFreqs), 20.0f, y + 20);
+        renderer.drawString("7/8 fieldRes: " + std::to_string(gridResX_), 20.0f, y + 40);
     }
 
     FieldRenderConfig toFieldRenderConfig() const {
@@ -425,6 +439,7 @@ private:
     int numShapes_ = 3;
     int latentDim_ = 16;
     int maxBatch_ = 256;
+    int m_numFreqs = 3;
 
     int   trainEpochs_ = 50;
     int   stepsPerEpoch_ = 200;
