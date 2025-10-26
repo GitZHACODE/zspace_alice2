@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <iomanip>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -19,7 +20,9 @@
 #include <nlohmann/json.hpp>
 
 #include <computeGeom/scalarField.h>
+#include <computeGeom/scalarField3D.h>
 #include <objects/GraphObject.h>
+#include <objects/MeshObject.h>
 
 #include "ML/WaveLatent/WaveLatent.h"
 
@@ -35,7 +38,10 @@ constexpr float kDetailSize = 300.0f;
 constexpr float kPanelSize = 300.0f;
 constexpr float kDetailPanelGap = 16.0f;
 constexpr float kTileGap = 3.0f;
-constexpr float kDetailTopOffset = 80.0f;
+constexpr float kVerticalOffset = 0.0f;
+constexpr float kUIExtraOffset = 80.0f;
+constexpr float kUIContentHeight = 190.0f;
+constexpr float kUIToDetailGap = 30.0f;
 constexpr float kContourIso = 0.0f;
 
 float clamp01(float v) {
@@ -69,42 +75,100 @@ public:
             return;
         }
 
+        boundsMin_ = Vec3(domainXMin_, domainYMin_, 0.0f);
+        boundsMax_ = Vec3(domainXMax_, domainYMax_, 0.0f);
+
+        meshObject_ = std::make_shared<MeshObject>("WaveStackIsoMesh");
+        meshObject_->setVisible(false);
+        meshObject_->setRenderMode(MeshRenderMode::NormalShaded);
+        meshObject_->setShowEdges(false);
+        meshObject_->setShowVertices(false);
+        scene().addObject(meshObject_);
+
         configureFields();
         setupLatentSpace();
         buildPanelTiles();
         updateDetailField(currentUV01_);
-        rebuildContourObject();
+
+        ui_ = std::make_unique<SimpleUI>(input());
+        ui_->setTheme(SimpleUI::UITheme::Dark);
+        const float uiLeft = kMargin;
+        const float uiTop = kMargin + kVerticalOffset + kUIExtraOffset;
+        const float sliderWidth = 260.0f;
+        ui_->addSlider("Total Height", Vec2{uiLeft, uiTop}, sliderWidth, 0.0f, 500.0f, totalHeight_);
+        ui_->addSlider("Iso Level", Vec2{uiLeft, uiTop + 30.0f}, sliderWidth, -0.5f, 0.5f, isoLevel_);
+        ui_->addSlider("Gen Layers", Vec2{uiLeft, uiTop + 60.0f}, sliderWidth, 2.0f, 200.0f, genLayersF_);
+
+        const int toggleXLeft = static_cast<int>(uiLeft);
+        const int toggleXRight = toggleXLeft + 140;
+        const int toggleYRow0 = static_cast<int>(uiTop + 100.0f);
+        const int toggleYRow1 = static_cast<int>(uiTop + 130.0f);
+        const int toggleYRow2 = static_cast<int>(uiTop + 160.0f);
+
+        ui_->addToggle("Smooth*5", UIRect{toggleXLeft, toggleYRow0, 120, 22}, btnSmooth_);
+        ui_->addToggle("Laplacian*5", UIRect{toggleXRight, toggleYRow0, 140, 22}, btnLaplacian_);
+        ui_->addToggle("Build Mesh", UIRect{toggleXLeft, toggleYRow1, 120, 22}, btnBuildMesh_);
+        ui_->addToggle("Display Mesh", UIRect{toggleXRight, toggleYRow1, 140, 22}, meshVisible_);
+        ui_->addToggle("Export", UIRect{toggleXLeft, toggleYRow2, 120, 22}, btnExport_);
 
         ready_ = true;
-        statusMessage_ = "Loaded model '" + modelPath_ + "'. Move over panel; click to lock preview.";
+        statusMessage_ = "Loaded model '" + modelPath_ + "'. Click panel to add slices; press G to interpolate path.";
     }
 
     void cleanup() override {
-        if (contourObject_) {
-            scene().removeObject(contourObject_);
-            contourObject_.reset();
+        clearContourObjects();
+        stackFields_.clear();
+        pickedUVs_.clear();
+        invalidateVolumeMesh();
+        if (meshObject_) {
+            scene().removeObject(meshObject_);
+            meshObject_.reset();
         }
+        ui_.reset();
+        ready_ = false;
     }
 
-    void update(float) override {}
+    void update(float) override {
+        if (!ready_) {
+            return;
+        }
+        postUpdateUI();
+    }
 
     void draw(Renderer& renderer, Camera&) override {
         renderer.setColor(Color(0.1f, 0.1f, 0.1f));
-        renderer.drawString("WaveLatent Panel Viewer", kMargin, 24.0f);
-        renderer.drawString(statusMessage_, kMargin, 44.0f);
+        const float textYOffset = kVerticalOffset;
+        renderer.drawString("WaveLatent Stack Viewer", kMargin, 24.0f + textYOffset);
+        renderer.drawString("Slices: " + std::to_string(stackFields_.size()) +
+                            "   Total Height: " + f2(totalHeight_) +
+                            "   Iso: " + f2(isoLevel_) +
+                            "   GenLayers(G): " + std::to_string(int(std::round(genLayersF_))),
+                            kMargin, 44.0f + textYOffset);
+        renderer.drawString(statusMessage_, kMargin, 64.0f + textYOffset);
 
         if (!ready_) {
-            renderer.drawString("Model not ready.", kMargin, 64.0f);
+            renderer.drawString("Model not ready.", kMargin, 84.0f + textYOffset);
+            if (ui_) {
+                ui_->draw(renderer);
+            }
             return;
         }
 
         drawDetail(renderer);
         drawPanel(renderer);
+        updateContourPlacement();
+
+        if (ui_) {
+            ui_->draw(renderer);
+        }
     }
 
     bool onMouseMove(int x, int y) override {
         if (!ready_) {
             return false;
+        }
+        if (ui_ && ui_->onMouseMove(x, y)) {
+            return true;
         }
         auto uv = panelUVFromMouse(float(x), float(y));
         if (!uv) {
@@ -118,8 +182,13 @@ public:
     }
 
     bool onMousePress(int button, int state, int x, int y) override {
-        (void)button;
-        if (!ready_ || state != 0) {
+        if (!ready_) {
+            return false;
+        }
+        if (ui_ && ui_->onMousePress(button, state, x, y)) {
+            return true;
+        }
+        if (state != 0) {
             return false;
         }
         auto uv = panelUVFromMouse(float(x), float(y));
@@ -129,9 +198,15 @@ public:
         currentUV01_ = *uv;
         hoverUV01_ = *uv;
         updateDetailField(*uv);
-        const Vec2 plane = planeFrom01(*uv);
-        rebuildContourObject();
-        statusMessage_ = "Locked preview at u=" + f2(plane.x) + " v=" + f2(plane.y) + " (contour updated)";
+        pickedUVs_.push_back(*uv);
+
+        if (addSliceAtUV(*uv)) {
+            const Vec2 plane = planeFrom01(*uv);
+            statusMessage_ = "Added slice at u=" + f2(plane.x) + " v=" + f2(plane.y) +
+                              " -> total slices: " + std::to_string(stackFields_.size());
+        } else {
+            statusMessage_ = "Decode failed for that latent click.";
+        }
         return true;
     }
 
@@ -145,6 +220,26 @@ public:
             return true;
         case ']':
             changePanelResolution(+1);
+            return true;
+        case 'g':
+        case 'G':
+            generateInterpolatedStack();
+            return true;
+        case 'c':
+        case 'C':
+            clearAllSelections();
+            return true;
+        case 'j':
+        case 'J':
+            for (int i = 0; i < 5; ++i) {
+                smooth();
+            }
+            return true;
+        case 'k':
+        case 'K':
+            for (int i = 0; i < 5; ++i) {
+                applyStackLaplacian();
+            }
             return true;
         default:
             return false;
@@ -357,38 +452,43 @@ private:
         detailField_.updateValues(decoded);
     }
 
-    void rebuildContourObject() {
+    bool addSliceAtUV(const Vec2& uv01) {
         const int gridW = waveLatent_.gridWidth();
         const int gridH = waveLatent_.gridHeight();
         if (gridW <= 0 || gridH <= 0) {
-            return;
+            return false;
         }
         const size_t expected = static_cast<size_t>(gridW) * static_cast<size_t>(gridH);
-        if (lastDecoded_.size() != expected) {
-            return;
+        if (lastDecoded_.size() == expected) {
+            return pushSliceFromValues(lastDecoded_);
         }
 
-        ScalarField2D field(Vec3(domainXMin_, domainYMin_, 0.0f),
-                            Vec3(domainXMax_, domainYMax_, 0.0f),
-                            gridW, gridH);
-        field.set_values(lastDecoded_);
-
-        GraphObject contour = field.get_contours(kContourIso);
-        contour.setShowVertices(false);
-        contour.setShowEdges(true);
-        contour.setEdgeWidth(1.2f);
-        contour.setEdgeColor(Color(0.12f, 0.40f, 0.90f));
-        contour.setColor(Color(0.12f, 0.40f, 0.90f));
-
-        auto obj = std::make_shared<GraphObject>(std::move(contour));
-        obj->setName("WaveLatentContour");
-        obj->getTransform().setTranslation(Vec3(0.0f, 0.0f, 0.0f));
-
-        if (contourObject_) {
-            scene().removeObject(contourObject_);
+        std::vector<float> decoded;
+        const Vec2 plane = planeFrom01(uv01);
+        decodeOnPlane(plane.x, plane.y, decoded);
+        if (decoded.size() != expected) {
+            return false;
         }
-        contourObject_ = std::move(obj);
-        scene().addObject(contourObject_);
+        lastDecoded_ = decoded;
+        return pushSliceFromValues(lastDecoded_);
+    }
+
+    bool pushSliceFromValues(const std::vector<float>& values) {
+        const int gridW = waveLatent_.gridWidth();
+        const int gridH = waveLatent_.gridHeight();
+        if (gridW <= 0 || gridH <= 0) {
+            return false;
+        }
+        const size_t expected = static_cast<size_t>(gridW) * static_cast<size_t>(gridH);
+        if (values.size() != expected) {
+            return false;
+        }
+        ScalarField2D slice(boundsMin_, boundsMax_, gridW, gridH);
+        slice.set_values(values);
+        stackFields_.emplace_back(std::move(slice));
+        regenerateContours();
+        invalidateVolumeMesh();
+        return true;
     }
 
     std::optional<Vec2> panelUVFromMouse(float mouseX, float mouseY) const {
@@ -428,15 +528,15 @@ private:
     }
 
     float detailLeft() const { return kMargin; }
-    float detailTop() const { return kMargin + kDetailTopOffset; }
+    float detailTop() const { return kMargin + kVerticalOffset + kUIExtraOffset + kUIContentHeight + kUIToDetailGap; }
     float panelLeft() const { return kMargin; }
     float panelTop() const { return detailTop() + kDetailSize + kDetailPanelGap; }
 
     void drawPanel(Renderer& renderer) {
         const float leftBase = panelLeft();
         const float topBase = panelTop();
-        renderer.setColor(Color(0.25f, 0.25f, 0.30f));
-        renderer.drawString("Latent Panel", leftBase, topBase - 18.0f);
+        // renderer.setColor(Color(0.25f, 0.25f, 0.30f));
+        // renderer.drawString("Latent Panel", leftBase, topBase - 18.0f);
 
         if (panelFields_.empty()) {
             renderer.drawString("Panel unavailable.", leftBase, topBase + 12.0f);
@@ -477,8 +577,8 @@ private:
     void drawDetail(Renderer& renderer) {
         const float leftBase = detailLeft();
         const float topBase = detailTop();
-        renderer.setColor(Color(0.25f, 0.25f, 0.30f));
-        renderer.drawString("Detail Preview", leftBase, topBase - 18.0f);
+        // renderer.setColor(Color(0.25f, 0.25f, 0.30f));
+        // renderer.drawString("Detail Preview", leftBase, topBase - 18.0f);
 
         drawTileFrame(renderer, leftBase, topBase, kDetailSize, kFrameColor, 1.4f);
         if (detailField_.empty()) {
@@ -491,8 +591,338 @@ private:
         detailField_.draw(renderer, leftBase, topBase, cellW, cellH, kIsoColor, 2.2f);
 
         const Vec2 plane = planeFrom01(currentUV01_);
-        renderer.drawString("u=" + f2(plane.x) + "   v=" + f2(plane.y),
-                            leftBase, topBase + kDetailSize + 18.0f);
+        // renderer.drawString("u=" + f2(plane.x) + "   v=" + f2(plane.y),
+        //                     leftBase, topBase + kDetailSize + 18.0f);
+    }
+
+    void regenerateContours() {
+        clearContourObjects();
+        stackContours_.reserve(stackFields_.size());
+        for (size_t i = 0; i < stackFields_.size(); ++i) {
+            GraphObject contour = stackFields_[i].get_contours(isoLevel_);
+            contour.setShowVertices(false);
+            contour.setShowEdges(true);
+            contour.setEdgeWidth(1.2f);
+
+            auto contourPtr = std::make_shared<GraphObject>(std::move(contour));
+            contourPtr->setName("WaveStackContour_" + std::to_string(i));
+            scene().addObject(contourPtr);
+            stackContours_.emplace_back(std::move(contourPtr));
+        }
+        updateContourPlacement();
+    }
+
+    void clearContourObjects() {
+        for (auto& c : stackContours_) {
+            if (c) {
+                scene().removeObject(c);
+            }
+        }
+        stackContours_.clear();
+    }
+
+    void updateContourPlacement() {
+        const size_t count = stackContours_.size();
+        if (count == 0) {
+            return;
+        }
+        sliceSpacing_ = (count <= 1) ? totalHeight_ : (totalHeight_ / float(std::max<size_t>(1, count - 1)));
+        for (size_t i = 0; i < count; ++i) {
+            auto& contour = stackContours_[i];
+            if (!contour) {
+                continue;
+            }
+            const float hue = 360.0f * (float(i) / std::max<size_t>(1, count));
+            float r, g, b;
+            ScalarFieldUtils::get_hsv_color(hue / 360.0f * 2.0f - 1.0f, r, g, b);
+            contour->setEdgeColor(Color(r, g, b));
+            contour->setColor(Color(r, g, b));
+            contour->getTransform().setTranslation(Vec3(0.0f, 0.0f, float(i) * sliceSpacing_));
+        }
+    }
+
+    void clearAllSelections() {
+        pickedUVs_.clear();
+        stackFields_.clear();
+        clearContourObjects();
+        invalidateVolumeMesh();
+        statusMessage_ = "Cleared selections and stack.";
+    }
+
+    void generateInterpolatedStack() {
+        if (pickedUVs_.size() < 2) {
+            statusMessage_ = "Need at least 2 latent picks to interpolate.";
+            return;
+        }
+        const int layers = std::max(2, int(std::round(genLayersF_)));
+        const int segments = int(pickedUVs_.size()) - 1;
+        if (segments <= 0) {
+            statusMessage_ = "Insufficient latent path length.";
+            return;
+        }
+
+        std::vector<Vec2> samples;
+        samples.reserve(size_t(layers));
+        for (int i = 0; i < layers; ++i) {
+            const float t = (layers == 1) ? 0.0f : float(i) / float(layers - 1);
+            float segF = t * float(segments);
+            int seg = std::min(segments - 1, int(std::floor(segF)));
+            float lt = std::clamp(segF - float(seg), 0.0f, 1.0f);
+            const Vec2& a = pickedUVs_[size_t(seg)];
+            const Vec2& b = pickedUVs_[size_t(seg + 1)];
+            samples.emplace_back(a.x * (1.0f - lt) + b.x * lt,
+                                 a.y * (1.0f - lt) + b.y * lt);
+        }
+
+        const int gridW = waveLatent_.gridWidth();
+        const int gridH = waveLatent_.gridHeight();
+        const size_t expected = static_cast<size_t>(gridW) * static_cast<size_t>(gridH);
+        if (gridW <= 0 || gridH <= 0) {
+            statusMessage_ = "Grid resolution unavailable.";
+            return;
+        }
+
+        std::vector<ScalarField2D> newFields;
+        newFields.reserve(samples.size());
+        std::vector<float> decoded;
+        for (const Vec2& uv01 : samples) {
+            decoded.clear();
+            const Vec2 plane = planeFrom01(uv01);
+            decodeOnPlane(plane.x, plane.y, decoded);
+            if (decoded.size() != expected) {
+                continue;
+            }
+            ScalarField2D slice(boundsMin_, boundsMax_, gridW, gridH);
+            slice.set_values(decoded);
+            newFields.emplace_back(std::move(slice));
+        }
+
+        stackFields_.swap(newFields);
+        regenerateContours();
+        invalidateVolumeMesh();
+
+        statusMessage_ = "Generated interpolated stack: " + std::to_string(stackFields_.size()) + " layers.";
+    }
+
+    void applyStackLaplacian() {
+        if (stackFields_.size() < 3) {
+            statusMessage_ = "Need 3+ slices for Laplacian smoothing.";
+            return;
+        }
+        const size_t n = stackFields_.size();
+        std::vector<std::vector<float>> smoothed(n);
+        for (size_t i = 0; i < n; ++i) {
+            smoothed[i] = stackFields_[i].get_values();
+        }
+        for (size_t i = 1; i + 1 < n; ++i) {
+            const auto& prev = stackFields_[i - 1].get_values();
+            const auto& next = stackFields_[i + 1].get_values();
+            auto& dest = smoothed[i];
+            for (size_t k = 0; k < dest.size(); ++k) {
+                dest[k] = 0.5f * (prev[k] + next[k]);
+            }
+        }
+        for (size_t i = 0; i < n; ++i) {
+            stackFields_[i].set_values(smoothed[i]);
+        }
+        regenerateContours();
+        invalidateVolumeMesh();
+        statusMessage_ = "Stack Laplacian applied.";
+    }
+
+    void smooth() {
+        if (stackFields_.empty()) {
+            statusMessage_ = "No slices to smooth.";
+            return;
+        }
+        for (auto& field : stackFields_) {
+            smoothField(field);
+        }
+        regenerateContours();
+        invalidateVolumeMesh();
+        statusMessage_ = "In-plane smoothing applied.";
+    }
+
+    void smoothField(ScalarField2D& field) {
+        const auto& values = field.get_values();
+        if (values.empty()) {
+            return;
+        }
+        const auto res = field.get_resolution();
+        const int rx = res.first;
+        const int ry = res.second;
+        std::vector<float> out(values.size(), 0.0f);
+        auto idx = [rx](int x, int y) { return y * rx + x; };
+        for (int y = 0; y < ry; ++y) {
+            for (int x = 0; x < rx; ++x) {
+                float sum = 0.0f;
+                int count = 0;
+                for (int ny = std::max(0, y - 1); ny <= std::min(ry - 1, y + 1); ++ny) {
+                    for (int nx = std::max(0, x - 1); nx <= std::min(rx - 1, x + 1); ++nx) {
+                        sum += values[idx(nx, ny)];
+                        ++count;
+                    }
+                }
+                out[idx(x, y)] = (count > 0) ? sum / float(count) : values[idx(x, y)];
+            }
+        }
+        field.set_values(out);
+    }
+
+    bool buildVolumeMeshFromStack() {
+        if (stackFields_.empty()) {
+            statusMessage_ = "Add or generate slices before building a mesh.";
+            return false;
+        }
+        const auto res = stackFields_.front().get_resolution();
+        const int rx = res.first;
+        const int ry = res.second;
+        const int rz = int(stackFields_.size());
+        if (rx <= 0 || ry <= 0 || rz <= 0) {
+            statusMessage_ = "Invalid slice resolution.";
+            return false;
+        }
+
+        sliceSpacing_ = (rz <= 1) ? totalHeight_ : (totalHeight_ / float(std::max(1, rz - 1)));
+        Vec3 minB(boundsMin_.x, boundsMin_.y, 0.0f);
+        Vec3 maxB(boundsMax_.x, boundsMax_.y, std::max(0.001f, totalHeight_));
+
+        volumeField_ = std::make_unique<ScalarField3D>(minB, maxB, rx, ry, rz);
+
+        const size_t layerSize = size_t(rx) * size_t(ry);
+        std::vector<float> volume(layerSize * size_t(rz), 0.0f);
+        for (int z = 0; z < rz; ++z) {
+            const auto& slice = stackFields_[size_t(z)].get_values();
+            if (slice.size() == layerSize) {
+                std::copy(slice.begin(), slice.end(), volume.begin() + layerSize * size_t(z));
+            }
+        }
+        volumeField_->set_values(volume);
+
+        auto meshData = volumeField_->generate_mesh(isoLevel_);
+        if (!meshData || meshData->vertices.empty()) {
+            statusMessage_ = "Mesh build produced no geometry.";
+            meshGenerated_ = false;
+            meshVisible_ = false;
+            lastMeshVisible_ = false;
+            if (meshObject_) {
+                meshObject_->setVisible(false);
+            }
+            return false;
+        }
+
+        if (!meshObject_) {
+            meshObject_ = std::make_shared<MeshObject>("WaveStackIsoMesh");
+            meshObject_->setShowEdges(false);
+            meshObject_->setShowVertices(false);
+            meshObject_->setRenderMode(MeshRenderMode::NormalShaded);
+            scene().addObject(meshObject_);
+        }
+
+        meshObject_->setMeshData(meshData);
+        meshObject_->setRenderMode(MeshRenderMode::NormalShaded);
+        meshObject_->setNormalShadingColors(Color(0.1f, 0.1f, 0.1f), Color(1.0f, 1.0f, 1.0f));
+        meshGenerated_ = true;
+        meshVisible_ = true;
+        lastMeshVisible_ = true;
+        meshObject_->setVisible(true);
+        statusMessage_ = "3D mesh generated.";
+        return true;
+    }
+
+    void exportAll() {
+        if (stackFields_.empty()) {
+            statusMessage_ = "Nothing to export.";
+            return;
+        }
+        if ((!meshGenerated_ || !meshObject_) && !buildVolumeMeshFromStack()) {
+            statusMessage_ = "Export aborted (mesh failed).";
+            return;
+        }
+        if (meshObject_) {
+            meshObject_->writeToObj(outputMeshName_);
+        }
+        if (!stackContours_.empty()) {
+            GraphObject merged("WaveStackContoursExport");
+            for (auto& contour : stackContours_) {
+                if (contour) {
+                    merged.combineWith(*contour);
+                }
+            }
+            merged.weld();
+            merged.writeToObj(outputContoursName_);
+        }
+        statusMessage_ = "Exported mesh -> " + outputMeshName_ + " ; contours -> " + outputContoursName_;
+    }
+
+    void toggleMeshVisibleFromUI() {
+        if (!meshObject_) {
+            return;
+        }
+        if (!meshGenerated_) {
+            meshVisible_ = false;
+        }
+        meshObject_->setVisible(meshVisible_);
+        statusMessage_ = meshVisible_ ? "Mesh visible." : "Mesh hidden.";
+    }
+
+    void postUpdateUI() {
+        if (!ui_) {
+            return;
+        }
+
+        if (btnBuildMesh_) {
+            buildVolumeMeshFromStack();
+            btnBuildMesh_ = false;
+        }
+        if (btnExport_) {
+            exportAll();
+            btnExport_ = false;
+        }
+        if (btnSmooth_) {
+            for (int i = 0; i < 5; ++i) {
+                smooth();
+            }
+            btnSmooth_ = false;
+        }
+        if (btnLaplacian_) {
+            for (int i = 0; i < 5; ++i) {
+                applyStackLaplacian();
+            }
+            btnLaplacian_ = false;
+        }
+
+        if (meshVisible_ != lastMeshVisible_) {
+            toggleMeshVisibleFromUI();
+            lastMeshVisible_ = meshVisible_;
+        }
+
+        static float lastHeight = totalHeight_;
+        static float lastIso = isoLevel_;
+        static float lastGen = genLayersF_;
+        if (std::fabs(totalHeight_ - lastHeight) > 1e-4f) {
+            updateContourPlacement();
+            invalidateVolumeMesh();
+            lastHeight = totalHeight_;
+        }
+        if (std::fabs(isoLevel_ - lastIso) > 1e-6f) {
+            regenerateContours();
+            invalidateVolumeMesh();
+            lastIso = isoLevel_;
+        }
+        if (std::fabs(genLayersF_ - lastGen) > 1e-6f) {
+            lastGen = genLayersF_;
+        }
+    }
+
+    void invalidateVolumeMesh() {
+        volumeField_.reset();
+        meshGenerated_ = false;
+        meshVisible_ = false;
+        lastMeshVisible_ = false;
+        if (meshObject_) {
+            meshObject_->setVisible(false);
+        }
     }
 
     void changePanelResolution(int delta) {
@@ -504,7 +934,6 @@ private:
         configureFields();
         buildPanelTiles();
         updateDetailField(currentUV01_);
-        rebuildContourObject();
         statusMessage_ = "Panel resolution set to " + std::to_string(panelResolution_) + "x" + std::to_string(panelResolution_);
     }
 
@@ -578,7 +1007,10 @@ private:
     GridField detailField_;
     std::vector<GridField> panelFields_;
     std::vector<float> lastDecoded_;
-    std::shared_ptr<GraphObject> contourObject_;
+
+    std::vector<ScalarField2D> stackFields_;
+    std::vector<std::shared_ptr<GraphObject>> stackContours_;
+    std::vector<Vec2> pickedUVs_;
 
     Vec2 currentUV01_{0.5f, 0.5f};
     std::optional<Vec2> hoverUV01_;
@@ -587,6 +1019,29 @@ private:
     float domainXMax_ = 1.2f;
     float domainYMin_ = -1.2f;
     float domainYMax_ = 1.2f;
+
+    Vec3 boundsMin_{-1.0f, -1.0f, 0.0f};
+    Vec3 boundsMax_{1.0f, 1.0f, 0.0f};
+
+    float isoLevel_ = kContourIso;
+    float totalHeight_ = 200.0f;
+    float sliceSpacing_ = 1.0f;
+    float genLayersF_ = 60.0f;
+
+    std::unique_ptr<ScalarField3D> volumeField_;
+    std::shared_ptr<MeshObject> meshObject_;
+    bool meshVisible_ = false;
+    bool meshGenerated_ = false;
+
+    std::unique_ptr<SimpleUI> ui_;
+    bool btnBuildMesh_ = false;
+    bool btnExport_ = false;
+    bool btnSmooth_ = false;
+    bool btnLaplacian_ = false;
+    bool lastMeshVisible_ = false;
+
+    std::string outputMeshName_ = "waveStackMesh.obj";
+    std::string outputContoursName_ = "waveStackContours.obj";
 
     int panelResolution_ = 9;
     bool ready_ = false;
