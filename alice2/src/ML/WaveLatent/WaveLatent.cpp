@@ -257,6 +257,11 @@ void WaveLatent::clear() {
     coeffs_.clear();
     coeffMean_.clear();
     coeffStd_.clear();
+    storedLatents_.clear();
+    domainXMin_ = -1.0f;
+    domainXMax_ = 1.0f;
+    domainYMin_ = -1.0f;
+    domainYMax_ = 1.0f;
     ae_ = {};
 }
 
@@ -280,6 +285,10 @@ bool WaveLatent::setFields(const WaveLatentDataset& dataset) {
     if (dataset.empty()) {
         return false;
     }
+    domainXMin_ = dataset.xMin;
+    domainXMax_ = dataset.xMax;
+    domainYMin_ = dataset.yMin;
+    domainYMax_ = dataset.yMax;
     return setFields(dataset.gridResY, dataset.gridResX, dataset.fields);
 }
 
@@ -476,6 +485,12 @@ bool WaveLatent::saveModel(const std::string& filePath) const {
         {"latentDim", config_.latentDim},
         {"seed", config_.seed}
     };
+    j["domain"] = {
+        {"xMin", domainXMin_},
+        {"xMax", domainXMax_},
+        {"yMin", domainYMin_},
+        {"yMax", domainYMax_}
+    };
 
     json modesJson = json::array();
     for (const auto& m : selectedModes_) {
@@ -503,6 +518,12 @@ bool WaveLatent::saveModel(const std::string& filePath) const {
     aeJson["be"] = ae_.be;
     aeJson["bd"] = ae_.bd;
     j["ae"] = aeJson;
+
+    std::vector<std::vector<float>> latents;
+    getAllLatents(latents);
+    if (!latents.empty()) {
+        j["latents"] = latents;
+    }
 
     std::ofstream out(filePath);
     if (!out.is_open()) {
@@ -538,6 +559,18 @@ bool WaveLatent::loadModel(const std::string& filePath) {
         config_.keepK = cfgIt->value("keepK", config_.keepK);
         config_.latentDim = cfgIt->value("latentDim", config_.latentDim);
         config_.seed = cfgIt->value("seed", config_.seed);
+    }
+
+    if (auto domainIt = j.find("domain"); domainIt != j.end()) {
+        domainXMin_ = domainIt->value("xMin", domainXMin_);
+        domainXMax_ = domainIt->value("xMax", domainXMax_);
+        domainYMin_ = domainIt->value("yMin", domainYMin_);
+        domainYMax_ = domainIt->value("yMax", domainYMax_);
+    } else {
+        domainXMin_ = -1.0f;
+        domainXMax_ = 1.0f;
+        domainYMin_ = -1.0f;
+        domainYMax_ = 1.0f;
     }
 
     selectedModes_.clear();
@@ -588,6 +621,22 @@ bool WaveLatent::loadModel(const std::string& filePath) {
             ae_.bd = aeIt->value("bd", ae_.bd);
         } else {
             std::printf("[WaveLatent] loadModel warning: AE dimensions mismatch; keeping freshly initialised weights.\n");
+        }
+    }
+
+    storedLatents_.clear();
+    if (auto latIt = j.find("latents"); latIt != j.end() && latIt->is_array()) {
+        storedLatents_.reserve(latIt->size());
+        for (const auto& entry : *latIt) {
+            if (!entry.is_array()) {
+                continue;
+            }
+            std::vector<float> latentRow;
+            latentRow.reserve(entry.size());
+            for (const auto& v : entry) {
+                latentRow.push_back(v.get<float>());
+            }
+            storedLatents_.push_back(std::move(latentRow));
         }
     }
 
