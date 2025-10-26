@@ -189,10 +189,26 @@ private:
     WaveLatentDatasetOptions datasetOptions_{256, 256, -1.2f, 1.2f, -1.2f, 1.2f};
     WaveLatentDataset dataset_{};
 
-    WaveLatentConfig modelConfig_{32, 32, 512, 16, 1234};
+    WaveLatentConfig modelConfig_{64, 64, 2048, 16, 1234};
     WaveLatentTrainingParams baseTrainParams_{200, 5e-3f, 1e-6f, 1e-3f, 50};
     int initEpochs_ = 10;
     int trainEpochs_ = 200;
+
+//     struct WaveLatentConfig {
+//     int Kx = 32;
+//     int Ky = 32;
+//     int keepK = 512;
+//     int latentDim = 16;
+//     unsigned seed = 1234;
+// };
+
+// struct WaveLatentTrainingParams {
+//     int epochs = 200;
+//     float learningRate = 5e-3f;
+//     float weightDecay = 1e-6f;
+//     float latentReg = 1e-3f;
+//     int printEvery = 50;
+// };
 
     std::vector<GridField> gtFields_;
     std::vector<GridField> aeFields_;
