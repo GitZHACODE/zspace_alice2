@@ -148,6 +148,10 @@ public:
     int fullBasisRank() const { return basisFull_.Kfull(); }
     int latentDim() const { return config_.latentDim; }
     const WaveLatentConfig& config() const { return config_; }
+    float domainXMin() const { return domainXMin_; }
+    float domainXMax() const { return domainXMax_; }
+    float domainYMin() const { return domainYMin_; }
+    float domainYMax() const { return domainYMax_; }
     const WaveLatentTrainingParams& trainingParams() const { return trainingParams_; }
     const std::vector<std::pair<int, int>>& modes() const { return selectedModes_; }
     const std::vector<std::vector<float>>& basis() const { return selectedBasis_; }
@@ -155,6 +159,7 @@ public:
     const std::vector<std::vector<float>>& normalizedCoefficients() const { return coeffs_; }
     const std::vector<float>& coeffMean() const { return coeffMean_; }
     const std::vector<float>& coeffStd() const { return coeffStd_; }
+    const std::vector<std::vector<float>>& storedLatents() const { return storedLatents_; }
 
 private:
     void projectFieldsOntoBasis(std::vector<std::vector<float>>& coeffsFull) const;
@@ -181,6 +186,12 @@ private:
     std::vector<std::vector<float>> coeffs_;
     std::vector<float> coeffMean_;
     std::vector<float> coeffStd_;
+    std::vector<std::vector<float>> storedLatents_;
+
+    float domainXMin_ = -1.0f;
+    float domainXMax_ = 1.0f;
+    float domainYMin_ = -1.0f;
+    float domainYMax_ = 1.0f;
 
     LinearAE ae_;
 };
