@@ -99,11 +99,11 @@ public:
         ui_->addSlider("Iso Level", Vec2{uiLeft, uiTop + 30.0f}, sliderWidth, -0.5f, 0.5f, isoLevel_);
         ui_->addSlider("Gen Layers", Vec2{uiLeft, uiTop + 60.0f}, sliderWidth, 2.0f, 200.0f, genLayersF_);
 
-        const int toggleXLeft = static_cast<int>(uiLeft);
-        const int toggleXRight = toggleXLeft + 140;
-        const int toggleYRow0 = static_cast<int>(uiTop + 100.0f);
-        const int toggleYRow1 = static_cast<int>(uiTop + 130.0f);
-        const int toggleYRow2 = static_cast<int>(uiTop + 160.0f);
+        const float toggleXLeft = static_cast<int>(uiLeft);
+        const float toggleXRight = toggleXLeft + 140;
+        const float toggleYRow0 = static_cast<int>(uiTop + 100.0f);
+        const float toggleYRow1 = static_cast<int>(uiTop + 130.0f);
+        const float toggleYRow2 = static_cast<int>(uiTop + 160.0f);
 
         ui_->addToggle("Smooth*5", UIRect{toggleXLeft, toggleYRow0, 120, 22}, btnSmooth_);
         ui_->addToggle("Laplacian*5", UIRect{toggleXRight, toggleYRow0, 140, 22}, btnLaplacian_);
