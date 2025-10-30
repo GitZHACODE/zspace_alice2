@@ -858,30 +858,82 @@ bool WaveLatent::loadDatasetFromJson(const std::string& filePath,
     dataset.fields.clear();
     dataset.fields.reserve(j["shapes"].size());
 
-    for (const auto& branch : j["shapes"]) {
-        ScalarField2D field(minBB, maxBB, gridResX, gridResY);
+    auto applyBranchPolys = [](const json& branchNode, ScalarField2D& target) -> bool {
+        const json* polyArray = nullptr;
+        if (branchNode.is_object()) {
+            if (const auto it = branchNode.find("polys"); it != branchNode.end() && it->is_array()) {
+                polyArray = &(*it);
+            }
+        } else if (branchNode.is_array()) {
+            polyArray = &branchNode;
+        }
+        if (!polyArray) {
+            return false;
+        }
 
-        if (branch.contains("polys") && branch["polys"].is_array()) {
-            for (const auto& poly : branch["polys"]) {
-                if (!poly.is_array() || poly.empty()) {
+        bool applied = false;
+        for (const auto& poly : *polyArray) {
+            if (!poly.is_array() || poly.empty()) {
+                continue;
+            }
+
+            std::vector<alice2::Vec3> pts;
+            pts.reserve(poly.size());
+            for (const auto& p : poly) {
+                if (!p.is_array() || p.size() < 2) {
                     continue;
                 }
+                const float px = p[0].get<float>();
+                const float py = p[1].get<float>();
+                const float pz = (p.size() > 2) ? p[2].get<float>() : 0.0f;
+                pts.emplace_back(px, py, pz);
+            }
+            if (!pts.empty()) {
+                target.apply_scalar_polygon(pts);
+                applied = true;
+            }
+        }
+        return applied;
+    };
 
-                std::vector<alice2::Vec3> pts;
-                pts.reserve(poly.size());
-                for (const auto& p : poly) {
-                    if (!p.is_array() || p.size() < 2) {
-                        continue;
-                    }
-                    const float px = p[0].get<float>();
-                    const float py = p[1].get<float>();
-                    const float pz = (p.size() > 2) ? p[2].get<float>() : 0.0f;
-                    pts.emplace_back(px, py, pz);
+    const json* cutoutRoot = nullptr;
+    if (const auto cutoutIt = j.find("cutout"); cutoutIt != j.end()) {
+        cutoutRoot = &(*cutoutIt);
+    }
+
+    const auto& shapesArray = j["shapes"];
+    for (size_t branchIdx = 0; branchIdx < shapesArray.size(); ++branchIdx) {
+        const auto& branch = shapesArray[branchIdx];
+        ScalarField2D field(minBB, maxBB, gridResX, gridResY);
+
+        applyBranchPolys(branch, field);
+
+        bool hasCutout = false;
+        ScalarField2D cutoutField(minBB, maxBB, gridResX, gridResY);
+        if (cutoutRoot) {
+            if (cutoutRoot->is_array()) {
+                if (branchIdx < cutoutRoot->size()) {
+                    hasCutout = applyBranchPolys((*cutoutRoot)[branchIdx], cutoutField) || hasCutout;
                 }
-                if (!pts.empty()) {
-                    field.apply_scalar_polygon(pts);
+            } else if (cutoutRoot->is_object()) {
+                hasCutout = applyBranchPolys(*cutoutRoot, cutoutField) || hasCutout;
+            }
+        }
+
+        if (branch.is_object()) {
+            if (const auto cutoutIt = branch.find("cutout"); cutoutIt != branch.end()) {
+                if (cutoutIt->is_array()) {
+                    for (const auto& cutoutBranch : *cutoutIt) {
+                        hasCutout = applyBranchPolys(cutoutBranch, cutoutField) || hasCutout;
+                    }
+                } else if (cutoutIt->is_object()) {
+                    hasCutout = applyBranchPolys(*cutoutIt, cutoutField) || hasCutout;
                 }
             }
+        }
+
+        if (hasCutout) {
+            field.boolean_subtract(cutoutField);
         }
 
         field.normalise();
