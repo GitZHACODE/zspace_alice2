@@ -189,7 +189,7 @@ private:
     WaveLatentDatasetOptions datasetOptions_{128, 128, -1.2f, 1.2f, -1.2f, 1.2f};
     WaveLatentDataset dataset_{};
 
-    WaveLatentConfig modelConfig_{64, 64, 2048, 16, 1234};
+    WaveLatentConfig modelConfig_{128, 128, 4096, 16, 1234};
     WaveLatentTrainingParams baseTrainParams_{200, 5e-3f, 1e-6f, 1e-3f, 50};
     int initEpochs_ = 10;
     int trainEpochs_ = 200;

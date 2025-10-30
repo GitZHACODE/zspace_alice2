@@ -852,7 +852,38 @@ private:
             merged.weld();
             merged.writeToObj(outputContoursName_);
         }
+
+        bool fieldsExported = false;
+        if (!stackFields_.empty()) {
+            json stackJson;
+            const auto [resX, resY] = stackFields_.front().get_resolution();
+            const auto bounds = stackFields_.front().get_bounds();
+            const Vec3& minBB = bounds.first;
+            const Vec3& maxBB = bounds.second;
+
+            stackJson["scalar_field_resX"] = resX;
+            stackJson["scalar_field_resY"] = resY;
+            stackJson["scalar_field_minBB"] = {minBB.x, minBB.y};
+            stackJson["scalar_field_maxBB"] = {maxBB.x, maxBB.y};
+
+            int fieldIdx = 0;
+            for (const auto& field : stackFields_) {
+                stackJson["scalar_field_values_" + std::to_string(fieldIdx++)] = field.get_values();
+            }
+
+            std::ofstream fieldFile(outputStackFieldsName_, std::ios::out | std::ios::trunc);
+            if (fieldFile.is_open()) {
+                fieldFile << stackJson.dump(2);
+                fieldsExported = true;
+                std::printf("[WaveLatent][Panel] Successfully exported fields to: %s\n",
+                            outputStackFieldsName_.c_str());
+            } else {
+                std::printf("[WaveLatent][Panel] Failed to open '%s' for scalar field export.\n", outputStackFieldsName_.c_str());
+            }
+        }
+
         statusMessage_ = "Exported mesh -> " + outputMeshName_ + " ; contours -> " + outputContoursName_;
+        statusMessage_ += fieldsExported ? " ; fields -> " + outputStackFieldsName_ : " ; fields export failed";
     }
 
     void toggleMeshVisibleFromUI() {
@@ -1042,6 +1073,7 @@ private:
 
     std::string outputMeshName_ = "waveStackMesh.obj";
     std::string outputContoursName_ = "waveStackContours.obj";
+    std::string outputStackFieldsName_ = "waveStackFields.json";
 
     int panelResolution_ = 9;
     bool ready_ = false;
