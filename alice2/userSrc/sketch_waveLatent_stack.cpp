@@ -43,6 +43,7 @@ constexpr float kUIExtraOffset = 80.0f;
 constexpr float kUIContentHeight = 190.0f;
 constexpr float kUIToDetailGap = 30.0f;
 constexpr float kContourIso = 0.0f;
+constexpr float kLatentSnapRadius = 0.02f;
 
 float clamp01(float v) {
     return std::max(0.0f, std::min(1.0f, v));
@@ -69,6 +70,13 @@ public:
         scene().setBackgroundColor(Color(0.92f, 0.92f, 0.94f));
         scene().setShowAxes(false);
         scene().setShowGrid(false);
+
+        sketchBbox = std::make_shared<MeshObject>();
+        sketchBbox->createCube(totalHeight_);
+        sketchBbox->translateMesh(Vec3(0.0f, 0.0f, 0.5 * totalHeight_));
+        sketchBbox->setShowFaces(false);
+        scene().addObject(sketchBbox);
+
 
         if (!loadModelFile()) {
             std::printf("[WaveLatent][Panel] unable to load model.\n");
@@ -105,10 +113,11 @@ public:
         const float toggleYRow1 = static_cast<int>(uiTop + 130.0f);
         const float toggleYRow2 = static_cast<int>(uiTop + 160.0f);
 
-        ui_->addToggle("Smooth*5", UIRect{toggleXLeft, toggleYRow0, 120, 22}, btnSmooth_);
+        ui_->addToggle("Smooth*1", UIRect{toggleXLeft, toggleYRow0, 120, 22}, btnSmooth_);
         ui_->addToggle("Laplacian*5", UIRect{toggleXRight, toggleYRow0, 140, 22}, btnLaplacian_);
         ui_->addToggle("Build Mesh", UIRect{toggleXLeft, toggleYRow1, 120, 22}, btnBuildMesh_);
         ui_->addToggle("Display Mesh", UIRect{toggleXRight, toggleYRow1, 140, 22}, meshVisible_);
+        ui_->addToggle("Display Contours", UIRect{toggleXRight + 150, toggleYRow1, 160, 22}, contoursVisible_);
         ui_->addToggle("Export", UIRect{toggleXLeft, toggleYRow2, 120, 22}, btnExport_);
 
         ready_ = true;
@@ -176,8 +185,6 @@ public:
         }
         hoverUV01_ = *uv;
         updateDetailField(*uv);
-        const Vec2 plane = planeFrom01(*uv);
-        statusMessage_ = "Hover: u=" + f2(plane.x) + " v=" + f2(plane.y);
         return true;
     }
 
@@ -199,11 +206,17 @@ public:
         hoverUV01_ = *uv;
         updateDetailField(*uv);
         pickedUVs_.push_back(*uv);
+        const float px = panelLeft() + uv->x * kPanelSize;
+        const float py = panelTop() + uv->y * kPanelSize;
+        pickedScreenPts_.emplace_back(px, py);
 
         if (addSliceAtUV(*uv)) {
             const Vec2 plane = planeFrom01(*uv);
             statusMessage_ = "Added slice at u=" + f2(plane.x) + " v=" + f2(plane.y) +
                               " -> total slices: " + std::to_string(stackFields_.size());
+            if (lastDetailLatentIndex_) {
+                statusMessage_ += "  (snap #" + std::to_string(*lastDetailLatentIndex_ + 1) + ")";
+            }
         } else {
             statusMessage_ = "Decode failed for that latent click.";
         }
@@ -446,10 +459,35 @@ private:
 
     void updateDetailField(const Vec2& uv01) {
         std::vector<float> decoded;
-        const Vec2 plane = planeFrom01(uv01);
-        decodeOnPlane(plane.x, plane.y, decoded);
+        const int gridW = waveLatent_.gridWidth();
+        const int gridH = waveLatent_.gridHeight();
+        const size_t expected = static_cast<size_t>(std::max(0, gridW)) * static_cast<size_t>(std::max(0, gridH));
+
+        bool usedStoredLatent = false;
+        std::optional<size_t> snappedIndex;
+        if (auto nearest = nearestLatentIndex(uv01, kLatentSnapRadius)) {
+            waveLatent_.decodeLatentToGrid(latents_[*nearest], decoded);
+            if (decoded.size() == expected && expected > 0) {
+                usedStoredLatent = true;
+                snappedIndex = *nearest;
+            } else {
+                decoded.clear();
+            }
+        }
+
+        if (!usedStoredLatent) {
+            const Vec2 plane = planeFrom01(uv01);
+            decodeOnPlane(plane.x, plane.y, decoded);
+        }
+
         lastDecoded_ = decoded;
         detailField_.updateValues(decoded);
+        lastDetailUV01_ = uv01;
+        if (usedStoredLatent) {
+            lastDetailLatentIndex_ = snappedIndex;
+        } else {
+            lastDetailLatentIndex_.reset();
+        }
     }
 
     bool addSliceAtUV(const Vec2& uv01) {
@@ -517,6 +555,26 @@ private:
         return Vec2(u, v);
     }
 
+    std::optional<size_t> nearestLatentIndex(const Vec2& uv01, float maxDist01) const {
+        if (latents_.empty() || sampleUV_.size() != latents_.size()) {
+            return std::nullopt;
+        }
+        const float maxDistSq = maxDist01 * maxDist01;
+        float bestDistSq = maxDistSq;
+        std::optional<size_t> bestIndex;
+        for (size_t i = 0; i < sampleUV_.size(); ++i) {
+            const Vec2 uvStored = panel01FromPlane(sampleUV_[i]);
+            const float dx = uvStored.x - uv01.x;
+            const float dy = uvStored.y - uv01.y;
+            const float distSq = dx * dx + dy * dy;
+            if (distSq <= bestDistSq) {
+                bestDistSq = distSq;
+                bestIndex = i;
+            }
+        }
+        return bestIndex;
+    }
+
     void drawTileFrame(Renderer& renderer, float left, float top, float size,
                        const Color& color, float thickness) const {
         const float right = left + size;
@@ -538,31 +596,64 @@ private:
         // renderer.setColor(Color(0.25f, 0.25f, 0.30f));
         // renderer.drawString("Latent Panel", leftBase, topBase - 18.0f);
 
-        if (panelFields_.empty()) {
-            renderer.drawString("Panel unavailable.", leftBase, topBase + 12.0f);
-            return;
-        }
+        const bool hasStoredLatents = !latents_.empty() && sampleUV_.size() == latents_.size();
+        if (hasStoredLatents) {
+            drawTileFrame(renderer, leftBase, topBase, kPanelSize, kFrameColor, 1.1f);
 
-        const float tileSize = (kPanelSize - kTileGap * float(panelResolution_ - 1)) / std::max(1, panelResolution_);
-        const float cellW = tileSize / std::max(1.0f, float(waveLatent_.gridWidth()));
-        const float cellH = tileSize / std::max(1.0f, float(waveLatent_.gridHeight()));
+            for (size_t i = 0; i < sampleUV_.size(); ++i) {
+                const Vec2 uv01 = panel01FromPlane(sampleUV_[i]);
+                const float px = leftBase + uv01.x * kPanelSize;
+                const float py = topBase + uv01.y * kPanelSize;
 
-        for (int row = 0; row < panelResolution_; ++row) {
-            for (int col = 0; col < panelResolution_; ++col) {
-                const int idx = row * panelResolution_ + col;
-                const float left = leftBase + col * (tileSize + kTileGap);
-                const float top = topBase + row * (tileSize + kTileGap);
-                drawTileFrame(renderer, left, top, tileSize, kFrameColor, 1.1f);
-                panelFields_[idx].draw(renderer, left, top, cellW, cellH, kIsoColor, 1.6f);
+                const std::string label = std::to_string(i + 1);
+                const float textOffsetX = 6.0f;
+                const float textOffsetY = -6.0f;
+                renderer.drawString(label, px + textOffsetX, py + textOffsetY);
+            }
+        } else {
+            if (panelFields_.empty()) {
+                renderer.drawString("Panel unavailable.", leftBase, topBase + 12.0f);
+                return;
+            }
+
+            const float tileSize = (kPanelSize - kTileGap * float(panelResolution_ - 1)) / std::max(1, panelResolution_);
+            const float cellW = tileSize / std::max(1.0f, float(waveLatent_.gridWidth()));
+            const float cellH = tileSize / std::max(1.0f, float(waveLatent_.gridHeight()));
+
+            for (int row = 0; row < panelResolution_; ++row) {
+                for (int col = 0; col < panelResolution_; ++col) {
+                    const int idx = row * panelResolution_ + col;
+                    const float left = leftBase + col * (tileSize + kTileGap);
+                    const float top = topBase + row * (tileSize + kTileGap);
+                    drawTileFrame(renderer, left, top, tileSize, kFrameColor, 1.1f);
+                    panelFields_[idx].draw(renderer, left, top, cellW, cellH, kIsoColor, 1.6f);
+                }
             }
         }
+
+        const float denomU = std::max(1e-6f, uMax_ - uMin_);
+        const float denomV = std::max(1e-6f, vMax_ - vMin_);
+        const Color axisColor(0.35f, 0.35f, 0.38f, 0.9f);
+        const float axisU01 = clamp01((0.0f - uMin_) / denomU);
+        const float axisX = leftBase + axisU01 * kPanelSize;
+        renderer.draw2dLine(Vec2(axisX, topBase), Vec2(axisX, topBase + kPanelSize), axisColor, 1.0f);
+        const float axisV01 = clamp01((vMax_ - 0.0f) / denomV);
+        const float axisY = topBase + axisV01 * kPanelSize;
+        renderer.draw2dLine(Vec2(leftBase, axisY), Vec2(leftBase + kPanelSize, axisY), axisColor, 1.0f);
 
         if (!sampleUV_.empty()) {
             for (const Vec2& plane : sampleUV_) {
                 const Vec2 uv01 = panel01FromPlane(plane);
                 const float px = leftBase + uv01.x * kPanelSize;
-                const float py = topBase  + uv01.y * kPanelSize;
+                const float py = topBase + uv01.y * kPanelSize;
                 renderer.draw2dPoint(Vec2(px, py), Color(0.95f, 0.2f, 0.2f, 1.0f), 3.0f);
+            }
+        }
+
+        if (pickedScreenPts_.size() >= 2) {
+            const Color lineColor(0.9f, 0.4f, 0.15f, 1.0f);
+            for (size_t i = 1; i < pickedScreenPts_.size(); ++i) {
+                renderer.draw2dLine(pickedScreenPts_[i - 1], pickedScreenPts_[i], lineColor, 1.6f);
             }
         }
 
@@ -590,9 +681,17 @@ private:
         const float cellH = kDetailSize / std::max(1.0f, float(waveLatent_.gridHeight()));
         detailField_.draw(renderer, leftBase, topBase, cellW, cellH, kIsoColor, 2.2f);
 
-        const Vec2 plane = planeFrom01(currentUV01_);
-        // renderer.drawString("u=" + f2(plane.x) + "   v=" + f2(plane.y),
-        //                     leftBase, topBase + kDetailSize + 18.0f);
+        std::string coordLabel;
+        if (lastDetailLatentIndex_ && *lastDetailLatentIndex_ < sampleUV_.size()) {
+            const Vec2& latentPlane = sampleUV_[*lastDetailLatentIndex_];
+            coordLabel = "#" + std::to_string(*lastDetailLatentIndex_ + 1) +
+                         "  u=" + f2(latentPlane.x) +
+                         "  v=" + f2(latentPlane.y);
+        } else {
+            const Vec2 plane = planeFrom01(lastDetailUV01_);
+            coordLabel = "u=" + f2(plane.x) + "  v=" + f2(plane.y);
+        }
+        renderer.drawString(coordLabel, leftBase + 8.0f, topBase + kDetailSize - 10.0f);
     }
 
     void regenerateContours() {
@@ -607,8 +706,10 @@ private:
             auto contourPtr = std::make_shared<GraphObject>(std::move(contour));
             contourPtr->setName("WaveStackContour_" + std::to_string(i));
             scene().addObject(contourPtr);
+            contourPtr->setVisible(contoursVisible_);
             stackContours_.emplace_back(std::move(contourPtr));
         }
+        updateContoursVisibility();
         updateContourPlacement();
     }
 
@@ -619,6 +720,14 @@ private:
             }
         }
         stackContours_.clear();
+    }
+
+    void updateContoursVisibility() {
+        for (auto& contour : stackContours_) {
+            if (contour) {
+                contour->setVisible(contoursVisible_);
+            }
+        }
     }
 
     void updateContourPlacement() {
@@ -643,6 +752,7 @@ private:
 
     void clearAllSelections() {
         pickedUVs_.clear();
+        pickedScreenPts_.clear();
         stackFields_.clear();
         clearContourObjects();
         invalidateVolumeMesh();
@@ -911,9 +1021,7 @@ private:
             btnExport_ = false;
         }
         if (btnSmooth_) {
-            for (int i = 0; i < 5; ++i) {
                 smooth();
-            }
             btnSmooth_ = false;
         }
         if (btnLaplacian_) {
@@ -928,12 +1036,20 @@ private:
             lastMeshVisible_ = meshVisible_;
         }
 
+        if (contoursVisible_ != lastContoursVisible_) {
+            updateContoursVisibility();
+            lastContoursVisible_ = contoursVisible_;
+        }
+
         static float lastHeight = totalHeight_;
         static float lastIso = isoLevel_;
         static float lastGen = genLayersF_;
         if (std::fabs(totalHeight_ - lastHeight) > 1e-4f) {
             updateContourPlacement();
             invalidateVolumeMesh();
+
+            sketchBbox->createCube(totalHeight_);
+            sketchBbox->translateMesh(Vec3(0.0f, 0.0f, 0.5 * totalHeight_));
             lastHeight = totalHeight_;
         }
         if (std::fabs(isoLevel_ - lastIso) > 1e-6f) {
@@ -1025,6 +1141,8 @@ private:
     WaveLatent waveLatent_;
     json modelJson_;
 
+    std::shared_ptr<MeshObject> sketchBbox;
+
     std::vector<std::vector<float>> latents_;
     std::vector<Vec2> sampleUV_;
     std::vector<float> pcaMean_;
@@ -1042,9 +1160,12 @@ private:
     std::vector<ScalarField2D> stackFields_;
     std::vector<std::shared_ptr<GraphObject>> stackContours_;
     std::vector<Vec2> pickedUVs_;
+    std::vector<Vec2> pickedScreenPts_;
 
     Vec2 currentUV01_{0.5f, 0.5f};
+    Vec2 lastDetailUV01_{0.5f, 0.5f};
     std::optional<Vec2> hoverUV01_;
+    std::optional<size_t> lastDetailLatentIndex_;
 
     float domainXMin_ = -1.2f;
     float domainXMax_ = 1.2f;
@@ -1063,6 +1184,7 @@ private:
     std::shared_ptr<MeshObject> meshObject_;
     bool meshVisible_ = false;
     bool meshGenerated_ = false;
+    bool contoursVisible_ = true;
 
     std::unique_ptr<SimpleUI> ui_;
     bool btnBuildMesh_ = false;
@@ -1070,6 +1192,7 @@ private:
     bool btnSmooth_ = false;
     bool btnLaplacian_ = false;
     bool lastMeshVisible_ = false;
+    bool lastContoursVisible_ = true;
 
     std::string outputMeshName_ = "waveStackMesh.obj";
     std::string outputContoursName_ = "waveStackContours.obj";
