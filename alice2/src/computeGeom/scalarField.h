@@ -126,7 +126,9 @@ private:
     std::vector<float> m_field_values;
     std::vector<float> m_normalized_values;
     std::vector<Vec3> m_gradient_field;
-     
+    bool m_has_valid_sdf = false;
+    bool m_is_normalized = false;
+
     // Helper methods
     inline int get_index(int x, int y) const {
         return y * m_res_x + x;
@@ -163,7 +165,7 @@ public:
 
     // Getter/Setter methods
     const std::vector<Vec3>& get_points() const { return m_grid_points; }
-    const std::vector<float>& get_values() const { return m_field_values; }
+    const std::vector<float>& get_values() const { return m_is_normalized ? m_normalized_values : m_field_values; }
     void set_values(const std::vector<float>& values);
     std::pair<int, int> get_resolution() const { return {m_res_x, m_res_y}; }
     std::pair<Vec3, Vec3> get_bounds() const { return {m_min_bounds, m_max_bounds}; }

@@ -37,15 +37,22 @@ Optionally the library may also be pre-compiled into a statically  or dynamicall
     ./build.bat
     ./run.bat
     ```
+    OR with cuda
+
+    ```sh
+    cd alice2
+    ./build.bat cuda
+    ./run.bat cuda
+    ```
 
 # Citing
-If you use the library of ZSPACE in a project, please refer to the GitHub repository.
+If you use Alice2 in a project, please refer to the GitHub repository.
 
 @misc{zspace-framework,
-      title  = {{zspace}: A simple C++ header-only collection of geometry data-structures, algorithms and city data visualization                       framework.},
+      title  = {{alice2}: A simple 3D viewer and C++ header-only collection of geometry data-structures, algorithms.},
       author = {Taizhong Chen},
-      note   = {https://github.com/venumb/ZSPACE},
-      year   = {2018},
+      note   = {https://github.com/GitZHCODE/zspace_alice2},
+      year   = {2025},
     }
 
 # License
@@ -60,4 +67,5 @@ Thanks a lot!
 - [**STB**](https://github.com/nothings/stb) for text rendering. These single-file libraries are released into the public domain and can be used freely for any purpose.
 - [**GLEW**](http://glew.sourceforge.net/) for managing OpenGL extensions. GLEW is open-source and distributed under the Modified BSD license, allowing free use in both open and closed source projects.
 - [**GLFW**](https://www.glfw.org/) for window and input management. GLFW is licensed under the zlib/libpng license, permitting free use in commercial and non-commercial applications.
-
+- [**nlohmann/json**](https://github.com/nlohmann/json) for modern C++ JSON parsing and serialization. It is licensed under the MIT License, allowing unrestricted use, modification, and distribution.
+- [**CUDA Toolkit**](https://developer.nvidia.com/cuda-toolkit) for GPU-accelerated computation and parallel processing support. CUDA is developed and distributed by NVIDIA and requires compatible NVIDIA hardware and drivers.

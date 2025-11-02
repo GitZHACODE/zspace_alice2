@@ -17,6 +17,7 @@ ScalarField2D::ScalarField2D(const Vec3& min_bb, const Vec3& max_bb, int res_x, 
     m_field_values.resize(total_points, 0.0f);
     m_normalized_values.resize(total_points, 0.0f);
     m_gradient_field.resize(total_points, Vec3(0, 0, 0));
+    m_has_valid_sdf = false;
 
     initialize_grid();
 }
@@ -25,7 +26,8 @@ ScalarField2D::ScalarField2D(const ScalarField2D& other)
     : m_min_bounds(other.m_min_bounds), m_max_bounds(other.m_max_bounds)
     , m_res_x(other.m_res_x), m_res_y(other.m_res_y)
     , m_grid_points(other.m_grid_points), m_field_values(other.m_field_values)
-    , m_normalized_values(other.m_normalized_values), m_gradient_field(other.m_gradient_field) {
+    , m_normalized_values(other.m_normalized_values), m_gradient_field(other.m_gradient_field)
+    , m_has_valid_sdf(other.m_has_valid_sdf) {
 }
 
 ScalarField2D& ScalarField2D::operator=(const ScalarField2D& other) {
@@ -38,6 +40,7 @@ ScalarField2D& ScalarField2D::operator=(const ScalarField2D& other) {
         m_field_values = other.m_field_values;
         m_normalized_values = other.m_normalized_values;
         m_gradient_field = other.m_gradient_field;
+        m_has_valid_sdf = other.m_has_valid_sdf;
     }
     return *this;
 }
@@ -46,8 +49,10 @@ ScalarField2D::ScalarField2D(ScalarField2D&& other) noexcept
     : m_min_bounds(std::move(other.m_min_bounds)), m_max_bounds(std::move(other.m_max_bounds))
     , m_res_x(other.m_res_x), m_res_y(other.m_res_y)
     , m_grid_points(std::move(other.m_grid_points)), m_field_values(std::move(other.m_field_values))
-    , m_normalized_values(std::move(other.m_normalized_values)), m_gradient_field(std::move(other.m_gradient_field)) {
+    , m_normalized_values(std::move(other.m_normalized_values)), m_gradient_field(std::move(other.m_gradient_field))
+    , m_has_valid_sdf(other.m_has_valid_sdf) {
     other.m_res_x = other.m_res_y = 0;
+    other.m_has_valid_sdf = false;
 }
 
 ScalarField2D& ScalarField2D::operator=(ScalarField2D&& other) noexcept {
@@ -60,7 +65,9 @@ ScalarField2D& ScalarField2D::operator=(ScalarField2D&& other) noexcept {
         m_field_values = std::move(other.m_field_values);
         m_normalized_values = std::move(other.m_normalized_values);
         m_gradient_field = std::move(other.m_gradient_field);
+        m_has_valid_sdf = other.m_has_valid_sdf;
         other.m_res_x = other.m_res_y = 0;
+        other.m_has_valid_sdf = false;
     }
     return *this;
 }
@@ -86,28 +93,32 @@ void ScalarField2D::initialize_grid() {
 void ScalarField2D::normalize_field() {
     if (m_field_values.empty()) return;
 
-    // find extrema
-    auto [min_it, max_it] = std::minmax_element(m_field_values.begin(),
-                                                 m_field_values.end());
+    const auto [min_it, max_it] = std::minmax_element(m_field_values.begin(), m_field_values.end());
     const float min_val = *min_it;
     const float max_val = *max_it;
-    const float range   = std::max(max_val - min_val, 1e-6f);
 
-    // do we need a [-1,1] stretch?
-    const bool use_bipolar = (min_val < 0.0f);
+    m_normalized_values.resize(m_field_values.size(), 0.0f);
+
+    const bool has_neg = (min_val < 0.0f);
+    const bool has_pos = (max_val > 0.0f);
+    const float neg_scale = has_neg ? (-1.0f / min_val) : 0.0f;
+    const float pos_scale = has_pos ? ( 1.0f / max_val) : 0.0f;
 
     for (size_t i = 0, n = m_field_values.size(); i < n; ++i) {
-        // first normalize into [0,1]
-        float t = (m_field_values[i] - min_val) / range;
-        // if any value was negative, remap [0,1] -> [-1,1]
-        m_normalized_values[i] = use_bipolar ? (t * 2.0f - 1.0f)
-                                              :  t;
+        const float v = m_field_values[i];
+        float out = 0.0f;
+        if (v < 0.0f && has_neg) out = v * neg_scale;
+        else if (v > 0.0f && has_pos) out = v * pos_scale;
+        m_normalized_values[i] = std::clamp(out, -1.0f, 1.0f);
     }
+
+    m_is_normalized = true;
 }
 
 void ScalarField2D::clear_field() {
     std::fill(m_field_values.begin(), m_field_values.end(), 0.0f);
     std::fill(m_normalized_values.begin(), m_normalized_values.end(), 0.0f);
+    m_has_valid_sdf = false;
 }
 
 Vec3 ScalarField2D::cellPosition(int x, int y) const
@@ -157,6 +168,7 @@ void ScalarField2D::apply_scalar_circle(const Vec3& center, float radius) {
             m_field_values[idx] = sdf;
         }
     }
+    m_has_valid_sdf = true;
 }
 
 void ScalarField2D::apply_scalar_rect(const Vec3& center, const Vec3& half_size, float angle_radians) {
@@ -184,6 +196,7 @@ void ScalarField2D::apply_scalar_rect(const Vec3& center, const Vec3& half_size,
             m_field_values[idx] = sdf;
         }
     }
+    m_has_valid_sdf = true;
 }
 
 void ScalarField2D::apply_scalar_voronoi(const std::vector<Vec3>& sites) {
@@ -226,27 +239,84 @@ void ScalarField2D::apply_scalar_line(const Vec3& start, const Vec3& end, float 
             m_field_values[idx] = dist - thickness; // SDF: negative inside, positive outside
         }
     }
+    m_has_valid_sdf = true;
 }
 
 void ScalarField2D::apply_scalar_polygon(const std::vector<Vec3>& vertices) {
-    // Simple polygon SDF - placeholder implementation
-    if (vertices.empty()) return;
+    if (vertices.size() < 3) return;
+
+    auto pointInPolygon = [](float px, float py, const std::vector<Vec3>& verts) {
+        bool inside = false;
+        const size_t n = verts.size();
+        for (size_t i = 0, j = n - 1; i < n; j = i++) {
+            const float xi = verts[i].x;
+            const float yi = verts[i].y;
+            const float xj = verts[j].x;
+            const float yj = verts[j].y;
+            const bool intersect =
+                ((yi > py) != (yj > py)) &&
+                (px < (xj - xi) * (py - yi) / ((yj - yi) + 1e-8f) + xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    };
+
+    auto segmentDistance = [](const Vec3& p, const Vec3& a, const Vec3& b) {
+        const Vec3 ab = b - a;
+        const Vec3 ap = p - a;
+        const float len2 = ab.x * ab.x + ab.y * ab.y;
+        float t = (len2 > 1e-12f) ? ((ap.x * ab.x + ap.y * ab.y) / len2) : 0.0f;
+        t = std::clamp(t, 0.0f, 1.0f);
+        const float cx = a.x + t * ab.x;
+        const float cy = a.y + t * ab.y;
+        const float dx = p.x - cx;
+        const float dy = p.y - cy;
+        return std::sqrt(dx * dx + dy * dy);
+    };
+
+    auto signedArea = [](const std::vector<Vec3>& verts) {
+        double area = 0.0;
+        const size_t n = verts.size();
+        for (size_t i = 0, j = n - 1; i < n; j = i++) {
+            area += double(verts[j].x) * double(verts[i].y) -
+                    double(verts[i].x) * double(verts[j].y);
+        }
+        return float(0.5 * area);
+    };
+
+    const float area = signedArea(vertices);
+    const bool isHole = area < 0.0f;
+    const bool firstPolygon = !m_has_valid_sdf;
 
     for (int j = 0; j < m_res_y; ++j) {
         for (int i = 0; i < m_res_x; ++i) {
             const int idx = get_index(i, j);
             const Vec3& pt = m_grid_points[idx];
 
-            // Find distance to closest vertex (simplified)
-            float min_dist = std::numeric_limits<float>::max();
-            for (const auto& vertex : vertices) {
-                const float dist = ScalarFieldUtils::distance_to(pt, vertex);
-                min_dist = std::min(min_dist, dist);
+            float minDist = std::numeric_limits<float>::max();
+            for (size_t k = 0, n = vertices.size(); k < n; ++k) {
+                const Vec3& a = vertices[k];
+                const Vec3& b = vertices[(k + 1) % n];
+                minDist = std::min(minDist, segmentDistance(pt, a, b));
             }
 
-            m_field_values[idx] = min_dist;
+            const bool inside = pointInPolygon(pt.x, pt.y, vertices);
+            float sdf = inside ? -minDist : minDist;
+            if (isHole) sdf = -sdf;
+
+            if (firstPolygon) {
+                m_field_values[idx] = sdf;
+            } else {
+                if (isHole) {
+                    m_field_values[idx] = std::max(m_field_values[idx], sdf);
+                } else {
+                    m_field_values[idx] = std::min(m_field_values[idx], sdf);
+                }
+            }
         }
     }
+
+    m_has_valid_sdf = true;
 }
 
 void ScalarField2D::apply_scalar_ellipse(const Vec3 &center, float radiusX, float radiusY, const float rotation)
@@ -268,6 +338,7 @@ void ScalarField2D::apply_scalar_ellipse(const Vec3 &center, float radiusX, floa
             m_field_values[idx] = sdf;
         }
     }
+    m_has_valid_sdf = true;
 }
 
 void ScalarField2D::apply_scalar_manhattan_voronoi(const std::vector<Vec3> &sites)
@@ -538,7 +609,6 @@ void ScalarField2D::boolean_difference(const ScalarField2D& other) {
     // Difference is A - B = A ∩ ¬B = max(A, -B)
     boolean_subtract(other);
 }
-
 
 
 

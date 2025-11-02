@@ -15,7 +15,8 @@
                 "C:/Program Files (x86)/Windows Kits/10/Include/10.0.*/um",
                 "C:/Program Files (x86)/Windows Kits/10/Include/10.0.*/ucrt",
                 "C:/Program Files (x86)/Windows Kits/10/Include/10.0.*/shared",
-                "C:/Program Files/Microsoft Visual Studio/*/VC/Tools/MSVC/*/include"
+                "C:/Program Files/Microsoft Visual Studio/*/VC/Tools/MSVC/*/include",
+                "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.0/include"
             ],
             "defines": [
                 "_DEBUG",
