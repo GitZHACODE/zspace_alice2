@@ -3,6 +3,12 @@ cmake_minimum_required(VERSION 3.16)
 project(alice2 VERSION 1.0.0 LANGUAGES CXX)
 
 option(ALICE2_ENABLE_CUDA "Enable CUDA build of alice2" OFF)
+set(ALICE2_BUILD_MODE "default" CACHE STRING "Select alice2 build mode (default or test)")
+set_property(CACHE ALICE2_BUILD_MODE PROPERTY STRINGS default test)
+set(ALICE2_USING_TEST_MODE OFF)
+if(ALICE2_BUILD_MODE STREQUAL "test")
+    set(ALICE2_USING_TEST_MODE ON)
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -112,28 +118,66 @@ include_directories(
     ${EIGEN_DIR}
     ${NLOHMANN_JSON_INCLUDE_DIRS}
 )
+if(ALICE2_USING_TEST_MODE)
+    include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tests)
+else()
+    include_directories(${CMAKE_CURRENT_SOURCE_DIR}/userSrc)
+endif()
 if(ALICE2_ENABLE_CUDA)
     include_directories(${CUDAToolkit_INCLUDE_DIRS})
 endif()
 
-file(GLOB_RECURSE ALICE2_SOURCES
+file(GLOB_RECURSE ALICE2_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/*.cpp"
 )
+set(ALICE2_SOURCES ${ALICE2_CORE_SOURCES})
+
+if(ALICE2_USING_TEST_MODE)
+    file(GLOB_RECURSE ALICE2_TEST_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp"
+    )
+    list(APPEND ALICE2_SOURCES ${ALICE2_TEST_SOURCES})
+else()
+    file(GLOB_RECURSE ALICE2_USER_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/*.cpp"
+    )
+    list(APPEND ALICE2_SOURCES ${ALICE2_USER_SOURCES})
+endif()
 
 if(ALICE2_ENABLE_CUDA)
-    file(GLOB_RECURSE ALICE2_CUDA_SOURCES
+    file(GLOB_RECURSE ALICE2_CORE_CUDA_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cu"
-        "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/*.cu"
     )
+    set(ALICE2_CUDA_SOURCES ${ALICE2_CORE_CUDA_SOURCES})
+    if(ALICE2_USING_TEST_MODE)
+        file(GLOB_RECURSE ALICE2_TEST_CUDA_SOURCES
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cu"
+        )
+        list(APPEND ALICE2_CUDA_SOURCES ${ALICE2_TEST_CUDA_SOURCES})
+    else()
+        file(GLOB_RECURSE ALICE2_USER_CUDA_SOURCES
+            "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/*.cu"
+        )
+        list(APPEND ALICE2_CUDA_SOURCES ${ALICE2_USER_CUDA_SOURCES})
+    endif()
     list(APPEND ALICE2_SOURCES ${ALICE2_CUDA_SOURCES})
 endif()
 
 file(GLOB_RECURSE ALICE2_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/*.h"
 )
+if(ALICE2_USING_TEST_MODE)
+    file(GLOB_RECURSE ALICE2_TEST_HEADERS
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.h"
+    )
+    list(APPEND ALICE2_HEADERS ${ALICE2_TEST_HEADERS})
+else()
+    file(GLOB_RECURSE ALICE2_USER_HEADERS
+        "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/*.h"
+    )
+    list(APPEND ALICE2_HEADERS ${ALICE2_USER_HEADERS})
+endif()
 
 macro(group_sources_by_folder prefix files)
     foreach(file ${files})
@@ -206,15 +250,27 @@ if(WIN32)
     endif()
 endif()
 
+set(ALICE2_INSTALL_RUNTIME_DESTINATION "bin")
+if(ALICE2_USING_TEST_MODE)
+    set(ALICE2_INSTALL_RUNTIME_DESTINATION "build_tests")
+endif()
+
 install(TARGETS alice2
-    RUNTIME DESTINATION bin
+    RUNTIME DESTINATION ${ALICE2_INSTALL_RUNTIME_DESTINATION}
     LIBRARY DESTINATION _deps/lib
     ARCHIVE DESTINATION _deps/lib
 )
-install(DIRECTORY userSrc/
-    DESTINATION userSrc/examples
-    FILES_MATCHING PATTERN "*.cpp" PATTERN "*.h"
-)
+if(ALICE2_USING_TEST_MODE)
+    install(DIRECTORY tests/
+        DESTINATION build_tests
+        FILES_MATCHING PATTERN "*.cpp" PATTERN "*.h"
+    )
+else()
+    install(DIRECTORY userSrc/
+        DESTINATION userSrc/examples
+        FILES_MATCHING PATTERN "*.cpp" PATTERN "*.h"
+    )
+endif()
 install(DIRECTORY include/
     DESTINATION include/alice2
     FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp"
@@ -242,6 +298,7 @@ endif()
 install(FILES CMakeLists.txt DESTINATION .)
 
 message(STATUS "alice2 Configuration Summary:")
+message(STATUS "  Build mode: ${ALICE2_BUILD_MODE}")
 message(STATUS "  Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "  CUDA enabled: ${ALICE2_ENABLE_CUDA}")
