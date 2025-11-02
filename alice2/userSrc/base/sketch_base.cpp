@@ -1,7 +1,7 @@
 // alice2 Base Sketch Template
 // This is a template for creating user sketches in alice2
 
-#define __MAIN__
+// #define __MAIN__
 #ifdef __MAIN__
 
 

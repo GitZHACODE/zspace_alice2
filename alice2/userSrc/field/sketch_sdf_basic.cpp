@@ -3,7 +3,7 @@
 // - Smooth interpolation from corner-ops rect to pure circle
 // - Scaled down by 1/10
 
-#define __MAIN__
+// #define __MAIN__
 #ifdef __MAIN__
 
 #include <alice2.h>

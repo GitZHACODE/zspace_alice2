@@ -1,7 +1,7 @@
 // alice2 Scalar Field Educational Sketch 5: Tower Set Visualization
 // Demonstrates JSON data loading and 3D bounding box visualization with tower switching interface
 
-#define __MAIN__
+// #define __MAIN__
 #ifdef __MAIN__
 
 #include <alice2.h>

@@ -1,7 +1,7 @@
 // alice2 Scalar Field Educational Sketch 2: Boolean Operations
 // Demonstrates boolean operations between rectangle and corner circles
 
-#define __MAIN__
+// #define __MAIN__
 #ifdef __MAIN__
 
 #include <alice2.h>

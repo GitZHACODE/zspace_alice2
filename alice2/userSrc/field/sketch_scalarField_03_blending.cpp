@@ -1,7 +1,7 @@
 // alice2 Scalar Field Educational Sketch 3: SDF Blending and Tower Visualization
 // Demonstrates smooth minimum blending and multi-level contour extraction with tower visualization
 
-#define __MAIN__
+// #define __MAIN__
 #ifdef __MAIN__
 
 #include <alice2.h>

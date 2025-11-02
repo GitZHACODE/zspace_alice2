@@ -1,7 +1,7 @@
 // alice2 Scalar Field Educational Sketch 4: Directional Boolean Operations with Sun Vector
 // Demonstrates dynamic boolean operations based on sun direction and exposure calculation
 
-#define __MAIN__
+// #define __MAIN__
 #ifdef __MAIN__
 
 #include <alice2.h>

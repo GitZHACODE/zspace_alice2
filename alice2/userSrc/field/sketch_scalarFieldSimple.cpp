@@ -1,7 +1,7 @@
 // alice2 Simple Scalar Field Test
 // A minimal test to verify scalar field functionality
 
-#define __MAIN__
+// #define __MAIN__
 #ifdef __MAIN__
 
 #include <alice2.h>
