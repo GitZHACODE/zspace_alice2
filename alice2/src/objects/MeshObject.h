@@ -108,6 +108,7 @@ namespace alice2 {
         void centerMesh();
         void scaleMesh(const Vec3& scale);
         void translateMesh(const Vec3& offset);
+        void applyTransform();
 
         // Mesh operations
         void weld(float epsilon = 1e-6f);
@@ -115,7 +116,7 @@ namespace alice2 {
 
         // Read & Write
         void readFromObj(const std::string& filename);
-        void writeToObj(const std::string& filename) const;
+        void writeToObj(const std::string& filename);
 
         // Rendering mode
         void setRenderMode(MeshRenderMode mode) { m_renderMode = mode; }

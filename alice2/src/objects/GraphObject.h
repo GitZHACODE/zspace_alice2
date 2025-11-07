@@ -54,10 +54,11 @@ namespace alice2 {
         std::shared_ptr<GraphData> getGraphData() const { return m_graphData; }
 
         GraphObject duplicate() const;
+        void applyTransform();
         float getLength() const;
 
         void readFromObj(const std::string& filename);
-        void writeToObj(const std::string& filename) const;
+        void writeToObj(const std::string& filename);
 
         bool isClosed() const { return m_isClosed; }
         bool isPolyline() const { return m_isPolyline; }

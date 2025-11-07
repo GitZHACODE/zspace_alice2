@@ -605,6 +605,32 @@ void ScalarField2D::set_values(const std::vector<float>& values) {
     m_field_values = values;
 }
 
+void ScalarField2D::applyTransform(const Mat4& matrix) {
+    for (auto& point : m_grid_points) {
+        point = matrix.transformPoint(point);
+    }
+
+    Vec3 minPt(std::numeric_limits<float>::max(),
+               std::numeric_limits<float>::max(),
+               std::numeric_limits<float>::max());
+    Vec3 maxPt(std::numeric_limits<float>::lowest(),
+               std::numeric_limits<float>::lowest(),
+               std::numeric_limits<float>::lowest());
+
+    for (const auto& point : m_grid_points) {
+        minPt.x = std::min(minPt.x, point.x);
+        minPt.y = std::min(minPt.y, point.y);
+        minPt.z = std::min(minPt.z, point.z);
+
+        maxPt.x = std::max(maxPt.x, point.x);
+        maxPt.y = std::max(maxPt.y, point.y);
+        maxPt.z = std::max(maxPt.z, point.z);
+    }
+
+    m_min_bounds = minPt;
+    m_max_bounds = maxPt;
+}
+
 void ScalarField2D::boolean_difference(const ScalarField2D& other) {
     // Difference is A - B = A ∩ ¬B = max(A, -B)
     boolean_subtract(other);
