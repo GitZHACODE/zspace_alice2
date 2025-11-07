@@ -116,7 +116,9 @@ namespace alice2 {
 
         // Getter/Setter methods
         const std::vector<Vec3>& get_points() const { return m_grid_points; }
+        const void set_points(std::vector<Vec3>& grid_points) { m_grid_points = grid_points; }
         const std::vector<float>& get_values() const { return m_field_values; }
+        const void set_values(std::vector<float>& field_values) { m_field_values = field_values; }
         void set_values(const std::vector<float>& values);
         std::tuple<int, int, int> get_resolution() const { return {m_res_x, m_res_y, m_res_z}; }
         std::pair<Vec3, Vec3> get_bounds() const { return {m_min_bounds, m_max_bounds}; }
