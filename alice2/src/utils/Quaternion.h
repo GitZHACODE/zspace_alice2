@@ -51,6 +51,45 @@ namespace alice2 {
             );
         }
 
+        // Basis vectors are the COLUMNS of the rotation matrix: [ X | Y | Z ]
+        static Quaternion quatFromBasis(const Vec3& X, const Vec3& Y, const Vec3& Z)
+        {
+            // Column-major 3x3 inside a 4x4: m00 m10 m20 are the X column, etc.
+            float m00 = X.x, m01 = Y.x, m02 = Z.x;
+            float m10 = X.y, m11 = Y.y, m12 = Z.y;
+            float m20 = X.z, m21 = Y.z, m22 = Z.z;
+
+            float trace = m00 + m11 + m22;
+            Quaternion q;
+
+            if (trace > 0.0f) {
+                float s = std::sqrt(trace + 1.0f) * 2.0f;
+                q.w = 0.25f * s;
+                q.x = (m21 - m12) / s;
+                q.y = (m02 - m20) / s;
+                q.z = (m10 - m01) / s;
+            } else if (m00 > m11 && m00 > m22) {
+                float s = std::sqrt(1.0f + m00 - m11 - m22) * 2.0f;
+                q.w = (m21 - m12) / s;
+                q.x = 0.25f * s;
+                q.y = (m01 + m10) / s;
+                q.z = (m02 + m20) / s;
+            } else if (m11 > m22) {
+                float s = std::sqrt(1.0f + m11 - m00 - m22) * 2.0f;
+                q.w = (m02 - m20) / s;
+                q.x = (m01 + m10) / s;
+                q.y = 0.25f * s;
+                q.z = (m12 + m21) / s;
+            } else {
+                float s = std::sqrt(1.0f + m22 - m00 - m11) * 2.0f;
+                q.w = (m10 - m01) / s;
+                q.x = (m02 + m20) / s;
+                q.y = (m12 + m21) / s;
+                q.z = 0.25f * s;
+            }
+            return q;
+        }
+
         // Create lookAt quaternion (Z-up)
         static Quaternion lookAt(const Vec3& forward, const Vec3& up = Vec3(0, 0, 1));
 

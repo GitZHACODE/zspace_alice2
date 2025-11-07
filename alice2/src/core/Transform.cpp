@@ -46,6 +46,29 @@ namespace alice2 {
         return invScale * invRotation * invTranslation;
     }
 
+    void Transform::setMatrix(const Mat4& m) {
+        // translation is the last column
+        Vec3 translation(m.m[12], m.m[13], m.m[14]);
+
+        // extract basis vectors (columns)
+        Vec3 X(m.m[0], m.m[1], m.m[2]);
+        Vec3 Y(m.m[4], m.m[5], m.m[6]);
+        Vec3 Z(m.m[8], m.m[9], m.m[10]);
+
+        // scale = basis lengths
+        Vec3 scale(X.length(), Y.length(), Z.length());
+        if (scale.x > 0) X /= scale.x;
+        if (scale.y > 0) Y /= scale.y;
+        if (scale.z > 0) Z /= scale.z;
+
+        Quaternion rotation = Quaternion::quatFromBasis(X, Y, Z).normalized();
+
+        m_translation = translation;
+        m_scale       = scale;
+        m_rotation    = rotation;
+        markDirty();
+    }
+
     void Transform::setParent(Transform* parent) {
         if (m_parent == parent) return;
 
