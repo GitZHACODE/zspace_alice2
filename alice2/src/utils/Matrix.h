@@ -75,12 +75,13 @@ namespace alice2 {
 
         Mat4 operator*(const Mat4& other) const {
             Mat4 result;
-            for (int i = 0; i < 4; i++) {
-                for (int j = 0; j < 4; j++) {
-                    result.m[i * 4 + j] = 0;
-                    for (int k = 0; k < 4; k++) {
-                        result.m[i * 4 + j] += m[i * 4 + k] * other.m[k * 4 + j];
+            for (int col = 0; col < 4; ++col) {
+                for (int row = 0; row < 4; ++row) {
+                    float sum = 0.0f;
+                    for (int k = 0; k < 4; ++k) {
+                        sum += m[row + k * 4] * other.m[k + col * 4];
                     }
+                    result.m[row + col * 4] = sum;
                 }
             }
             return result;
@@ -88,6 +89,9 @@ namespace alice2 {
 
         Vec3 transformPoint(const Vec3& point) const {
             float w = m[3] * point.x + m[7] * point.y + m[11] * point.z + m[15];
+            if (std::abs(w) < 1e-6f) {
+                w = 1.0f;
+            }
             return Vec3(
                 (m[0] * point.x + m[4] * point.y + m[8] * point.z + m[12]) / w,
                 (m[1] * point.x + m[5] * point.y + m[9] * point.z + m[13]) / w,

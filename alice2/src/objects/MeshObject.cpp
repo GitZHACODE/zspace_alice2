@@ -723,6 +723,24 @@ namespace alice2 {
         calculateBounds();
     }
 
+    void MeshObject::applyTransform() {
+        Mat4 matrix = getTransform().getMatrix();
+        if (m_meshData) {
+            for (auto& vertex : m_meshData->vertices) {
+                vertex.position = matrix.transformPoint(vertex.position);
+                Vec3 transformedNormal = getTransform().transformDirection(vertex.normal);
+                if (transformedNormal.lengthSquared() > 1e-8f) {
+                    transformedNormal.normalize();
+                }
+                vertex.normal = transformedNormal;
+            }
+        }
+        getTransform().setTranslation(Vec3(0, 0, 0));
+        getTransform().setRotation(Quaternion());
+        getTransform().setScale(Vec3(1, 1, 1));
+        calculateBounds();
+    }
+
     void MeshObject::weld(float epsilon)
     {
         struct Key
@@ -948,7 +966,7 @@ namespace alice2 {
         printMeshInfo();
     }
 
-    void MeshObject::writeToObj(const std::string &filename) const
+    void MeshObject::writeToObj(const std::string &filename)
     {
         if (!m_meshData)
         {
@@ -975,6 +993,8 @@ namespace alice2 {
             std::cout << "Failed to open OBJ file: " + filename << std::endl;
             return;
         }
+
+        applyTransform();
 
         // positions
         for (auto &v : m_meshData->vertices)

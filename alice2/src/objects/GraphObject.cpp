@@ -119,6 +119,19 @@ namespace alice2 {
         return copy;
     }
 
+    void GraphObject::applyTransform() {
+        Mat4 matrix = getTransform().getMatrix();
+        if (m_graphData) {
+            for (auto& vertex : m_graphData->vertices) {
+                vertex.position = matrix.transformPoint(vertex.position);
+            }
+        }
+        getTransform().setTranslation(Vec3(0, 0, 0));
+        getTransform().setRotation(Quaternion());
+        getTransform().setScale(Vec3(1, 1, 1));
+        calculateBounds();
+    }
+
     float GraphObject::getLength() const {
         float totalLength = 0.0f;
         for(auto edge : m_graphData->edges){
@@ -223,7 +236,7 @@ namespace alice2 {
                   << m_graphData->edges.size() << " edges)" << std::endl;
     }
 
-    void GraphObject::writeToObj(const std::string& filename) const {
+    void GraphObject::writeToObj(const std::string& filename) {
         if (!m_graphData) {
             std::cout << "No graph data to write" << std::endl;
             return;
@@ -246,6 +259,8 @@ namespace alice2 {
             std::cout << "Failed to open OBJ file: " << filename << std::endl;
             return;
         }
+
+        applyTransform();
 
         for (const auto& vertex : m_graphData->vertices) {
             output << "v "

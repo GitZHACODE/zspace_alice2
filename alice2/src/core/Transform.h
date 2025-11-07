@@ -27,6 +27,9 @@ namespace alice2 {
             markDirty();
         }
 
+        // Matrix
+        void setMatrix(const Mat4& m);
+
         Vec3 getRotationEuler() const {
             // Convert quaternion back to Euler angles if needed
             // This is complex and can have gimbal lock issues

@@ -167,6 +167,7 @@ public:
     const std::vector<Vec3>& get_points() const { return m_grid_points; }
     const std::vector<float>& get_values() const { return m_is_normalized ? m_normalized_values : m_field_values; }
     void set_values(const std::vector<float>& values);
+    void applyTransform(const Mat4& matrix);
     std::pair<int, int> get_resolution() const { return {m_res_x, m_res_y}; }
     std::pair<Vec3, Vec3> get_bounds() const { return {m_min_bounds, m_max_bounds}; }
     
