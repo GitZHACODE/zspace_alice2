@@ -115,6 +115,7 @@ void FieldStack::replaceSlices(std::vector<ScalarField2D>&& slices) {
         return;
     }
     stackFields_ = std::move(slices);
+    alignedSliceCount_ = 0;
     regenerateContours();
     invalidateVolumeMesh();
     std::ostringstream oss;
@@ -126,6 +127,7 @@ void FieldStack::clearSlices() {
     if (!ready_) {
         return;
     }
+    alignedSliceCount_ = 0;
     stackFields_.clear();
     clearContourObjects();
     invalidateVolumeMesh();
@@ -204,6 +206,19 @@ bool FieldStack::buildVolumeMesh() {
     }
     volumeField_->set_values(volume);
 
+    if (!stackFields_.empty()) {
+        std::vector<Vec3> warpedPoints;
+        warpedPoints.reserve(volume.size());
+        for (int z = 0; z < rz; ++z) {
+            for (int y = 0; y < ry; ++y) {
+                for (int x = 0; x < rx; ++x) {
+                    warpedPoints.push_back(stackFields_[size_t(z)].cellPosition(x, y));
+                }
+            }
+        }
+        volumeField_->set_points(warpedPoints);
+    }
+
     auto meshData = volumeField_->generate_mesh(isoLevel_);
     if (!meshData || meshData->vertices.empty()) {
         meshGenerated_ = false;
@@ -211,6 +226,7 @@ bool FieldStack::buildVolumeMesh() {
         if (meshObject_) {
             meshObject_->setVisible(false);
         }
+        rebuildBoundingBox();
         emitStatus("Mesh empty");
         return false;
     }
@@ -231,6 +247,7 @@ bool FieldStack::buildVolumeMesh() {
     meshGenerated_ = true;
     meshVisible_ = true;
     meshObject_->setVisible(true);
+    rebuildBoundingBox();
     emitStatus("Mesh built");
     return true;
 }
@@ -296,6 +313,13 @@ void FieldStack::setMeshVisible(bool visible) {
 
 void FieldStack::setContoursVisible(bool visible) {
     contoursVisible_ = visible;
+}
+
+void FieldStack::setSpineGraph(const std::shared_ptr<GraphObject>& spine) {
+    spineGraph_ = spine;
+    alignedSliceCount_ = 0;
+    alignSlicesToSpine();
+    rebuildBoundingBox();
 }
 
 void FieldStack::setExportPaths(const std::string& meshPath,
@@ -368,8 +392,26 @@ void FieldStack::rebuildBoundingBox() {
         bboxObject_->setShowVertices(false);
         scene_->addObject(bboxObject_);
     }
-    bboxObject_->createCube(totalHeight_);
-    bboxObject_->translateMesh(Vec3(0.0f, 0.0f, 0.5f * totalHeight_));
+    Vec3 minBounds(boundsMin_.x, boundsMin_.y, 0.0f);
+    Vec3 maxBounds(boundsMax_.x, boundsMax_.y, std::max(0.001f, totalHeight_));
+
+    if (meshObject_ && meshGenerated_) {
+        minBounds = meshObject_->getBoundsMin();
+        maxBounds = meshObject_->getBoundsMax();
+    } else if (spineGraph_) {
+        minBounds = spineGraph_->getBoundsMin();
+        maxBounds = spineGraph_->getBoundsMax();
+    }
+
+    Vec3 size = maxBounds - minBounds;
+    size.x = std::max(size.x, 1e-3f);
+    size.y = std::max(size.y, 1e-3f);
+    size.z = std::max(size.z, 1e-3f);
+    Vec3 center = (minBounds + maxBounds) * 0.5f;
+
+    bboxObject_->createCube(1.0f);
+    bboxObject_->scaleMesh(size);
+    bboxObject_->translateMesh(center);
     bboxObject_->setShowFaces(false);
 }
 
@@ -393,6 +435,7 @@ void FieldStack::regenerateContours() {
     }
     updateContoursVisibility();
     updateContourPlacement();
+    alignSlicesToSpine();
 }
 
 void FieldStack::updateContoursVisibility() {
@@ -419,8 +462,71 @@ void FieldStack::updateContourPlacement() {
         ScalarFieldUtils::get_hsv_color(hue / 360.0f * 2.0f - 1.0f, r, g, b);
         contour->setEdgeColor(Color(r, g, b));
         contour->setColor(Color(r, g, b));
-        contour->getTransform().setTranslation(Vec3(0.0f, 0.0f, float(i) * sliceSpacing_));
+        // contour->getTransform().setTranslation(Vec3(0.0f, 0.0f, float(i) * sliceSpacing_));
     }
+}
+
+void FieldStack::alignSlicesToSpine() {
+    if (!spineGraph_ || stackContours_.empty() || stackContours_.size() != stackFields_.size()) {
+        return;
+    }
+
+    const size_t count = stackContours_.size();
+    if (alignedSliceCount_ > count) {
+        alignedSliceCount_ = count;
+    }
+    if (alignedSliceCount_ >= count) {
+        return;
+    }
+
+    GraphObject spineCopy = spineGraph_->duplicate();
+    spineCopy.resampleByCount(static_cast<int>(count));
+    auto graphData = spineCopy.getGraphData();
+    if (!graphData || graphData->vertices.size() < count) {
+        return;
+    }
+
+    for (size_t i = alignedSliceCount_; i < count; ++i) {
+        Vec3 pos_curr = graphData->vertices[i].position;
+        Vec3 zAxis;
+        if (i < count - 1) {
+            Vec3 pos_next = graphData->vertices[i + 1].position;
+            zAxis = pos_next - pos_curr;
+        } else {
+            Vec3 pos_prev = graphData->vertices[i - 1].position;
+            zAxis = pos_curr - pos_prev;
+        }
+        if (zAxis.lengthSquared() < 1e-6f) {
+            zAxis = Vec3(0, 0, 1);
+        }
+        zAxis.normalize();
+
+        Vec3 xAxis(1, 0, 0);
+        if (std::abs(xAxis.dot(zAxis)) > 0.99f) {
+            xAxis = Vec3(0, 1, 0);
+        }
+        xAxis.normalize();
+
+        Vec3 yAxis = zAxis.cross(xAxis);
+        if (yAxis.lengthSquared() < 1e-6f) {
+            yAxis = Vec3(0, 0, 1);
+        }
+        yAxis.normalize();
+        xAxis = yAxis.cross(zAxis).normalized();
+
+        Quaternion q = Quaternion::quatFromBasis(xAxis, yAxis, zAxis);
+        Mat4 sliceMatrix = Mat4::translation(pos_curr) * q.toMatrix();
+
+        if (stackContours_[i]) {
+            stackContours_[i]->getTransform().setMatrix(sliceMatrix);
+            stackContours_[i]->applyTransform();
+        }
+
+        stackFields_[i].applyTransform(sliceMatrix);
+    }
+
+    alignedSliceCount_ = count;
+    invalidateVolumeMesh();
 }
 
 void FieldStack::clearContourObjects() {
@@ -444,6 +550,7 @@ void FieldStack::invalidateVolumeMesh() {
     if (meshObject_) {
         meshObject_->setVisible(false);
     }
+    rebuildBoundingBox();
 }
 
 void FieldStack::smoothField(ScalarField2D& field) {

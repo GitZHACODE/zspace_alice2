@@ -80,6 +80,7 @@ public:
 
     void setContoursVisible(bool visible);
     bool contoursVisible() const { return contoursVisible_; }
+    void setSpineGraph(const std::shared_ptr<GraphObject>& spine);
 
     void setExportPaths(const std::string& meshPath,
                         const std::string& contoursPath,
@@ -87,11 +88,14 @@ public:
 
     void update();
 
+    std::vector<std::shared_ptr<GraphObject>> stackContours_;
+
 private:
     void rebuildBoundingBox();
     void regenerateContours();
     void updateContoursVisibility();
     void updateContourPlacement();
+    void alignSlicesToSpine();
     void clearContourObjects();
     void invalidateVolumeMesh();
     static void smoothField(ScalarField2D& field);
@@ -110,12 +114,13 @@ private:
     std::shared_ptr<MeshObject> meshObject_;
 
     std::vector<ScalarField2D> stackFields_;
-    std::vector<std::shared_ptr<GraphObject>> stackContours_;
     std::unique_ptr<ScalarField3D> volumeField_;
+    std::shared_ptr<GraphObject> spineGraph_;
 
     float sliceSpacing_ = 1.0f;
     float totalHeight_ = 200.0f;
     float isoLevel_ = 0.0f;
+    size_t alignedSliceCount_ = 0;
 
     bool meshVisible_ = false;
     bool meshGenerated_ = false;

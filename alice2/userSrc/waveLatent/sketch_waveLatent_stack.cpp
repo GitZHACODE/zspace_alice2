@@ -41,11 +41,17 @@ public:
 
     void setup() override {
         scene().setBackgroundColor(Color(0.92f, 0.92f, 0.94f));
-        scene().setShowAxes(false);
+        scene().setShowAxes(true);
         scene().setShowGrid(false);
 
         ui_ = std::make_unique<SimpleUI>(input());
         ui_->setTheme(SimpleUI::UITheme::Dark);
+
+        spineGraph = std::make_shared<GraphObject>();
+        spineGraph->readFromObj(spineGraphPath);
+        spineGraph->setShowVertices(false);
+        spineGraph->setEdgeColor(Color(1,0,0));
+        scene().addObject(spineGraph);
 
         const float uiLeft = kMargin;
         const float uiTop = kMargin + kVerticalOffset + kUIExtraOffset;
@@ -108,6 +114,7 @@ public:
             ready_ = false;
             return;
         }
+        fieldStack_.setSpineGraph(spineGraph);
 
         FieldStack::UIConfig stackUI;
         stackUI.ui = ui_.get();
@@ -216,12 +223,14 @@ private:
     WaveLatentNavigator navigator_;
     FieldStack fieldStack_;
     std::unique_ptr<SimpleUI> ui_;
+    std::shared_ptr<GraphObject> spineGraph;
 
     std::string statusMessage_ = "Idle";
     std::string modelPath_ = "WaveLatentModel.json";
     std::string exportMeshName_ = "waveStackMesh.obj";
     std::string exportContoursName_ = "waveStackContours.obj";
     std::string exportStackFieldsName_ = "waveStackFields.json";
+    std::string spineGraphPath = "inSpine.obj";
 
     float totalHeight_ = 200.0f;
     float isoLevel_ = 0.0f;
