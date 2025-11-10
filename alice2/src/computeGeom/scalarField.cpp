@@ -127,21 +127,7 @@ Vec3 ScalarField2D::cellPosition(int x, int y) const
     return m_grid_points[index];
 }
 
-float ScalarField2D::sample_nearest(const Vec3 &p) const
-{
-    float fx = (p.x - m_min_bounds.x) / (m_max_bounds.x - m_min_bounds.x) * (m_res_x - 1);
-    float fy = (p.y - m_min_bounds.y) / (m_max_bounds.y - m_min_bounds.y) * (m_res_y - 1);
-
-    int ix = std::round(fx);
-    int iy = std::round(fy);
-
-    ix = std::clamp(ix, 0, m_res_x - 1);
-    iy = std::clamp(iy, 0, m_res_y - 1);
-
-    return m_field_values[iy * m_res_x + ix];
-}
-
-Vec3 ScalarField2D::gradientAt(const Vec3 &p) const
+Vec3 ScalarField2D::get_gradient_at(const Vec3 &p) const
 {
     float eps = 1.0f;
     Vec3 a(p.x + eps, p.y, 0);
@@ -150,9 +136,33 @@ Vec3 ScalarField2D::gradientAt(const Vec3 &p) const
     Vec3 c(p.x, p.y + eps, 0);
     Vec3 d(p.x, p.y - eps, 0);
 
-    float dx = sample_nearest(a) - sample_nearest(b);
-    float dy = sample_nearest(c) - sample_nearest(d);
+    float dx = get_value_at(a) - get_value_at(b);
+    float dy = get_value_at(c) - get_value_at(d);
     return Vec3(dx, dy, 0.0f) * 0.5f;
+}
+
+int ScalarField2D::get_index_at(const Vec3 &p) const
+{    
+    // Map world-space point to grid coordinates
+    const float fx = (p.x - m_min_bounds.x) / (m_max_bounds.x - m_min_bounds.x) * (m_res_x - 1);
+    const float fy = (p.y - m_min_bounds.y) / (m_max_bounds.y - m_min_bounds.y) * (m_res_y - 1);
+
+    // Nearest integer grid cell
+    int ix = static_cast<int>(std::round(fx));
+    int iy = static_cast<int>(std::round(fy));
+
+    // Clamp to valid range
+    ix = std::clamp(ix, 0, m_res_x - 1);
+    iy = std::clamp(iy, 0, m_res_y - 1);
+
+    // Return flattened index
+    return iy * m_res_x + ix;
+}
+
+float ScalarField2D::get_value_at(const Vec3 &p) const
+{
+    const int id = get_index_at(p);
+    return m_is_normalized ? m_normalized_values[id] : m_field_values[id];
 }
 
 

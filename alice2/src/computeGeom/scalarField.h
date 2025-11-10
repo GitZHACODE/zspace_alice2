@@ -172,8 +172,9 @@ public:
     std::pair<Vec3, Vec3> get_bounds() const { return {m_min_bounds, m_max_bounds}; }
     
     Vec3 cellPosition(int x, int y) const;
-    float sample_nearest(const Vec3 &p) const;
-    Vec3 gradientAt(const Vec3 &p) const;
+    Vec3 get_gradient_at(const Vec3 &p) const;
+    int get_index_at(const Vec3 &p) const;
+    float get_value_at(const Vec3 &p) const;
 
     // Field generation methods (snake_case naming)
     void clear_field();
