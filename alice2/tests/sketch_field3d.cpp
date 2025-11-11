@@ -1,7 +1,7 @@
 // sketch_field3d.cpp
 // alice2 3D Scalar Field with Marching Cubes Sketch
 // Now demonstrates the 6-term nodal surface
-// #define __MAIN__
+#define __MAIN__
 #ifdef __MAIN__
 
 #include <alice2.h>
@@ -189,10 +189,10 @@ public:
             m_meshObject_y->setRenderMode(MeshRenderMode::NormalShaded);
             m_meshObject_y->setNormalShadingColors(Color(1.0f, 1.0f, 1.0f), Color(0.8f, 0.2f, 0.8f)); // White to magenta
 
-            for(auto v : m_meshObject->getMeshData()->vertices)
-            {
-                renderer.drawLine(v.position,v.position+v.normal * 0.1,Color(0,0,0));
-            }
+            // for(auto v : m_meshObject->getMeshData()->vertices)
+            // {
+            //     renderer.drawLine(v.position,v.position+v.normal * 0.1,Color(0,0,0));
+            // }
         }
 
         drawUI(renderer);
@@ -488,6 +488,6 @@ public:
 };
 
 // Register the sketch
-// ALICE2_REGISTER_SKETCH_AUTO(ScalarField3DSketch)
+ALICE2_REGISTER_SKETCH_AUTO(ScalarField3DSketch)
 
 #endif // __MAIN__
