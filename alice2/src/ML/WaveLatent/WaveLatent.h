@@ -6,66 +6,9 @@
 #include <utility>
 #include <vector>
 
-// Forward declarations
-class ScalarField2D;
-
-// ====================== DCT-II Orthonormal Basis ======================
-struct DCT2Basis2D {
-    int resX = 0;
-    int resY = 0;
-    int Kx = 0;
-    int Ky = 0;
-    std::vector<std::pair<int, int>> modes;
-    std::vector<std::vector<float>> B;
-
-    void setup(int gridX, int gridY, int Kx, int Ky);
-    int Kfull() const { return static_cast<int>(modes.size()); }
-};
-
-// ====================== Tiny Linear Autoencoder ======================
-struct LinearAE {
-    int inDim = 0;
-    int latentDim = 16;
-    std::vector<float> We, Wd, be, bd;
-    std::vector<float> z, xhat;
-    std::vector<float> g_xhat, g_z, g_We, g_Wd, g_be, g_bd;
-
-    void initialize(int inputDim, int zDim, unsigned seed = 1234);
-    void encode(const std::vector<float>& x, std::vector<float>& out_z) const;
-    void decode(const std::vector<float>& in_z, std::vector<float>& out_xhat) const;
-    float forward(const std::vector<float>& x);
-    void backward(const std::vector<float>& x, float weightDecay = 0.f, float zReg = 1e-3f);
-    void sgd(float lr);
-};
-
-// ====================== Helper Grid Field ======================
-struct GridField {
-    struct Segment {
-        alice2::Vec3 a;
-        alice2::Vec3 b;
-    };
-
-    void configure(int resX, int resY, float xMin, float xMax, float yMin, float yMax);
-    void updateValues(const std::vector<float>& samples);
-    void draw(alice2::Renderer& renderer, float left, float top, float width, float height,
-              const alice2::Color& color, float thickness = 1.5f) const;
-
-    bool empty() const { return samples_.empty(); }
-    int resX() const { return resX_; }
-    int resY() const { return resY_; }
-
-private:
-    void rebuildSegments();
-
-    int resX_ = 0;
-    int resY_ = 0;
-    float xMin_ = 0.f;
-    float xMax_ = 0.f;
-    float yMin_ = 0.f;
-    float yMax_ = 0.f;
-    std::vector<float> samples_;
-    std::vector<Segment> segments_;
-};
+#include "ML/Autoencoder.h"
+#include "ML/DCT.h"
+#include "ML/GridField.h"
 
 // ====================== Configurations ======================
 struct WaveLatentConfig {
@@ -74,6 +17,8 @@ struct WaveLatentConfig {
     int keepK = 512;
     int latentDim = 16;
     unsigned seed = 1234;
+    std::vector<int> encoderHidden{16};
+    std::vector<int> decoderHidden{16};
 };
 
 struct WaveLatentTrainingParams {
@@ -193,5 +138,5 @@ private:
     float domainYMin_ = -1.0f;
     float domainYMax_ = 1.0f;
 
-    LinearAE ae_;
+    ml::Autoencoder ae_;
 };

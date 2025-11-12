@@ -5,6 +5,7 @@
 #include <sketches/SketchRegistry.h>
 
 #include <cstdio>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -15,6 +16,28 @@ using namespace alice2;
 namespace {
 const Color kIsoColor(0.10f, 0.35f, 0.85f, 1.0f);
 const Color kFrameColor(0.15f, 0.15f, 0.15f, 1.0f);
+
+std::string formatLayerChain(int first, const std::vector<int>& hidden, int last) {
+    std::ostringstream oss;
+    oss << first;
+    for (int h : hidden) {
+        oss << "->" << h;
+    }
+    oss << "->" << last;
+    return oss.str();
+}
+
+std::string describeAutoencoder(const WaveLatent& latent) {
+    if (!latent.ready()) {
+        return "AE: not ready";
+    }
+    const auto& cfg = latent.config();
+    const int coeffDim = std::max(1, latent.basisRank());
+    std::ostringstream oss;
+    oss << "AE enc " << formatLayerChain(coeffDim, cfg.encoderHidden, cfg.latentDim)
+        << "  dec " << formatLayerChain(cfg.latentDim, cfg.decoderHidden, coeffDim);
+    return oss.str();
+}
 }
 
 class Sketch_WaveLatent_Trainer : public ISketch {
@@ -57,6 +80,7 @@ public:
 
         renderer.setColor(Color(0.35f, 0.35f, 0.38f));
         renderer.drawString("[T] train  [J] save  [L] load  [I] info", margin_, startY + 3.f * (tileSize_ + rowGap_) - 18.f);
+        renderer.drawString(networkSummary_, margin_, startY + 3.f * (tileSize_ + rowGap_) + 4.f);
     }
 
     bool onKeyPress(unsigned char key, int, int) override {
@@ -80,6 +104,7 @@ public:
             if (waveLatent_.loadModel(modelPath_)) {
                 modelConfig_ = waveLatent_.config();
                 rebuildReconstructions();
+                updateNetworkSummary();
                 std::printf("[WaveLatent] Model loaded from '%s'\n", modelPath_.c_str());
             }
             return true;
@@ -107,6 +132,7 @@ private:
 
         rebuildReconstructions();
         waveLatent_.printDiagnostics();
+        updateNetworkSummary();
         return true;
     }
 
@@ -119,6 +145,7 @@ private:
         waveLatent_.train(params);
         rebuildReconstructions();
         waveLatent_.printDiagnostics();
+        updateNetworkSummary();
     }
 
     void rebuildReconstructions() {
@@ -180,6 +207,11 @@ private:
                     waveLatent_.latentDim());
         std::printf("[WaveLatent] bbox=[%.3f %.3f] x [%.3f %.3f]\n",
                     dataset_.xMin, dataset_.xMax, dataset_.yMin, dataset_.yMax);
+        std::printf("[WaveLatent] %s\n", networkSummary_.c_str());
+    }
+
+    void updateNetworkSummary() {
+        networkSummary_ = describeAutoencoder(waveLatent_);
     }
 
 private:
@@ -189,10 +221,10 @@ private:
     WaveLatentDatasetOptions datasetOptions_{128, 128, -1.2f, 1.2f, -1.2f, 1.2f};
     WaveLatentDataset dataset_{};
 
-    WaveLatentConfig modelConfig_{128, 128, 4096, 16, 1234};
-    WaveLatentTrainingParams baseTrainParams_{200, 5e-3f, 1e-6f, 1e-3f, 50};
+    WaveLatentConfig modelConfig_{64, 64, 512, 16, 1234, {256, 64}, {64, 256}};
+    WaveLatentTrainingParams baseTrainParams_{2000, 5e-4f, 1e-6f, 1e-3f, 50};
     int initEpochs_ = 10;
-    int trainEpochs_ = 200;
+    int trainEpochs_ = baseTrainParams_.epochs;
 
 //     struct WaveLatentConfig {
 //     int Kx = 32;
@@ -220,6 +252,7 @@ private:
     float rowGap_   = 48.f;
 
     WaveLatent waveLatent_;
+    std::string networkSummary_ = "AE: offline";
 };
 
 ALICE2_REGISTER_SKETCH_AUTO(Sketch_WaveLatent_Trainer)

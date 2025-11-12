@@ -23,225 +23,6 @@ int modeIndex(int Kx, int kx, int ky) {
 }
 } // namespace
 
-// ====================== GridField ======================
-void GridField::configure(int resX, int resY, float xMin, float xMax, float yMin, float yMax) {
-    resX_ = resX;
-    resY_ = resY;
-    xMin_ = xMin;
-    xMax_ = xMax;
-    yMin_ = yMin;
-    yMax_ = yMax;
-    samples_.assign(static_cast<size_t>(std::max(0, resX_)) * static_cast<size_t>(std::max(0, resY_)), 0.f);
-    segments_.clear();
-}
-
-void GridField::updateValues(const std::vector<float>& samples) {
-    const size_t expected = static_cast<size_t>(std::max(0, resX_)) * static_cast<size_t>(std::max(0, resY_));
-    if (samples.size() != expected || expected == 0) {
-        return;
-    }
-    samples_ = samples;
-    rebuildSegments();
-}
-
-void GridField::draw(alice2::Renderer& renderer, float left, float top, float cellW, float cellH,
-                     const alice2::Color& color, float thickness) const {
-    if (segments_.empty()) {
-        return;
-    }
-    const float sxMax = float(std::max(1, resX_ - 1));
-    const float syMax = float(std::max(1, resY_ - 1));
-    const float invX = 1.0f / std::max(1e-6f, xMax_ - xMin_);
-    const float invY = 1.0f / std::max(1e-6f, yMax_ - yMin_);
-
-    for (const auto& seg : segments_) {
-        auto mapPoint = [&](const alice2::Vec3& p) -> alice2::Vec2 {
-            const float gx = (p.x - xMin_) * invX * sxMax;
-            const float gy = (p.y - yMin_) * invY * syMax;
-            const float px = left + gx * cellW;
-            const float py = top + (syMax - gy) * cellH;
-            return alice2::Vec2(px, py);
-        };
-        const alice2::Vec2 a = mapPoint(seg.a);
-        const alice2::Vec2 b = mapPoint(seg.b);
-        renderer.draw2dLine(a, b, color, thickness);
-    }
-}
-
-void GridField::rebuildSegments() {
-    segments_.clear();
-    if (resX_ <= 1 || resY_ <= 1 || samples_.empty()) {
-        return;
-    }
-
-    try {
-        ScalarField2D field(alice2::Vec3(xMin_, yMin_, 0.f), alice2::Vec3(xMax_, yMax_, 0.f), resX_, resY_);
-        field.set_values(samples_);
-        const GraphObject contours = field.get_contours(0.0f);
-        const auto data = contours.getGraphData();
-        if (!data) {
-            return;
-        }
-        segments_.reserve(data->edges.size());
-        for (const auto& edge : data->edges) {
-            if (edge.vertexA < 0 || edge.vertexB < 0 ||
-                edge.vertexA >= static_cast<int>(data->vertices.size()) ||
-                edge.vertexB >= static_cast<int>(data->vertices.size())) {
-                continue;
-            }
-            const alice2::Vec3& a = data->vertices[edge.vertexA].position;
-            const alice2::Vec3& b = data->vertices[edge.vertexB].position;
-            segments_.push_back(Segment{a, b});
-        }
-    } catch (...) {
-        segments_.clear();
-    }
-}
-
-// ====================== DCT-II Orthonormal Basis ======================
-void DCT2Basis2D::setup(int gridX, int gridY, int KxIn, int KyIn) {
-    resX = gridX;
-    resY = gridY;
-    Kx = std::max(1, KxIn);
-    Ky = std::max(1, KyIn);
-
-    modes.clear();
-    modes.reserve(Kx * Ky);
-    for (int ky = 0; ky < Ky; ++ky) {
-        for (int kx = 0; kx < Kx; ++kx) {
-            modes.emplace_back(kx, ky);
-        }
-    }
-
-    const size_t P = static_cast<size_t>(resX) * static_cast<size_t>(resY);
-    B.assign(modes.size(), std::vector<float>(P, 0.f));
-
-    auto alphaX = [&](int k) { return (k == 0) ? std::sqrt(1.0f / float(resX)) : std::sqrt(2.0f / float(resX)); };
-    auto alphaY = [&](int k) { return (k == 0) ? std::sqrt(1.0f / float(resY)) : std::sqrt(2.0f / float(resY)); };
-
-    std::vector<std::vector<float>> cx(Kx, std::vector<float>(resX));
-    std::vector<std::vector<float>> cy(Ky, std::vector<float>(resY));
-    for (int kx = 0; kx < Kx; ++kx) {
-        for (int x = 0; x < resX; ++x) {
-            cx[kx][x] = std::cos((alice2::PI / float(resX)) * (float(x) + 0.5f) * float(kx));
-        }
-    }
-    for (int ky = 0; ky < Ky; ++ky) {
-        for (int y = 0; y < resY; ++y) {
-            cy[ky][y] = std::cos((alice2::PI / float(resY)) * (float(y) + 0.5f) * float(ky));
-        }
-    }
-
-    for (size_t k = 0; k < modes.size(); ++k) {
-        const int kx = modes[k].first;
-        const int ky = modes[k].second;
-        const float s = alphaX(kx) * alphaY(ky);
-        auto& basis = B[k];
-        for (int y = 0; y < resY; ++y) {
-            for (int x = 0; x < resX; ++x) {
-                const size_t p = static_cast<size_t>(y) * static_cast<size_t>(resX) + static_cast<size_t>(x);
-                basis[p] = s * cx[kx][x] * cy[ky][y];
-            }
-        }
-    }
-}
-
-// ====================== Linear AE ======================
-void LinearAE::initialize(int inputDim, int zDim, unsigned seed) {
-    inDim = inputDim;
-    latentDim = zDim;
-    std::mt19937 rng(seed);
-    std::normal_distribution<float> N(0.f, 0.02f);
-
-    We.resize(latentDim * inDim);
-    for (auto& v : We) v = N(rng);
-    Wd.resize(inDim * latentDim);
-    for (auto& v : Wd) v = N(rng);
-    be.assign(latentDim, 0.f);
-    bd.assign(inDim, 0.f);
-
-    z.assign(latentDim, 0.f);
-    xhat.assign(inDim, 0.f);
-    g_xhat.assign(inDim, 0.f);
-    g_z.assign(latentDim, 0.f);
-    g_We.assign(latentDim * inDim, 0.f);
-    g_Wd.assign(inDim * latentDim, 0.f);
-    g_be.assign(latentDim, 0.f);
-    g_bd.assign(inDim, 0.f);
-}
-
-void LinearAE::encode(const std::vector<float>& x, std::vector<float>& out_z) const {
-    out_z.assign(latentDim, 0.f);
-    for (int i = 0; i < latentDim; ++i) {
-        float s = be[i];
-        const float* w = &We[i * inDim];
-        for (int j = 0; j < inDim; ++j) {
-            s += w[j] * x[j];
-        }
-        out_z[i] = s;
-    }
-}
-
-void LinearAE::decode(const std::vector<float>& in_z, std::vector<float>& out_xhat) const {
-    out_xhat.assign(inDim, 0.f);
-    for (int i = 0; i < inDim; ++i) {
-        float s = bd[i];
-        const float* w = &Wd[i * latentDim];
-        for (int j = 0; j < latentDim; ++j) {
-            s += w[j] * in_z[j];
-        }
-        out_xhat[i] = s;
-    }
-}
-
-float LinearAE::forward(const std::vector<float>& x) {
-    encode(x, z);
-    decode(z, xhat);
-    float L = 0.f;
-    for (int i = 0; i < inDim; ++i) {
-        const float d = xhat[i] - x[i];
-        L += 0.5f * d * d;
-    }
-    return L / float(std::max(1, inDim));
-}
-
-void LinearAE::backward(const std::vector<float>& x, float weightDecay, float zReg) {
-    const float invDim = 1.f / float(std::max(1, inDim));
-    for (int i = 0; i < inDim; ++i) {
-        g_xhat[i] = (xhat[i] - x[i]) * invDim;
-    }
-
-    std::fill(g_Wd.begin(), g_Wd.end(), 0.f);
-    std::fill(g_bd.begin(), g_bd.end(), 0.f);
-    std::fill(g_z.begin(), g_z.end(), 0.f);
-
-    for (int i = 0; i < inDim; ++i) {
-        g_bd[i] += g_xhat[i];
-        const float* WdRow = &Wd[i * latentDim];
-        float* gWdRow = &g_Wd[i * latentDim];
-        for (int j = 0; j < latentDim; ++j) {
-            gWdRow[j] += g_xhat[i] * z[j] + weightDecay * WdRow[j];
-            g_z[j] += g_xhat[i] * WdRow[j];
-        }
-    }
-
-    for (int j = 0; j < latentDim; ++j) {
-        g_be[j] += g_z[j] + zReg * z[j];
-        float* gWeRow = &g_We[j * inDim];
-        const float* xRow = x.data();
-        for (int i = 0; i < inDim; ++i) {
-            gWeRow[i] += g_z[j] * xRow[i] + weightDecay * We[j * inDim + i];
-        }
-    }
-}
-
-void LinearAE::sgd(float lr) {
-    for (int i = 0; i < static_cast<int>(We.size()); ++i) We[i] -= lr * g_We[i];
-    for (int i = 0; i < static_cast<int>(Wd.size()); ++i) Wd[i] -= lr * g_Wd[i];
-    for (int i = 0; i < static_cast<int>(be.size()); ++i) be[i] -= lr * g_be[i];
-    for (int i = 0; i < static_cast<int>(bd.size()); ++i) bd[i] -= lr * g_bd[i];
-}
-
 // ====================== WaveLatent ======================
 WaveLatent::WaveLatent() = default;
 
@@ -262,7 +43,7 @@ void WaveLatent::clear() {
     domainXMax_ = 1.0f;
     domainYMin_ = -1.0f;
     domainYMax_ = 1.0f;
-    ae_ = {};
+    ae_.clear();
 }
 
 bool WaveLatent::setFields(int height, int width, const std::vector<std::vector<float>>& fields) {
@@ -310,11 +91,14 @@ bool WaveLatent::initialize(const WaveLatentConfig& config) {
 }
 
 bool WaveLatent::ready() const {
-    return !selectedBasis_.empty() && ae_.latentDim == config_.latentDim && ae_.inDim == static_cast<int>(coeffMean_.size());
+    return !selectedBasis_.empty() &&
+           ae_.ready() &&
+           ae_.latentDim() == config_.latentDim &&
+           ae_.inDim() == static_cast<int>(coeffMean_.size());
 }
 
 void WaveLatent::train(const WaveLatentTrainingParams& params) {
-    if (coeffs_.empty() || ae_.latentDim <= 0) {
+    if (coeffs_.empty() || !ae_.ready()) {
         return;
     }
     trainingParams_ = params;
@@ -333,12 +117,12 @@ void WaveLatent::train(const WaveLatentTrainingParams& params) {
 }
 
 bool WaveLatent::encodeSample(int index, std::vector<float>& z) const {
-    if (ae_.latentDim <= 0 || coeffs_.empty()) {
+    if (!ae_.ready() || coeffs_.empty()) {
         z.assign(config_.latentDim, 0.f);
         return false;
     }
     if (index < 0 || index >= static_cast<int>(coeffs_.size())) {
-        z.assign(ae_.latentDim, 0.f);
+        z.assign(ae_.latentDim(), 0.f);
         return false;
     }
     ae_.encode(coeffs_[index], z);
@@ -383,11 +167,11 @@ bool WaveLatent::blendSamples(int indexA, int indexB, float t, std::vector<float
 }
 
 void WaveLatent::getAllLatents(std::vector<std::vector<float>>& latentsOut) const {
-    if (coeffs_.empty() || ae_.latentDim <= 0) {
+    if (coeffs_.empty() || !ae_.ready()) {
         latentsOut.clear();
         return;
     }
-    latentsOut.assign(coeffs_.size(), std::vector<float>(ae_.latentDim, 0.f));
+    latentsOut.assign(coeffs_.size(), std::vector<float>(ae_.latentDim(), 0.f));
     for (size_t i = 0; i < coeffs_.size(); ++i) {
         ae_.encode(coeffs_[i], latentsOut[i]);
     }
@@ -483,7 +267,9 @@ bool WaveLatent::saveModel(const std::string& filePath) const {
         {"Ky", config_.Ky},
         {"keepK", basisRank()},
         {"latentDim", config_.latentDim},
-        {"seed", config_.seed}
+        {"seed", config_.seed},
+        {"encoderHidden", config_.encoderHidden},
+        {"decoderHidden", config_.decoderHidden}
     };
     j["domain"] = {
         {"xMin", domainXMin_},
@@ -511,12 +297,34 @@ bool WaveLatent::saveModel(const std::string& filePath) const {
     };
 
     json aeJson;
-    aeJson["inDim"] = ae_.inDim;
-    aeJson["latentDim"] = ae_.latentDim;
-    aeJson["We"] = ae_.We;
-    aeJson["Wd"] = ae_.Wd;
-    aeJson["be"] = ae_.be;
-    aeJson["bd"] = ae_.bd;
+    aeJson["inDim"] = ae_.inDim();
+    aeJson["latentDim"] = ae_.latentDim();
+
+    std::vector<ml::LayerDesc> layers;
+    ae_.encoderDesc(layers);
+    json encJson = json::array();
+    for (const auto& layer : layers) {
+        encJson.push_back({
+            {"inDim", layer.inDim},
+            {"outDim", layer.outDim},
+            {"relu", layer.useReLU},
+            {"weights", layer.weights},
+            {"bias", layer.bias}
+        });
+    }
+    ae_.decoderDesc(layers);
+    json decJson = json::array();
+    for (const auto& layer : layers) {
+        decJson.push_back({
+            {"inDim", layer.inDim},
+            {"outDim", layer.outDim},
+            {"relu", layer.useReLU},
+            {"weights", layer.weights},
+            {"bias", layer.bias}
+        });
+    }
+    aeJson["encoder"] = encJson;
+    aeJson["decoder"] = decJson;
     j["ae"] = aeJson;
 
     std::vector<std::vector<float>> latents;
@@ -559,6 +367,8 @@ bool WaveLatent::loadModel(const std::string& filePath) {
         config_.keepK = cfgIt->value("keepK", config_.keepK);
         config_.latentDim = cfgIt->value("latentDim", config_.latentDim);
         config_.seed = cfgIt->value("seed", config_.seed);
+        config_.encoderHidden = cfgIt->value("encoderHidden", config_.encoderHidden);
+        config_.decoderHidden = cfgIt->value("decoderHidden", config_.decoderHidden);
     }
 
     if (auto domainIt = j.find("domain"); domainIt != j.end()) {
@@ -605,22 +415,55 @@ bool WaveLatent::loadModel(const std::string& filePath) {
     rebuildSelectedBasis();
 
     const int inDim = static_cast<int>(coeffMean_.size());
-    if (inDim > 0) {
-        ae_.initialize(inDim, config_.latentDim, config_.seed);
-    } else {
-        ae_ = {};
-    }
+    bool aeLoaded = false;
 
     if (auto aeIt = j.find("ae"); aeIt != j.end()) {
-        const auto latDim = aeIt->value("latentDim", ae_.latentDim);
-        const auto inDimFile = aeIt->value("inDim", ae_.inDim);
-        if (inDim == inDimFile && latDim == ae_.latentDim) {
-            ae_.We = aeIt->value("We", ae_.We);
-            ae_.Wd = aeIt->value("Wd", ae_.Wd);
-            ae_.be = aeIt->value("be", ae_.be);
-            ae_.bd = aeIt->value("bd", ae_.bd);
+        std::vector<ml::LayerDesc> encDesc;
+        std::vector<ml::LayerDesc> decDesc;
+        if (auto encIt = aeIt->find("encoder"); encIt != aeIt->end() && encIt->is_array()) {
+            for (const auto& layer : *encIt) {
+                if (!layer.is_object()) {
+                    continue;
+                }
+                ml::LayerDesc desc;
+                desc.inDim = layer.value("inDim", 0);
+                desc.outDim = layer.value("outDim", 0);
+                desc.useReLU = layer.value("relu", true);
+                desc.weights = layer.value("weights", std::vector<float>{});
+                desc.bias = layer.value("bias", std::vector<float>{});
+                encDesc.push_back(std::move(desc));
+            }
+        }
+        if (auto decIt = aeIt->find("decoder"); decIt != aeIt->end() && decIt->is_array()) {
+            for (const auto& layer : *decIt) {
+                if (!layer.is_object()) {
+                    continue;
+                }
+                ml::LayerDesc desc;
+                desc.inDim = layer.value("inDim", 0);
+                desc.outDim = layer.value("outDim", 0);
+                desc.useReLU = layer.value("relu", true);
+                desc.weights = layer.value("weights", std::vector<float>{});
+                desc.bias = layer.value("bias", std::vector<float>{});
+                decDesc.push_back(std::move(desc));
+            }
+        }
+        if (!encDesc.empty() && !decDesc.empty()) {
+            aeLoaded = ae_.rebuildFromDesc(encDesc, decDesc);
+        }
+    }
+
+    if (aeLoaded && (ae_.inDim() != inDim || ae_.latentDim() != config_.latentDim)) {
+        std::printf("[WaveLatent] loadModel warning: AE dims mismatch; rebuilding with defaults.\n");
+        ae_.clear();
+        aeLoaded = false;
+    }
+
+    if (!aeLoaded) {
+        if (inDim > 0) {
+            ae_.initialize(inDim, config_.latentDim, config_.encoderHidden, config_.decoderHidden, config_.seed);
         } else {
-            std::printf("[WaveLatent] loadModel warning: AE dimensions mismatch; keeping freshly initialised weights.\n");
+            ae_.clear();
         }
     }
 
@@ -760,10 +603,12 @@ void WaveLatent::rebuildSelectedBasis() {
 void WaveLatent::initialiseAutoencoder(unsigned seed) {
     const int inDim = static_cast<int>(coeffMean_.size());
     if (inDim <= 0) {
-        ae_ = {};
+        ae_.clear();
         return;
     }
-    ae_.initialize(inDim, config_.latentDim, seed);
+    ae_.initialize(inDim, config_.latentDim,
+                   config_.encoderHidden, config_.decoderHidden,
+                   seed);
 }
 
 bool WaveLatent::reconstructInternal(int index, bool useAE, std::vector<float>& gridOut) const {
