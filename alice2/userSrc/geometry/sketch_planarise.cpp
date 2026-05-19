@@ -30,12 +30,12 @@ public:
         m_analyzer.tolerance = 1e-5f;
         m_analyzer.drawSettings.satisfiedColor = Color(120.0f / 255.0f, 1.0f, 0.0f, 1.0f);
         m_analyzer.drawSettings.unsatisfiedColor = Color(1.0f, 0.0f, 120.0f / 255.0f, 1.0f);
-        m_analyzer.drawSettings.edgeColor = Color(0.02f, 0.02f, 0.02f, 1.0f);
+        m_analyzer.drawSettings.edgeColor = Color(0.0f, 0.0f, 0.0f, 1.0f);
         m_analyzer.drawSettings.fixedVertexColor = Color(0.0f, 0.0f, 0.0f, 1.0f);
         m_analyzer.drawSettings.drawFaces = true;
         m_analyzer.drawSettings.drawEdges = true;
         m_analyzer.drawSettings.drawFixedVertices = m_fixBoundary;
-        m_analyzer.drawSettings.edgeWidth = 1.0f;
+        m_analyzer.drawSettings.edgeWidth = 2.0f;
         m_analyzer.drawSettings.fixedVertexSize = 8.0f;
 
         m_solver.settings.maxIterations = 200;
@@ -168,7 +168,7 @@ private:
     float m_stepsPerSecond{50.0f};
     float m_stepTimer{0.0f};
     bool m_drawOriginalWireframe{true};
-    Color m_originalWireColor{0.25f, 0.25f, 0.25f, 1.0f};
+    Color m_originalWireColor{0.75f, 0.75f, 0.75f, 1.0f};
     float m_originalWireWidth{1.0f};
     bool m_fixBoundary{true};
 };

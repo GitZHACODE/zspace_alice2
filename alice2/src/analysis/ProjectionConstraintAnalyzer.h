@@ -33,8 +33,14 @@ namespace alice2 {
         bool drawFaces{true};
         bool drawEdges{true};
         bool drawFixedVertices{false};
+        bool drawConstraintGuides{true};
         float edgeWidth{1.0f};
         float fixedVertexSize{8.0f};
+        float guideLineWidth{2.0f};
+        float tangentScale{0.18f};
+        int circleSegments{64};
+        Color circleColor{0.0f, 0.2f, 1.0f, 1.0f};
+        Color tangentColor{1.0f, 0.55f, 0.0f, 1.0f};
     };
 
     class ProjectionConstraintAnalyzer {

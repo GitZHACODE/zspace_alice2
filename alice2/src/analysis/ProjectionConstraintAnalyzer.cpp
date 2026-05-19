@@ -2,10 +2,18 @@
 #include <Eigen/Dense>
 #include <algorithm>
 #include <cmath>
-#include <map>
 #include <sstream>
 
 namespace alice2 {
+
+    static constexpr double kTwoPi = 6.28318530717958647692;
+
+    struct AnalyzerCircleGuide {
+        Eigen::Vector3d center;
+        Eigen::Matrix3d basis;
+        Eigen::Vector2d circleCenter;
+        double radius{0.0};
+    };
 
     static bool analyzerPlaneBasis(const MeshData& data, const std::vector<int>& indices,
                                    Eigen::Vector3d& center, Eigen::Vector3d& normal,
@@ -37,28 +45,39 @@ namespace alice2 {
         return true;
     }
 
-    static bool analyzerFitCircle2D(const std::vector<Eigen::Vector2d>& points, Eigen::Vector2d& center, double& radius) {
-        if (points.size() < 3) return false;
+    static bool analyzerFitCircle2D_shapeOp(const Eigen::MatrixXd& input, Eigen::Vector2d& center, double& radius) {
+        if (input.cols() < 3) return false;
 
-        Eigen::MatrixXd A(points.size(), 3);
-        Eigen::VectorXd b(points.size());
+        double Suu = 0.0;
+        double Suv = 0.0;
+        double Svv = 0.0;
+        double Suuu = 0.0;
+        double Suvv = 0.0;
+        double Svuu = 0.0;
+        double Svvv = 0.0;
 
-        for (int i = 0; i < static_cast<int>(points.size()); ++i) {
-            double x = points[i].x();
-            double y = points[i].y();
-            A(i, 0) = 2.0 * x;
-            A(i, 1) = 2.0 * y;
-            A(i, 2) = 1.0;
-            b(i) = x * x + y * y;
+        for (int j = 0; j < input.cols(); ++j) {
+            double u = input(0, j);
+            double v = input(1, j);
+            double uu = u * u;
+            double vv = v * v;
+            Suu += uu;
+            Svv += vv;
+            Suv += u * v;
+            Suuu += uu * u;
+            Suvv += u * vv;
+            Svuu += v * uu;
+            Svvv += vv * v;
         }
 
-        Eigen::Vector3d solution = A.colPivHouseholderQr().solve(b);
-        center = Eigen::Vector2d(solution.x(), solution.y());
-        double r2 = solution.z() + center.squaredNorm();
-        if (r2 <= 1e-12) return false;
+        Eigen::Matrix2d A;
+        A << Suu, Suv, Suv, Svv;
+        if (std::abs(A.determinant()) <= 1e-5) return false;
 
-        radius = std::sqrt(r2);
-        return true;
+        Eigen::Vector2d b(0.5 * (Suuu + Suvv), 0.5 * (Svvv + Svuu));
+        center = A.inverse() * b;
+        radius = std::sqrt(center.squaredNorm() + (Suu + Svv) / static_cast<double>(input.cols()));
+        return std::isfinite(radius) && radius > 1e-12;
     }
 
     static float analyzerPlanarVolumeError(const MeshData& data, const std::vector<int>& indices) {
@@ -82,6 +101,116 @@ namespace alice2 {
         }
 
         return static_cast<float>(maxVolume);
+    }
+
+    static double analyzerAngleAt(const Eigen::Vector3d& a, const Eigen::Vector3d& b, const Eigen::Vector3d& c) {
+        Eigen::Vector3d u = a - b;
+        Eigen::Vector3d v = c - b;
+        double lu = u.norm();
+        double lv = v.norm();
+        if (lu <= 1e-12 || lv <= 1e-12) return 0.0;
+        return std::acos(std::clamp(u.dot(v) / (lu * lv), -1.0, 1.0));
+    }
+
+    struct AnalyzerVertexCorner {
+        int face{-1};
+        int prev{-1};
+        int next{-1};
+    };
+
+    static bool analyzerOrderedVertexCorners(const MeshData& data, int centerIndex, std::vector<AnalyzerVertexCorner>& ordered) {
+        std::vector<AnalyzerVertexCorner> corners;
+
+        for (int faceIndex = 0; faceIndex < static_cast<int>(data.faces.size()); ++faceIndex) {
+            const MeshFace& face = data.faces[faceIndex];
+            if (face.vertices.size() < 3) continue;
+
+            for (int i = 0; i < static_cast<int>(face.vertices.size()); ++i) {
+                if (face.vertices[i] != centerIndex) continue;
+                int count = static_cast<int>(face.vertices.size());
+                corners.push_back({faceIndex, face.vertices[(i + count - 1) % count], face.vertices[(i + 1) % count]});
+                break;
+            }
+        }
+
+        if (corners.size() != 4) return false;
+
+        ordered.clear();
+        ordered.reserve(corners.size());
+
+        int current = 0;
+        int enter = corners[current].prev;
+        for (int step = 0; step < static_cast<int>(corners.size()); ++step) {
+            ordered.push_back(corners[current]);
+            int exit = enter == corners[current].prev ? corners[current].next : corners[current].prev;
+            if (step + 1 == static_cast<int>(corners.size())) break;
+
+            int nextCorner = -1;
+            for (int i = 0; i < static_cast<int>(corners.size()); ++i) {
+                if (i == current) continue;
+                if (corners[i].prev == exit || corners[i].next == exit) {
+                    bool used = false;
+                    for (const auto& corner : ordered) {
+                        if (corner.face == corners[i].face) used = true;
+                    }
+                    if (!used) {
+                        nextCorner = i;
+                        break;
+                    }
+                }
+            }
+
+            if (nextCorner < 0) return false;
+            enter = exit;
+            current = nextCorner;
+        }
+
+        return ordered.size() == corners.size();
+    }
+
+    static Vec3 toVec3(const Eigen::Vector3d& v) {
+        return Vec3(static_cast<float>(v.x()), static_cast<float>(v.y()), static_cast<float>(v.z()));
+    }
+
+    static bool analyzerCircleGuide(const MeshData& data, const MeshFace& face, AnalyzerCircleGuide& guide) {
+        if (face.vertices.size() < 3) return false;
+
+        Eigen::MatrixXd input(3, face.vertices.size());
+        guide.center.setZero();
+
+        for (int i = 0; i < static_cast<int>(face.vertices.size()); ++i) {
+            int index = face.vertices[i];
+            if (index < 0 || index >= static_cast<int>(data.vertices.size())) return false;
+            const Vec3& p = data.vertices[index].position;
+            input.col(i) = Eigen::Vector3d(p.x, p.y, p.z);
+            guide.center += input.col(i);
+        }
+
+        guide.center /= static_cast<double>(face.vertices.size());
+        input.colwise() -= guide.center;
+
+        Eigen::JacobiSVD<Eigen::MatrixXd> svd(input, Eigen::ComputeFullU);
+        guide.basis = svd.matrixU();
+        input = guide.basis.transpose() * input;
+        input.row(2).setZero();
+
+        return analyzerFitCircle2D_shapeOp(input, guide.circleCenter, guide.radius);
+    }
+
+    static bool analyzerFaceSatisfied(const std::vector<float>& errors, const MeshFace& face,
+                                      ProjectionAnalysisMode mode, float tolerance, size_t faceIndex) {
+        if (mode == ProjectionAnalysisMode::Planar || mode == ProjectionAnalysisMode::Circular) {
+            return faceIndex < errors.size() && errors[faceIndex] >= 0.0f && errors[faceIndex] <= tolerance;
+        }
+
+        bool hasValidVertex = false;
+        for (int index : face.vertices) {
+            if (index < 0 || index >= static_cast<int>(errors.size())) continue;
+            if (errors[index] < 0.0f) continue;
+            hasValidVertex = true;
+            if (errors[index] > tolerance) return false;
+        }
+        return hasValidVertex;
     }
 
     const ProjectionAnalysisResult& ProjectionConstraintAnalyzer::analyze(const MeshObject& mesh) {
@@ -131,24 +260,35 @@ namespace alice2 {
     }
 
     float ProjectionConstraintAnalyzer::circularFaceError(const MeshData& data, const MeshFace& face) const {
-        Eigen::Vector3d center3, normal, u, v;
-        if (!analyzerPlaneBasis(data, face.vertices, center3, normal, u, v)) return -1.0f;
+        if (face.vertices.size() < 3) return -1.0f;
 
-        std::vector<Eigen::Vector2d> points;
-        points.reserve(face.vertices.size());
-        for (int index : face.vertices) {
+        Eigen::MatrixXd input(3, face.vertices.size());
+        Eigen::Vector3d mean = Eigen::Vector3d::Zero();
+        for (int i = 0; i < static_cast<int>(face.vertices.size()); ++i) {
+            int index = face.vertices[i];
+            if (index < 0 || index >= static_cast<int>(data.vertices.size())) return -1.0f;
             const Vec3& p = data.vertices[index].position;
-            Eigen::Vector3d q(p.x, p.y, p.z);
-            q -= center3;
-            points.emplace_back(q.dot(u), q.dot(v));
+            input.col(i) = Eigen::Vector3d(p.x, p.y, p.z);
+            mean += input.col(i);
         }
+
+        mean /= static_cast<double>(face.vertices.size());
+        input.colwise() -= mean;
+
+        Eigen::JacobiSVD<Eigen::MatrixXd> svd(input, Eigen::ComputeFullU);
+        Eigen::Matrix3d basis = svd.matrixU();
+        input = basis.transpose() * input;
+
+        double maxPlaneDistance = input.row(2).cwiseAbs().maxCoeff();
+        input.row(2).setZero();
 
         Eigen::Vector2d circleCenter;
         double radius = 0.0;
-        if (!analyzerFitCircle2D(points, circleCenter, radius)) return -1.0f;
+        if (!analyzerFitCircle2D_shapeOp(input, circleCenter, radius)) return -1.0f;
 
-        double maxError = 0.0;
-        for (const auto& point : points) {
+        double maxError = maxPlaneDistance;
+        for (int j = 0; j < input.cols(); ++j) {
+            Eigen::Vector2d point = input.block<2, 1>(0, j);
             maxError = std::max(maxError, std::abs((point - circleCenter).norm() - radius));
         }
 
@@ -156,51 +296,28 @@ namespace alice2 {
     }
 
     std::vector<float> ProjectionConstraintAnalyzer::conicalVertexErrors(const MeshData& data) const {
-        std::vector<std::vector<int>> adjacency(data.vertices.size());
-        for (const MeshEdge& edge : data.edges) {
-            if (edge.vertexA < 0 || edge.vertexA >= static_cast<int>(data.vertices.size())) continue;
-            if (edge.vertexB < 0 || edge.vertexB >= static_cast<int>(data.vertices.size())) continue;
-            adjacency[edge.vertexA].push_back(edge.vertexB);
-            adjacency[edge.vertexB].push_back(edge.vertexA);
-        }
-
         std::vector<float> errors(data.vertices.size(), -1.0f);
 
-        for (size_t centerIndex = 0; centerIndex < adjacency.size(); ++centerIndex) {
-            const auto& ring = adjacency[centerIndex];
-            if (ring.size() < 3) continue;
+        for (int centerIndex = 0; centerIndex < static_cast<int>(data.vertices.size()); ++centerIndex) {
+            std::vector<AnalyzerVertexCorner> corners;
+            if (!analyzerOrderedVertexCorners(data, centerIndex, corners)) continue;
 
             const Vec3& c = data.vertices[centerIndex].position;
             Eigen::Vector3d center(c.x, c.y, c.z);
-            Eigen::Matrix3d covariance = Eigen::Matrix3d::Zero();
-            std::vector<Eigen::Vector3d> vectors;
+            double angles[4];
+            bool valid = true;
+            for (int i = 0; i < 4; ++i) {
+                if (corners[i].prev < 0 || corners[i].prev >= static_cast<int>(data.vertices.size())) valid = false;
+                if (corners[i].next < 0 || corners[i].next >= static_cast<int>(data.vertices.size())) valid = false;
+                if (!valid) break;
 
-            for (int index : ring) {
-                const Vec3& p = data.vertices[index].position;
-                Eigen::Vector3d q(p.x, p.y, p.z);
-                q -= center;
-                if (q.squaredNorm() <= 1e-12) continue;
-                vectors.push_back(q);
-                Eigen::Vector3d n = q.normalized();
-                covariance += n * n.transpose();
+                const Vec3& p0 = data.vertices[corners[i].prev].position;
+                const Vec3& p1 = data.vertices[corners[i].next].position;
+                angles[i] = analyzerAngleAt(Eigen::Vector3d(p0.x, p0.y, p0.z), center, Eigen::Vector3d(p1.x, p1.y, p1.z));
             }
+            if (!valid) continue;
 
-            if (vectors.size() < 3) continue;
-
-            Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> eigensolver(covariance);
-            if (eigensolver.info() != Eigen::Success) continue;
-
-            Eigen::Vector3d axis = eigensolver.eigenvectors().col(2).normalized();
-            double meanAbsCos = 0.0;
-            for (const auto& q : vectors) meanAbsCos += std::abs(q.normalized().dot(axis));
-            meanAbsCos = std::clamp(meanAbsCos / static_cast<double>(vectors.size()), 0.0, 1.0);
-
-            double maxError = 0.0;
-            for (const auto& q : vectors) {
-                maxError = std::max(maxError, std::abs(std::abs(q.normalized().dot(axis)) - meanAbsCos));
-            }
-
-            errors[centerIndex] = static_cast<float>(maxError);
+            errors[centerIndex] = static_cast<float>(std::abs((angles[0] + angles[2]) - (angles[1] + angles[3])));
         }
 
         return errors;
@@ -238,15 +355,7 @@ namespace alice2 {
                 const MeshFace& face = data->faces[faceIndex];
                 if (face.vertices.size() < 3) continue;
 
-                bool satisfied = true;
-                if (mode == ProjectionAnalysisMode::Planar || mode == ProjectionAnalysisMode::Circular) {
-                    satisfied = faceIndex < m_errors.size() && m_errors[faceIndex] >= 0.0f && m_errors[faceIndex] <= tolerance;
-                } else {
-                    for (int index : face.vertices) {
-                        if (index < 0 || index >= static_cast<int>(m_errors.size())) continue;
-                        if (m_errors[index] > tolerance) satisfied = false;
-                    }
-                }
+                bool satisfied = analyzerFaceSatisfied(m_errors, face, mode, tolerance, faceIndex);
 
                 Color color = satisfied ? drawSettings.satisfiedColor : drawSettings.unsatisfiedColor;
                 Vec3 normal = data->calculateFaceNormal(face);
@@ -269,6 +378,108 @@ namespace alice2 {
 
             if (!vertices.empty()) {
                 renderer.drawMesh(vertices.data(), normals.data(), colors.data(), static_cast<int>(vertices.size()), nullptr, 0, false);
+            }
+        }
+
+        if (drawSettings.drawConstraintGuides) {
+            for (size_t faceIndex = 0; faceIndex < data->faces.size(); ++faceIndex) {
+                const MeshFace& face = data->faces[faceIndex];
+                if (face.vertices.size() < 3) continue;
+                if (!analyzerFaceSatisfied(m_errors, face, mode, tolerance, faceIndex)) continue;
+
+                if (mode == ProjectionAnalysisMode::Circular) {
+                    AnalyzerCircleGuide guide;
+                    if (!analyzerCircleGuide(*data, face, guide)) continue;
+
+                    int segments = std::max(8, drawSettings.circleSegments);
+                    for (int i = 0; i < segments; ++i) {
+                        double a0 = kTwoPi * static_cast<double>(i) / static_cast<double>(segments);
+                        double a1 = kTwoPi * static_cast<double>(i + 1) / static_cast<double>(segments);
+                        Eigen::Vector3d p0 = guide.center + guide.basis * Eigen::Vector3d(
+                            guide.circleCenter.x() + std::cos(a0) * guide.radius,
+                            guide.circleCenter.y() + std::sin(a0) * guide.radius,
+                            0.0);
+                        Eigen::Vector3d p1 = guide.center + guide.basis * Eigen::Vector3d(
+                            guide.circleCenter.x() + std::cos(a1) * guide.radius,
+                            guide.circleCenter.y() + std::sin(a1) * guide.radius,
+                            0.0);
+                        renderer.drawLine(toVec3(p0), toVec3(p1), drawSettings.circleColor, drawSettings.guideLineWidth);
+                    }
+
+                    double tangentLength = guide.radius * std::max(0.01f, drawSettings.tangentScale);
+                    for (int index : face.vertices) {
+                        if (index < 0 || index >= static_cast<int>(data->vertices.size())) continue;
+                        const Vec3& p = data->vertices[index].position;
+                        Eigen::Vector3d q = guide.basis.transpose() * (Eigen::Vector3d(p.x, p.y, p.z) - guide.center);
+                        Eigen::Vector2d radial(q.x() - guide.circleCenter.x(), q.y() - guide.circleCenter.y());
+                        if (radial.squaredNorm() <= 1e-12) continue;
+                        radial.normalize();
+                        Eigen::Vector2d tangent(-radial.y(), radial.x());
+                        Eigen::Vector3d circlePoint = guide.center + guide.basis * Eigen::Vector3d(
+                            guide.circleCenter.x() + radial.x() * guide.radius,
+                            guide.circleCenter.y() + radial.y() * guide.radius,
+                            0.0);
+                        Eigen::Vector3d dir = guide.basis * Eigen::Vector3d(tangent.x(), tangent.y(), 0.0);
+                        renderer.drawLine(toVec3(circlePoint - dir * tangentLength),
+                                          toVec3(circlePoint + dir * tangentLength),
+                                          drawSettings.tangentColor,
+                                          drawSettings.guideLineWidth);
+                    }
+                }
+            }
+
+            if (mode == ProjectionAnalysisMode::Conical) {
+                for (int centerIndex = 0; centerIndex < static_cast<int>(data->vertices.size()); ++centerIndex) {
+                    if (centerIndex >= static_cast<int>(m_errors.size())) continue;
+                    if (m_errors[centerIndex] < 0.0f || m_errors[centerIndex] > tolerance) continue;
+
+                    std::vector<AnalyzerVertexCorner> corners;
+                    if (!analyzerOrderedVertexCorners(*data, centerIndex, corners)) continue;
+
+                    const Vec3& c = data->vertices[centerIndex].position;
+                    Eigen::Vector3d center(c.x, c.y, c.z);
+
+                    double averageLength = 0.0;
+                    int lengthCount = 0;
+                    for (const auto& corner : corners) {
+                        if (corner.prev < 0 || corner.prev >= static_cast<int>(data->vertices.size())) continue;
+                        if (corner.next < 0 || corner.next >= static_cast<int>(data->vertices.size())) continue;
+                        averageLength += (data->vertices[corner.prev].position - c).length();
+                        averageLength += (data->vertices[corner.next].position - c).length();
+                        lengthCount += 2;
+                    }
+                    if (lengthCount == 0) continue;
+                    averageLength /= static_cast<double>(lengthCount);
+                    double tangentLength = averageLength * std::max(0.01f, drawSettings.tangentScale);
+
+                    for (const auto& corner : corners) {
+                        const MeshFace& face = data->faces[corner.face];
+                        Vec3 normal = data->calculateFaceNormal(face);
+                        Eigen::Vector3d n(normal.x, normal.y, normal.z);
+                        if (n.squaredNorm() <= 1e-12) continue;
+                        n.normalize();
+
+                        const Vec3& p0 = data->vertices[corner.prev].position;
+                        const Vec3& p1 = data->vertices[corner.next].position;
+                        Eigen::Vector3d d0(p0.x - c.x, p0.y - c.y, p0.z - c.z);
+                        Eigen::Vector3d d1(p1.x - c.x, p1.y - c.y, p1.z - c.z);
+                        if (d0.squaredNorm() <= 1e-12 || d1.squaredNorm() <= 1e-12) continue;
+                        d0.normalize();
+                        d1.normalize();
+
+                        Eigen::Vector3d tangent = d0 + d1;
+                        tangent -= n * tangent.dot(n);
+                        if (tangent.squaredNorm() <= 1e-12) tangent = d1 - d0;
+                        tangent -= n * tangent.dot(n);
+                        if (tangent.squaredNorm() <= 1e-12) continue;
+                        tangent.normalize();
+
+                        renderer.drawLine(toVec3(center - tangent * tangentLength),
+                                          toVec3(center + tangent * tangentLength),
+                                          drawSettings.tangentColor,
+                                          drawSettings.guideLineWidth);
+                    }
+                }
             }
         }
 

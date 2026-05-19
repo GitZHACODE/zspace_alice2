@@ -49,12 +49,24 @@ namespace alice2 {
         triplets.reserve(targets.size() + vertexCount);
 
         for (const ProjectionTarget& target : targets) {
-            if (target.vertex < 0 || target.vertex >= vertexCount) continue;
-
             double w = std::sqrt(std::max(0.0f, target.weight));
             if (w <= 0.0) continue;
 
-            triplets.emplace_back(row, target.vertex, w);
+            if (!target.vertices.empty() && target.vertices.size() == target.coefficients.size()) {
+                bool valid = true;
+                for (int vertex : target.vertices) {
+                    if (vertex < 0 || vertex >= vertexCount) valid = false;
+                }
+                if (!valid) continue;
+
+                for (size_t i = 0; i < target.vertices.size(); ++i) {
+                    triplets.emplace_back(row, target.vertices[i], static_cast<double>(target.coefficients[i]) * w);
+                }
+            } else {
+                if (target.vertex < 0 || target.vertex >= vertexCount) continue;
+                triplets.emplace_back(row, target.vertex, w);
+            }
+
             bx(row) = target.position.x * w;
             by(row) = target.position.y * w;
             bz(row) = target.position.z * w;

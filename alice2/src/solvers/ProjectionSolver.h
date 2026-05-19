@@ -14,6 +14,8 @@ namespace alice2 {
         int vertex{-1};
         Vec3 position;
         float weight{1.0f};
+        std::vector<int> vertices;
+        std::vector<float> coefficients;
     };
 
     struct ProjectionSolverSettings {

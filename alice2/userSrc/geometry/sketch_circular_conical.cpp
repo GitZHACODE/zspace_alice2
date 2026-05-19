@@ -29,12 +29,18 @@ public:
         m_solver.settings.maxIterations = 200;
         m_solver.settings.strength = 1.0f;
         m_solver.settings.tolerance = 1e-5f;
-        m_solver.settings.shapePreservationWeight = 0.001f;
+        m_solver.settings.shapePreservationWeight = 1e-5f;
         m_solver.settings.fixBoundaryVertices = m_fixBoundary;
 
         m_analyzer.tolerance = m_solver.settings.tolerance;
         m_analyzer.drawSettings.edgeColor = Color(0.02f, 0.02f, 0.02f, 1.0f);
-        m_analyzer.drawSettings.edgeWidth = 1.0f;
+        m_analyzer.drawSettings.edgeWidth = 2.0f;
+        m_analyzer.drawSettings.drawConstraintGuides = true;
+        m_analyzer.drawSettings.circleColor = Color(0.0f, 0.2f, 1.0f, 1.0f);
+        m_analyzer.drawSettings.tangentColor = Color(1.0f, 0.55f, 0.0f, 1.0f);
+        m_analyzer.drawSettings.guideLineWidth = 2.0f;
+        m_analyzer.drawSettings.tangentScale = 0.18f;
+        m_analyzer.drawSettings.circleSegments = 64;
 
         setMode(ProjectionAnalysisMode::Circular);
     }
@@ -115,6 +121,8 @@ private:
         if (m_mode == ProjectionAnalysisMode::Circular) {
             m_solver.addConstraint<CircularFaceConstraint>();
         } else {
+            auto planar = m_solver.addConstraint<PlanarFaceConstraint>();
+            planar->weight = 0.5f;
             m_solver.addConstraint<ConicalVertexConstraint>();
         }
 
@@ -168,7 +176,7 @@ private:
         renderer.drawMeshEdges(vertices.data(), edgeIndices.data(), edgeColors.data(), static_cast<int>(edgeColors.size()));
     }
 
-    std::string m_objPath = "hypar.obj";
+    std::string m_objPath = "tunnel.obj";
     std::shared_ptr<MeshObject> m_mesh;
     std::shared_ptr<MeshObject> m_originalMesh;
     ProjectionSolver m_solver;
@@ -179,9 +187,9 @@ private:
     bool m_running{false};
     float m_stepsPerSecond{50.0f};
     float m_stepTimer{0.0f};
-    bool m_fixBoundary{true};
+    bool m_fixBoundary{false};
     bool m_drawOriginalWireframe{true};
-    Color m_originalWireColor{0.25f, 0.25f, 0.25f, 1.0f};
+    Color m_originalWireColor{0.75f, 0.75f, 0.75f, 1.0f};
     float m_originalWireWidth{1.0f};
 };
 
