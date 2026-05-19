@@ -67,5 +67,6 @@ Thanks a lot!
 - [**STB**](https://github.com/nothings/stb) for text rendering. These single-file libraries are released into the public domain and can be used freely for any purpose.
 - [**GLEW**](http://glew.sourceforge.net/) for managing OpenGL extensions. GLEW is open-source and distributed under the Modified BSD license, allowing free use in both open and closed source projects.
 - [**GLFW**](https://www.glfw.org/) for window and input management. GLFW is licensed under the zlib/libpng license, permitting free use in commercial and non-commercial applications.
+- [**GL2PS**](https://geuz.org/gl2ps/) for SVG export from OpenGL views.
 - [**nlohmann/json**](https://github.com/nlohmann/json) for modern C++ JSON parsing and serialization. It is licensed under the MIT License, allowing unrestricted use, modification, and distribution.
 - [**CUDA Toolkit**](https://developer.nvidia.com/cuda-toolkit) for GPU-accelerated computation and parallel processing support. CUDA is developed and distributed by NVIDIA and requires compatible NVIDIA hardware and drivers.
