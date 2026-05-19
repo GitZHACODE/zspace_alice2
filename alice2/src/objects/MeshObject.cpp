@@ -885,7 +885,15 @@ namespace alice2 {
         std::vector<Vec3> positions;
         std::vector<Vec3> normals;
         std::vector<std::vector<int>> facePosIdx;
-        std::vector<std::vector<int>> faceNormIdx;
+        auto parseObjIndex = [](const std::string &value, int count) -> int
+        {
+            if (value.empty())
+                return -1;
+            int index = std::stoi(value);
+            if (index < 0)
+                index = count + index + 1;
+            return index - 1;
+        };
 
         std::string line;
         while (std::getline(in, line))
@@ -912,29 +920,20 @@ namespace alice2 {
             }
             else if (tag == "f")
             {
-                // face: expecting v//vn (no texcoords)
-                std::vector<int> pidx, nidx;
+                std::vector<int> pidx;
                 std::string token;
                 while (iss >> token)
                 {
-                    // split at "//"
-                    auto pos = token.find("//");
-                    if (pos == std::string::npos)
-                        throw std::runtime_error("Unsupported face format (need v//vn): " + token);
-                    int vi = std::stoi(token.substr(0, pos));
-                    int ni = std::stoi(token.substr(pos + 2));
-                    // handle negative (relative) indices
-                    if (vi < 0)
-                        vi = int(positions.size()) + vi + 1;
-                    if (ni < 0)
-                        ni = int(normals.size()) + ni + 1;
-                    pidx.push_back(vi - 1);
-                    nidx.push_back(ni - 1);
+                    size_t slash = token.find('/');
+                    std::string vertexToken = slash == std::string::npos ? token : token.substr(0, slash);
+                    int vi = parseObjIndex(vertexToken, static_cast<int>(positions.size()));
+                    if (vi < 0 || vi >= static_cast<int>(positions.size()))
+                        throw std::runtime_error("Invalid OBJ face vertex index: " + token);
+                    pidx.push_back(vi);
                 }
                 if (pidx.size() >= 3)
                 {
                     facePosIdx.push_back(pidx);
-                    faceNormIdx.push_back(nidx);
                 }
             }
         }

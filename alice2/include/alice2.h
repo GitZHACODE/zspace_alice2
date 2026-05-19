@@ -17,6 +17,10 @@
 #include "../src/objects/SceneObject.h"
 #include "../src/objects/ZSpaceObject.h"
 #include "../src/objects/PrimitiveObject.h"
+#include "../src/objects/MeshObject.h"
+#include "../src/analysis/ProjectionConstraintAnalyzer.h"
+#include "../src/solvers/ProjectionSolver.h"
+#include "../src/solvers/ProjectionConstraints.h"
 
 // Input includes
 #include "../src/input/InputManager.h"
