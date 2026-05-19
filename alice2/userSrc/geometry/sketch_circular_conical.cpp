@@ -41,6 +41,10 @@ public:
         m_analyzer.drawSettings.guideLineWidth = 2.0f;
         m_analyzer.drawSettings.tangentScale = 0.18f;
         m_analyzer.drawSettings.circleSegments = 64;
+        m_analyzer.drawSettings.drawCones = true;
+        m_analyzer.drawSettings.coneColor = Color(0.0f, 0.35f, 1.0f, 1.0f);
+        m_analyzer.drawSettings.coneScale = 0.8f;
+        m_analyzer.drawSettings.coneSegments = 32;
 
         setMode(ProjectionAnalysisMode::Circular);
     }

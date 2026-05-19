@@ -1,4 +1,5 @@
 #include "ProjectionConstraintAnalyzer.h"
+#include "../computeGeom/ComputeMesh.h"
 #include <Eigen/Dense>
 #include <algorithm>
 #include <cmath>
@@ -14,36 +15,6 @@ namespace alice2 {
         Eigen::Vector2d circleCenter;
         double radius{0.0};
     };
-
-    static bool analyzerPlaneBasis(const MeshData& data, const std::vector<int>& indices,
-                                   Eigen::Vector3d& center, Eigen::Vector3d& normal,
-                                   Eigen::Vector3d& u, Eigen::Vector3d& v) {
-        if (indices.size() < 3) return false;
-
-        center.setZero();
-        for (int index : indices) {
-            if (index < 0 || index >= static_cast<int>(data.vertices.size())) return false;
-            const Vec3& p = data.vertices[index].position;
-            center += Eigen::Vector3d(p.x, p.y, p.z);
-        }
-        center /= static_cast<double>(indices.size());
-
-        Eigen::Matrix3d covariance = Eigen::Matrix3d::Zero();
-        for (int index : indices) {
-            const Vec3& p = data.vertices[index].position;
-            Eigen::Vector3d q(p.x, p.y, p.z);
-            q -= center;
-            covariance += q * q.transpose();
-        }
-
-        Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> eigensolver(covariance);
-        if (eigensolver.info() != Eigen::Success) return false;
-
-        normal = eigensolver.eigenvectors().col(0).normalized();
-        u = eigensolver.eigenvectors().col(1).normalized();
-        v = eigensolver.eigenvectors().col(2).normalized();
-        return true;
-    }
 
     static bool analyzerFitCircle2D_shapeOp(const Eigen::MatrixXd& input, Eigen::Vector2d& center, double& radius) {
         if (input.cols() < 3) return false;
@@ -118,54 +89,44 @@ namespace alice2 {
         int next{-1};
     };
 
-    static bool analyzerOrderedVertexCorners(const MeshData& data, int centerIndex, std::vector<AnalyzerVertexCorner>& ordered) {
-        std::vector<AnalyzerVertexCorner> corners;
+    static std::vector<std::vector<AnalyzerVertexCorner>> analyzerOrderedVertexCorners_computeMesh(const MeshData& data) {
+        ComputeMesh heMesh("projection_analyzer_topology", data, true);
+        std::vector<std::vector<AnalyzerVertexCorner>> all(data.vertices.size());
 
-        for (int faceIndex = 0; faceIndex < static_cast<int>(data.faces.size()); ++faceIndex) {
-            const MeshFace& face = data.faces[faceIndex];
-            if (face.vertices.size() < 3) continue;
+        for (int centerIndex = 0; centerIndex < static_cast<int>(data.vertices.size()); ++centerIndex) {
+            auto vertex = heMesh.getVertex(centerIndex);
+            if (!vertex || vertex->onBoundary() || vertex->getValency() != 4) continue;
 
-            for (int i = 0; i < static_cast<int>(face.vertices.size()); ++i) {
-                if (face.vertices[i] != centerIndex) continue;
-                int count = static_cast<int>(face.vertices.size());
-                corners.push_back({faceIndex, face.vertices[(i + count - 1) % count], face.vertices[(i + 1) % count]});
-                break;
-            }
-        }
+            auto halfedges = vertex->getHalfedges();
+            if (halfedges.size() != 4) continue;
 
-        if (corners.size() != 4) return false;
+            std::vector<AnalyzerVertexCorner> ordered;
+            ordered.reserve(4);
 
-        ordered.clear();
-        ordered.reserve(corners.size());
-
-        int current = 0;
-        int enter = corners[current].prev;
-        for (int step = 0; step < static_cast<int>(corners.size()); ++step) {
-            ordered.push_back(corners[current]);
-            int exit = enter == corners[current].prev ? corners[current].next : corners[current].prev;
-            if (step + 1 == static_cast<int>(corners.size())) break;
-
-            int nextCorner = -1;
-            for (int i = 0; i < static_cast<int>(corners.size()); ++i) {
-                if (i == current) continue;
-                if (corners[i].prev == exit || corners[i].next == exit) {
-                    bool used = false;
-                    for (const auto& corner : ordered) {
-                        if (corner.face == corners[i].face) used = true;
-                    }
-                    if (!used) {
-                        nextCorner = i;
-                        break;
-                    }
+            bool valid = true;
+            for (const auto& he : halfedges) {
+                if (!he || !he->getFace() || !he->getPrev() || !he->getNext()) {
+                    valid = false;
+                    break;
                 }
+                auto prevVertex = he->getPrev()->getVertex();
+                auto nextVertex = he->getVertex();
+                if (!prevVertex || !nextVertex) {
+                    valid = false;
+                    break;
+                }
+
+                ordered.push_back({
+                    he->getFace()->getId(),
+                    prevVertex->getId(),
+                    nextVertex->getId()
+                });
             }
 
-            if (nextCorner < 0) return false;
-            enter = exit;
-            current = nextCorner;
+            if (valid && ordered.size() == 4) all[centerIndex] = ordered;
         }
 
-        return ordered.size() == corners.size();
+        return all;
     }
 
     static Vec3 toVec3(const Eigen::Vector3d& v) {
@@ -297,10 +258,11 @@ namespace alice2 {
 
     std::vector<float> ProjectionConstraintAnalyzer::conicalVertexErrors(const MeshData& data) const {
         std::vector<float> errors(data.vertices.size(), -1.0f);
+        auto orderedCorners = analyzerOrderedVertexCorners_computeMesh(data);
 
         for (int centerIndex = 0; centerIndex < static_cast<int>(data.vertices.size()); ++centerIndex) {
-            std::vector<AnalyzerVertexCorner> corners;
-            if (!analyzerOrderedVertexCorners(data, centerIndex, corners)) continue;
+            const auto& corners = orderedCorners[centerIndex];
+            if (corners.size() != 4) continue;
 
             const Vec3& c = data.vertices[centerIndex].position;
             Eigen::Vector3d center(c.x, c.y, c.z);
@@ -318,6 +280,10 @@ namespace alice2 {
             if (!valid) continue;
 
             errors[centerIndex] = static_cast<float>(std::abs((angles[0] + angles[2]) - (angles[1] + angles[3])));
+            for (const auto& corner : corners) {
+                if (corner.face < 0 || corner.face >= static_cast<int>(data.faces.size())) continue;
+                errors[centerIndex] = std::max(errors[centerIndex], planarFaceError(data, data.faces[corner.face]));
+            }
         }
 
         return errors;
@@ -429,55 +395,92 @@ namespace alice2 {
             }
 
             if (mode == ProjectionAnalysisMode::Conical) {
+                auto orderedCorners = analyzerOrderedVertexCorners_computeMesh(*data);
+
                 for (int centerIndex = 0; centerIndex < static_cast<int>(data->vertices.size()); ++centerIndex) {
                     if (centerIndex >= static_cast<int>(m_errors.size())) continue;
                     if (m_errors[centerIndex] < 0.0f || m_errors[centerIndex] > tolerance) continue;
 
-                    std::vector<AnalyzerVertexCorner> corners;
-                    if (!analyzerOrderedVertexCorners(*data, centerIndex, corners)) continue;
+                    const auto& corners = orderedCorners[centerIndex];
+                    if (corners.size() != 4) continue;
 
                     const Vec3& c = data->vertices[centerIndex].position;
                     Eigen::Vector3d center(c.x, c.y, c.z);
 
-                    double averageLength = 0.0;
-                    int lengthCount = 0;
-                    for (const auto& corner : corners) {
-                        if (corner.prev < 0 || corner.prev >= static_cast<int>(data->vertices.size())) continue;
-                        if (corner.next < 0 || corner.next >= static_cast<int>(data->vertices.size())) continue;
-                        averageLength += (data->vertices[corner.prev].position - c).length();
-                        averageLength += (data->vertices[corner.next].position - c).length();
-                        lengthCount += 2;
-                    }
-                    if (lengthCount == 0) continue;
-                    averageLength /= static_cast<double>(lengthCount);
-                    double tangentLength = averageLength * std::max(0.01f, drawSettings.tangentScale);
+                    if (drawSettings.drawCones) {
+                        Eigen::Vector3d tip = center;
+                        std::vector<Eigen::Vector3d> faceCenters;
+                        faceCenters.reserve(corners.size());
+                        for (const auto& corner : corners) {
+                            if (corner.face < 0 || corner.face >= static_cast<int>(data->faces.size())) continue;
+                            const MeshFace& face = data->faces[corner.face];
+                            if (face.vertices.empty()) continue;
 
-                    for (const auto& corner : corners) {
-                        const MeshFace& face = data->faces[corner.face];
-                        Vec3 normal = data->calculateFaceNormal(face);
-                        Eigen::Vector3d n(normal.x, normal.y, normal.z);
-                        if (n.squaredNorm() <= 1e-12) continue;
-                        n.normalize();
+                            Eigen::Vector3d faceCenter = Eigen::Vector3d::Zero();
+                            bool validFace = true;
+                            for (int index : face.vertices) {
+                                if (index < 0 || index >= static_cast<int>(data->vertices.size())) {
+                                    validFace = false;
+                                    break;
+                                }
+                                const Vec3& p = data->vertices[index].position;
+                                faceCenter += Eigen::Vector3d(p.x, p.y, p.z);
+                            }
+                            if (!validFace) continue;
+                            faceCenter /= static_cast<double>(face.vertices.size());
+                            faceCenters.push_back(faceCenter);
+                        }
+                        if (faceCenters.size() != 4) continue;
 
-                        const Vec3& p0 = data->vertices[corner.prev].position;
-                        const Vec3& p1 = data->vertices[corner.next].position;
-                        Eigen::Vector3d d0(p0.x - c.x, p0.y - c.y, p0.z - c.z);
-                        Eigen::Vector3d d1(p1.x - c.x, p1.y - c.y, p1.z - c.z);
-                        if (d0.squaredNorm() <= 1e-12 || d1.squaredNorm() <= 1e-12) continue;
-                        d0.normalize();
-                        d1.normalize();
+                        Eigen::Vector3d averageFaceCenter = Eigen::Vector3d::Zero();
+                        for (const auto& p : faceCenters) averageFaceCenter += p;
+                        averageFaceCenter /= static_cast<double>(faceCenters.size());
+                        Eigen::Matrix3d covariance = Eigen::Matrix3d::Zero();
+                        for (const auto& p : faceCenters) {
+                            Eigen::Vector3d q = p - averageFaceCenter;
+                            covariance += q * q.transpose();
+                        }
+                        Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> eigensolver(covariance);
+                        if (eigensolver.info() != Eigen::Success) continue;
 
-                        Eigen::Vector3d tangent = d0 + d1;
-                        tangent -= n * tangent.dot(n);
-                        if (tangent.squaredNorm() <= 1e-12) tangent = d1 - d0;
-                        tangent -= n * tangent.dot(n);
-                        if (tangent.squaredNorm() <= 1e-12) continue;
-                        tangent.normalize();
+                        Eigen::Vector3d normal = eigensolver.eigenvectors().col(0).normalized();
+                        Eigen::Vector3d u = eigensolver.eigenvectors().col(2).normalized();
+                        Eigen::Vector3d v = normal.cross(u);
+                        if (v.squaredNorm() <= 1e-12) continue;
+                        v.normalize();
+                        u = v.cross(normal).normalized();
 
-                        renderer.drawLine(toVec3(center - tangent * tangentLength),
-                                          toVec3(center + tangent * tangentLength),
-                                          drawSettings.tangentColor,
-                                          drawSettings.guideLineWidth);
+                        Eigen::MatrixXd circleInput(3, faceCenters.size());
+                        for (int i = 0; i < static_cast<int>(faceCenters.size()); ++i) {
+                            Eigen::Vector3d d = faceCenters[i] - averageFaceCenter;
+                            circleInput(0, i) = d.dot(u);
+                            circleInput(1, i) = d.dot(v);
+                            circleInput(2, i) = 0.0;
+                        }
+
+                        Eigen::Vector2d circleCenter;
+                        double radius = 0.0;
+                        if (!analyzerFitCircle2D_shapeOp(circleInput, circleCenter, radius)) continue;
+                        Eigen::Vector3d fittedCenter = averageFaceCenter + u * circleCenter.x() + v * circleCenter.y();
+
+                        int segments = std::max(12, drawSettings.coneSegments);
+
+                        for (int i = 0; i < segments; ++i) {
+                            double a0 = kTwoPi * static_cast<double>(i) / static_cast<double>(segments);
+                            double a1 = kTwoPi * static_cast<double>(i + 1) / static_cast<double>(segments);
+                            Eigen::Vector3d p0 = fittedCenter + u * std::cos(a0) * radius + v * std::sin(a0) * radius;
+                            Eigen::Vector3d p1 = fittedCenter + u * std::cos(a1) * radius + v * std::sin(a1) * radius;
+                            renderer.drawLine(toVec3(p0), toVec3(p1), drawSettings.coneColor, drawSettings.guideLineWidth);
+                        }
+
+                        for (const auto& faceCenter : faceCenters) {
+                            Eigen::Vector3d d = faceCenter - fittedCenter;
+                            d -= normal * d.dot(normal);
+                            if (d.squaredNorm() <= 1e-12) continue;
+                            d.normalize();
+                            Eigen::Vector3d contact = fittedCenter + d * radius;
+                            renderer.drawLine(toVec3(tip), toVec3(contact), drawSettings.tangentColor, drawSettings.guideLineWidth);
+                        }
                     }
                 }
             }

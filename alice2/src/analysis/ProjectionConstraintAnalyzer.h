@@ -26,21 +26,25 @@ namespace alice2 {
     };
 
     struct ProjectionAnalysisDrawSettings {
-        Color satisfiedColor{120.0f / 255.0f, 1.0f, 0.0f, 1.0f};
-        Color unsatisfiedColor{1.0f, 0.0f, 120.0f / 255.0f, 1.0f};
+        Color satisfiedColor{120.0f / 255.0f, 1.0f, 0.0f, 0.75f};
+        Color unsatisfiedColor{1.0f, 0.0f, 120.0f / 255.0f, 0.75f};
         Color edgeColor{0.02f, 0.02f, 0.02f, 1.0f};
         Color fixedVertexColor{0.0f, 0.0f, 0.0f, 1.0f};
         bool drawFaces{true};
         bool drawEdges{true};
         bool drawFixedVertices{false};
         bool drawConstraintGuides{true};
+        bool drawCones{true};
         float edgeWidth{1.0f};
         float fixedVertexSize{8.0f};
         float guideLineWidth{2.0f};
         float tangentScale{0.18f};
+        float coneScale{0.35f};
         int circleSegments{64};
+        int coneSegments{32};
         Color circleColor{0.0f, 0.2f, 1.0f, 1.0f};
         Color tangentColor{1.0f, 0.55f, 0.0f, 1.0f};
+        Color coneColor{0.0f, 0.35f, 1.0f, 1.0f};
     };
 
     class ProjectionConstraintAnalyzer {

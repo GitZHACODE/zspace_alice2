@@ -302,23 +302,6 @@ namespace alice2 {
         // Step 5: Link vertex outgoing half-edges
         linkVertexHalfedges();
 
-        // Count boundary vs interior half-edges for debugging
-        int interiorHalfedges = 0;
-        int boundaryHalfedges = 0;
-        for (auto& he : m_heMeshData.halfedges) {
-            if (he->getFace() == nullptr) {
-                boundaryHalfedges++;
-            } else {
-                interiorHalfedges++;
-            }
-        }
-
-        std::cout << "Half-edge mesh built: "
-                  << m_heMeshData.vertices.size() << " vertices, "
-                  << m_heMeshData.halfedges.size() << " half-edges ("
-                  << interiorHalfedges << " interior + " << boundaryHalfedges << " boundary), "
-                  << m_heMeshData.edges.size() << " edges, "
-                  << m_heMeshData.faces.size() << " faces" << std::endl;
     }
 
     void ComputeMesh::updateHalfEdgeData(){
