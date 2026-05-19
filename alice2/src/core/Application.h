@@ -42,6 +42,8 @@ namespace alice2 {
         // Screenshot functionality
         void takeScreenshot();
         void takeScreenshotAllCameras();
+        void takeScreenshotSvg();
+        void takeScreenshotAllCamerasSvg();
         CameraController& getCameraController() { return *m_cameraController; }
         SketchManager& getSketchManager() { return *m_sketchManager; }
 
@@ -112,6 +114,7 @@ namespace alice2 {
         bool initializeWindow(int argc, char** argv);
         bool initializeOpenGL();
         void setupCallbacks();
+        bool writeCurrentViewSvg(const std::string& filename);
     };
 
     // Global application entry point

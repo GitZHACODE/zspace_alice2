@@ -7,10 +7,19 @@
 #include <fstream>
 #include <vector>
 #include <thread>
+#include <cstdio>
 
 // STB image write for screenshots
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../../depends/stb/stb_image_write.h"
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4005)
+#endif
+#include <gl2ps.h>
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 // Debug logging flag - set to true to enable detailed application logging
 #define DEBUG_APPLICATION_LOGGING false
@@ -334,14 +343,30 @@ namespace alice2 {
             }
 
             // Handle screenshot shortcuts
-            if (key == GLFW_KEY_S) {
+            if (key == GLFW_KEY_F9) {
                 if ((mods & GLFW_MOD_CONTROL) && (mods & GLFW_MOD_SHIFT)) {
-                    // Ctrl + Shift + E: Take screenshots from all saved cameras
+                    // Ctrl + Shift + F9: Take screenshots from all saved cameras
                     s_instance->takeScreenshotAllCameras();
-                } else if (mods & GLFW_MOD_SHIFT) {
-                    // Shift + E: Take screenshot from current view
+                } else {
+                    // F9: Take screenshot from current view
                     s_instance->takeScreenshot();
                 }
+                return;
+            }
+
+            if (key == GLFW_KEY_F10) {
+                if (mods & GLFW_MOD_SHIFT) {
+                    // Shift + F10: Take SVG screenshots from all saved cameras
+                    s_instance->takeScreenshotAllCamerasSvg();
+                } else {
+                    // F10: Take SVG screenshot from current view
+                    s_instance->takeScreenshotSvg();
+                }
+                return;
+            }
+
+            if (key == GLFW_KEY_F11) {
+                s_instance->m_cameraController->resetToDefault();
                 return;
             }
 
@@ -379,11 +404,6 @@ namespace alice2 {
                 // If the sketch didn't handle it, process default behaviors
                 if (!handled) {
                     switch (charKey) {
-                        case 'r':
-                        case 'R':
-                            // Reset camera
-                            s_instance->m_cameraController->resetToDefault();
-                            break;
                         case 'g':
                         case 'G':
                             // Toggle grid
@@ -537,6 +557,137 @@ namespace alice2 {
             std::cout << "[SCREENSHOT] Screenshot saved: " << filename << std::endl;
         } else {
             std::cerr << "[SCREENSHOT] Failed to save screenshot: " << filename << std::endl;
+        }
+    }
+
+    bool Application::writeCurrentViewSvg(const std::string& filename) {
+        FILE* file = std::fopen(filename.c_str(), "wb");
+        if (!file) {
+            std::cerr << "[SVG] Failed to open SVG file: " << filename << std::endl;
+            return false;
+        }
+
+        GLint viewport[4] = {0, 0, 0, 0};
+        glGetIntegerv(GL_VIEWPORT, viewport);
+
+        GLint state = GL2PS_OVERFLOW;
+        GLint bufferSize = 1024 * 1024;
+        while (state == GL2PS_OVERFLOW) {
+            std::rewind(file);
+            gl2psBeginPage(
+                "alice2",
+                "alice2",
+                viewport,
+                GL2PS_SVG,
+                GL2PS_BSP_SORT,
+                GL2PS_SILENT | GL2PS_SIMPLE_LINE_OFFSET | GL2PS_USE_CURRENT_VIEWPORT | GL2PS_NO_BLENDING,
+                GL_RGBA,
+                0,
+                nullptr,
+                0,
+                0,
+                0,
+                bufferSize,
+                file,
+                filename.c_str()
+            );
+
+            render();
+            state = gl2psEndPage();
+            bufferSize *= 2;
+        }
+
+        std::fclose(file);
+
+        if (state == GL2PS_SUCCESS) {
+            return true;
+        }
+
+        std::remove(filename.c_str());
+        std::cerr << "[SVG] Failed to save current view: " << filename << " (gl2ps status " << state << ")" << std::endl;
+        return false;
+    }
+
+    void Application::takeScreenshotSvg() {
+        if (!m_initialized || !m_window) {
+            std::cerr << "[SVG] Application not initialized" << std::endl;
+            return;
+        }
+
+        // Create screenshots directory if it doesn't exist
+        #ifdef _WIN32
+            system("mkdir \"src\\screenshots\" 2>nul");
+        #else
+            system("mkdir -p \"src/screenshots\"");
+        #endif
+
+        // Generate timestamp using the same base naming as screenshots
+        auto now = std::chrono::system_clock::now();
+        auto time_t = std::chrono::system_clock::to_time_t(now);
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now.time_since_epoch()) % 1000;
+
+        std::stringstream ss;
+        ss << "src/screenshots/screenshot_"
+           << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S")
+           << "_" << std::setfill('0') << std::setw(3) << ms.count()
+           << ".svg";
+
+        std::string filename = ss.str();
+        if (writeCurrentViewSvg(filename)) {
+            std::cout << "[SVG] Current view saved: " << filename << std::endl;
+        }
+    }
+
+    void Application::takeScreenshotAllCamerasSvg() {
+        if (!m_initialized || !m_window || !m_cameraController) {
+            std::cerr << "[SVG] Application not initialized" << std::endl;
+            return;
+        }
+
+        // Create screenshots directory if it doesn't exist
+        #ifdef _WIN32
+            system("mkdir \"src\\screenshots\" 2>nul");
+        #else
+            system("mkdir -p \"src/screenshots\"");
+        #endif
+
+        // Generate base timestamp using the same naming as camera screenshots
+        auto now = std::chrono::system_clock::now();
+        auto time_t = std::chrono::system_clock::to_time_t(now);
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now.time_since_epoch()) % 1000;
+
+        std::stringstream base_ss;
+        base_ss << "src/screenshots/camera_"
+                << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S")
+                << "_" << std::setfill('0') << std::setw(3) << ms.count();
+
+        std::string base_filename = base_ss.str();
+        CameraState originalCamera = m_cameraController->getCurrentCameraState();
+        int screenshotCount = 0;
+
+        for (int slot = 0; slot < 8; ++slot) {
+            if (m_cameraController->hasSavedCamera(slot)) {
+                m_cameraController->loadCamera(slot);
+
+                std::stringstream ss;
+                ss << base_filename << "_F" << (slot + 1) << ".svg";
+                std::string filename = ss.str();
+
+                if (writeCurrentViewSvg(filename)) {
+                    std::cout << "[SVG] Camera F" << (slot + 1) << " SVG saved: " << filename << std::endl;
+                    screenshotCount++;
+                }
+            }
+        }
+
+        m_cameraController->setCameraState(originalCamera);
+
+        if (screenshotCount > 0) {
+            std::cout << "[SVG] Saved " << screenshotCount << " camera SVG screenshots" << std::endl;
+        } else {
+            std::cout << "[SVG] No saved cameras found - no SVG screenshots taken" << std::endl;
         }
     }
 

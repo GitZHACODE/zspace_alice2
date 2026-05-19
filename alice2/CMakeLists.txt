@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(alice2 VERSION 1.0.0 LANGUAGES CXX)
+project(alice2 VERSION 1.0.0 LANGUAGES C CXX)
 
 option(ALICE2_ENABLE_CUDA "Enable CUDA build of alice2" OFF)
 set(ALICE2_BUILD_MODE "default" CACHE STRING "Select alice2 build mode (default or test)")
@@ -47,6 +47,7 @@ if(NOT DEP_FILES)
         "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/eigen.zip"
         "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/glew.zip"
         "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/glfw.zip"
+        "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/gl2ps-1.4.2.zip"
         "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/nlohmann.zip"
         "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/stb.zip"
     )
@@ -109,6 +110,46 @@ if(NOT EXISTS ${NLOHMANN_JSON_INCLUDE_DIRS}/nlohmann/json.hpp)
     message(FATAL_ERROR "nlohmann/json headers not found at ${NLOHMANN_JSON_INCLUDE_DIRS}")
 endif()
 
+set(GL2PS_URL "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/gl2ps-1.4.2.zip")
+set(GL2PS_DIR "${ALICE2_DEPENDS_DIR}/gl2ps-1.4.2")
+if(NOT EXISTS "${GL2PS_DIR}/gl2ps.h")
+    set(GL2PS_DIR "${ALICE2_DEPENDS_DIR}/gl2ps")
+endif()
+if(NOT EXISTS "${GL2PS_DIR}/gl2ps.h")
+    get_filename_component(GL2PS_ARCHIVE_NAME "${GL2PS_URL}" NAME)
+    message(STATUS "Downloading ${GL2PS_ARCHIVE_NAME} from ${GL2PS_URL}...")
+    file(DOWNLOAD "${GL2PS_URL}" "${ALICE2_DEPENDS_DIR}/${GL2PS_ARCHIVE_NAME}" SHOW_PROGRESS STATUS gl2ps_dl_status)
+    list(GET gl2ps_dl_status 0 gl2ps_dl_code)
+    if(NOT gl2ps_dl_code EQUAL 0)
+        message(FATAL_ERROR "Failed to download ${GL2PS_ARCHIVE_NAME}: ${gl2ps_dl_status}")
+    endif()
+
+    execute_process(
+        COMMAND ${CMAKE_COMMAND} -E tar xzf "${ALICE2_DEPENDS_DIR}/${GL2PS_ARCHIVE_NAME}"
+        WORKING_DIRECTORY "${ALICE2_DEPENDS_DIR}"
+        RESULT_VARIABLE gl2ps_unpack_ret
+    )
+    if(NOT gl2ps_unpack_ret EQUAL 0)
+        message(FATAL_ERROR "Failed to unpack ${GL2PS_ARCHIVE_NAME}")
+    endif()
+
+    file(REMOVE "${ALICE2_DEPENDS_DIR}/${GL2PS_ARCHIVE_NAME}")
+    message(STATUS "Extracted and removed ${GL2PS_ARCHIVE_NAME}")
+
+    set(GL2PS_DIR "${ALICE2_DEPENDS_DIR}/gl2ps-1.4.2")
+    if(NOT EXISTS "${GL2PS_DIR}/gl2ps.h")
+        set(GL2PS_DIR "${ALICE2_DEPENDS_DIR}/gl2ps")
+    endif()
+endif()
+if(NOT EXISTS "${GL2PS_DIR}/gl2ps.h")
+    message(FATAL_ERROR "gl2ps header not found at ${ALICE2_DEPENDS_DIR}/gl2ps-1.4.2 or ${ALICE2_DEPENDS_DIR}/gl2ps")
+endif()
+set(GL2PS_INCLUDE_DIRS "${GL2PS_DIR}")
+set(GL2PS_SOURCE "${GL2PS_DIR}/gl2ps.c")
+if(NOT EXISTS "${GL2PS_SOURCE}")
+    message(FATAL_ERROR "gl2ps source not found at ${GL2PS_SOURCE}")
+endif()
+
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -117,6 +158,7 @@ include_directories(
     ${GLFW_INCLUDE_DIRS}
     ${EIGEN_DIR}
     ${NLOHMANN_JSON_INCLUDE_DIRS}
+    ${GL2PS_INCLUDE_DIRS}
 )
 if(ALICE2_USING_TEST_MODE)
     include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tests)
@@ -131,6 +173,7 @@ file(GLOB_RECURSE ALICE2_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
 set(ALICE2_SOURCES ${ALICE2_CORE_SOURCES})
+list(APPEND ALICE2_SOURCES ${GL2PS_SOURCE})
 
 if(ALICE2_USING_TEST_MODE)
     file(GLOB_RECURSE ALICE2_TEST_SOURCES
@@ -283,6 +326,10 @@ install(DIRECTORY ${GLEW_INCLUDE_DIRS}/
     DESTINATION include/dependencies
     FILES_MATCHING PATTERN "*.h"
 )
+install(DIRECTORY ${GL2PS_INCLUDE_DIRS}/
+    DESTINATION include/dependencies/gl2ps
+    FILES_MATCHING PATTERN "*.h"
+)
 
 if(WIN32)
     if(EXISTS ${GLEW_DLL_PATH})
@@ -311,3 +358,4 @@ message(STATUS "  GLEW: ${GLEW_LIBRARIES}")
 message(STATUS "  GLFW: ${GLFW_LIBRARIES} (precompiled)")
 message(STATUS "  Eigen: ${EIGEN_DIR} (header-only)")
 message(STATUS "  nlohmann/json: ${NLOHMANN_JSON_INCLUDE_DIRS} (header-only)")
+message(STATUS "  gl2ps: ${GL2PS_INCLUDE_DIRS} (SVG export)")
