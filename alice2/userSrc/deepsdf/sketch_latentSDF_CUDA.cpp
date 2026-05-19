@@ -14,6 +14,8 @@
 #include <limits>
 #include <string>
 #include <cstdio>
+#include <fstream>
+#include <cmath>
 
 using namespace alice2;
 using namespace DeepSDF;
@@ -137,40 +139,43 @@ public:
         case 't': case 'T': {
             std::mt19937 rng(trainSeed_);
             Sampler sampler(sampleSeed_);
+            double avgLoss = 0.0;
+            double meanZ = 0.0;
             for (int e = 0; e < trainEpochs_; ++e) {
                 for (int s = 0; s < stepsPerEpoch_; ++s) {
                     decoder_.trainMicroBatchGPU(microBatchB_, sampler, rng, lrW_, lrZ_, shapes_);
                 }
+                decoder_.syncStatsToHost(avgLoss, meanZ, true);
                 epochsDone_++;
-            }
-            double avgLoss = 0.0, meanZ = 0.0;
-            decoder_.syncStatsToHost(avgLoss, meanZ, true);
+                const double gridRMSE = computeGroundTruthRMSE();
+                recordEpochLoss(epochsDone_, avgLoss, meanZ, gridRMSE);
 
-            deltaLoss = std::abs(previousLoss - avgLoss);
-            struct {
-                float threshold;
-                bool* flag;
-                const char* label;
-            } stages[] = {
-                {1e-3f, &fineTuned1e3_,  "1e-3"},
-                {1e-4f, &fineTuned1e4_,  "1e-4"},
-                {1e-5f, &fineTuned1e5_,  "1e-5"}
-            };
+                deltaLoss = std::abs(previousLoss - float(avgLoss));
+                struct {
+                    float threshold;
+                    bool* flag;
+                    const char* label;
+                } stages[] = {
+                    {1e-3f, &fineTuned1e3_,  "1e-3"},
+                    {1e-4f, &fineTuned1e4_,  "1e-4"},
+                    {1e-5f, &fineTuned1e5_,  "1e-5"}
+                };
 
-            for (const auto& stage : stages) {
-                if (!*stage.flag && deltaLoss < stage.threshold) {
-                    lrW_ *= lrScale_;
-                    lrZ_ *= lrScale_;
-                    *stage.flag = true;
-                    std::printf("[CUDA][Train] Fine tuning stage (%s) triggered\n", stage.label);
-                    std::printf("[CUDA][Train] lrW changed to %.6f; lrZ changed to %.6f\n",
-                                float(lrW_), float(lrZ_));
+                for (const auto& stage : stages) {
+                    if (!*stage.flag && deltaLoss < stage.threshold) {
+                        lrW_ *= lrScale_;
+                        lrZ_ *= lrScale_;
+                        *stage.flag = true;
+                        std::printf("[CUDA][Train] Fine tuning stage (%s) triggered\n", stage.label);
+                        std::printf("[CUDA][Train] lrW changed to %.6f; lrZ changed to %.6f\n",
+                                    float(lrW_), float(lrZ_));
+                    }
                 }
-            }
-            previousLoss = avgLoss;
+                previousLoss = float(avgLoss);
 
-            std::printf("[CUDA][Train] epoch %d  avgLoss=%.6f  mean||z||=%.6f\n",
-                        epochsDone_, float(avgLoss), float(meanZ));
+                std::printf("[CUDA][Train] epoch %d  avgLoss=%.6f  mean||z||=%.6f  gridRMSE=%.6f\n",
+                            epochsDone_, float(avgLoss), float(meanZ), float(gridRMSE));
+            }
             decoder_.syncLatentsToHost();
             rebuildReconstruction();
             return true;
@@ -216,6 +221,10 @@ public:
             return true;
         }
 
+        case 'u': case 'U':
+            exportLossHistoryJSON(lossHistoryPath_);
+            return true;
+
         default:
             break;
         }
@@ -223,6 +232,13 @@ public:
     }
 
 private:
+    struct EpochLossRecord {
+        int epoch = 0;
+        double loss = 0.0;
+        double meanZ = 0.0;
+        double gridRMSE = 0.0;
+    };
+
     struct DisplayConfig {
         bool  softMask  = true;
         float tau       = 0.05f;
@@ -407,7 +423,7 @@ private:
     void drawHelp(Renderer& renderer, float y) const {
         renderer.setColor(Color(0.7f, 0.7f, 0.7f));
         // renderer.drawString("Keys: T train  R rebuild  M mask  [ ] tau  1-4 debug  J save model  L load model", 20.0f, y);
-        renderer.drawString("Keys: T train  R rebuild  M mask  1-4 debug  J save model  L load model", 20.0f, y);
+        renderer.drawString("Keys: T train  R rebuild  M mask  1-4 debug  J save model  L load model  U export stats", 20.0f, y);
         renderer.drawString("9/0 numFreqs: " + std::to_string(m_numFreqs), 20.0f, y + 20);
         renderer.drawString("7/8 fieldRes: " + std::to_string(gridResX_), 20.0f, y + 40);
     }
@@ -459,9 +475,92 @@ private:
     unsigned trainSeed_ = 2025;
     unsigned sampleSeed_ = 777;
     int epochsDone_ = 0;
+    std::vector<EpochLossRecord> epochLossHistory_;
+    std::string lossHistoryPath_ = "latent_loss_history.json";
 
     std::vector<float> xs_;
     LatentNavigator_CUDA navigator_;
+
+    double computeGroundTruthRMSE() {
+        if (originals_.empty() || domain_.resX <= 0 || domain_.resY <= 0) {
+            return 0.0;
+        }
+
+        const int resX = domain_.resX;
+        const int resY = domain_.resY;
+        if (xs_.size() != size_t(resX)) {
+            buildScanlineXs();
+        }
+
+        const float dy = (resY > 1)
+            ? (domain_.yMax - domain_.yMin) / float(resY - 1)
+            : 0.0f;
+
+        std::vector<float> row(resX);
+        double sumSq = 0.0;
+        size_t totalSamples = 0;
+
+        const size_t maxShapes = std::min<size_t>(originals_.size(), size_t(numShapes_));
+        for (size_t s = 0; s < maxShapes; ++s) {
+            const auto& gt = originals_[s].values;
+            if (gt.size() != size_t(resX) * size_t(resY)) {
+                continue;
+            }
+
+            for (int y = 0; y < resY; ++y) {
+                const float yy = domain_.yMin + dy * float(y);
+                decoder_.forwardRowGPU(int(s), xs_, yy, row);
+                const size_t rowOffset = size_t(y) * size_t(resX);
+                for (int x = 0; x < resX; ++x) {
+                    const size_t idx = rowOffset + size_t(x);
+                    const double diff = double(row[x]) - double(gt[idx]);
+                    sumSq += diff * diff;
+                }
+            }
+
+            totalSamples += gt.size();
+        }
+
+        if (totalSamples == 0) {
+            return 0.0;
+        }
+
+        return std::sqrt(sumSq / double(totalSamples));
+    }
+
+    void recordEpochLoss(int epochIdx, double loss, double meanZ, double gridRMSE) {
+        epochLossHistory_.push_back(EpochLossRecord{epochIdx, loss, meanZ, gridRMSE});
+    }
+
+    void exportLossHistoryJSON(const std::string& path) const {
+        if (epochLossHistory_.empty()) {
+            std::printf("[CUDA][Train] No loss history to export. Train first.\n");
+            return;
+        }
+        nlohmann::json j;
+        j["epochs"] = nlohmann::json::array();
+        for (const auto& entry : epochLossHistory_) {
+            j["epochs"].push_back({
+                {"epoch", entry.epoch},
+                {"loss", entry.loss},
+                {"mean_norm_z", entry.meanZ},
+                {"grid_rmse", entry.gridRMSE}
+            });
+        }
+        j["meta"] = {
+            {"total_epochs", epochLossHistory_.back().epoch},
+            {"records", epochLossHistory_.size()},
+            {"last_loss", epochLossHistory_.back().loss},
+            {"last_grid_rmse", epochLossHistory_.back().gridRMSE}
+        };
+        std::ofstream out(path);
+        if (!out.is_open()) {
+            std::printf("[CUDA][Train] Failed to open '%s' for loss export.\n", path.c_str());
+            return;
+        }
+        out << j.dump(4);
+        std::printf("[CUDA][Train] Loss history exported -> %s\n", path.c_str());
+    }
 };
 
 ALICE2_REGISTER_SKETCH_AUTO(Sketch_LatentSDF_CUDA)
