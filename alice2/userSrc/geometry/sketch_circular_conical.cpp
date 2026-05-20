@@ -33,6 +33,7 @@ public:
         m_solver.settings.fixBoundaryVertices = m_fixBoundary;
 
         m_analyzer.tolerance = m_solver.settings.tolerance;
+        m_analyzer.drawSettings.drawFixedVertices = m_fixBoundary;
         m_analyzer.drawSettings.edgeColor = Color(0.02f, 0.02f, 0.02f, 1.0f);
         m_analyzer.drawSettings.edgeWidth = 2.0f;
         m_analyzer.drawSettings.drawConstraintGuides = true;
@@ -73,7 +74,7 @@ public:
         }
 
         m_analyzer.draw(renderer);
-        drawOriginalWireframe(renderer);
+        if(m_analyzer.drawSettings.drawConstraintGuides) drawOriginalWireframe(renderer);
         renderer.drawString(m_report, 10, 30);
         renderer.drawString("c circular | v conical | u step | p run/pause | o solve", 10, 50);
     }
@@ -101,6 +102,12 @@ public:
             m_stepTimer = 0.0f;
             return true;
         }
+
+        if (key == 'd') {
+            m_analyzer.drawSettings.drawConstraintGuides = !m_analyzer.drawSettings.drawConstraintGuides;
+            return true;
+        }
+
 
         if (key == 'o') {
             m_iteration += m_solver.solve(*m_mesh);
@@ -180,7 +187,7 @@ private:
         renderer.drawMeshEdges(vertices.data(), edgeIndices.data(), edgeColors.data(), static_cast<int>(edgeColors.size()));
     }
 
-    std::string m_objPath = "tunnel.obj";
+    std::string m_objPath = "pipe.obj";
     std::shared_ptr<MeshObject> m_mesh;
     std::shared_ptr<MeshObject> m_originalMesh;
     ProjectionSolver m_solver;
@@ -189,9 +196,9 @@ private:
     std::string m_report;
     int m_iteration{0};
     bool m_running{false};
-    float m_stepsPerSecond{50.0f};
+    float m_stepsPerSecond{100.0f};
     float m_stepTimer{0.0f};
-    bool m_fixBoundary{false};
+    bool m_fixBoundary{true};
     bool m_drawOriginalWireframe{true};
     Color m_originalWireColor{0.75f, 0.75f, 0.75f, 1.0f};
     float m_originalWireWidth{1.0f};

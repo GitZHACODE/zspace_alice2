@@ -26,8 +26,8 @@ namespace alice2 {
     };
 
     struct ProjectionAnalysisDrawSettings {
-        Color satisfiedColor{120.0f / 255.0f, 1.0f, 0.0f, 0.75f};
-        Color unsatisfiedColor{1.0f, 0.0f, 120.0f / 255.0f, 0.75f};
+        Color satisfiedColor{120.0f / 255.0f, 1.0f, 0.0f, 1.0f};
+        Color unsatisfiedColor{1.0f, 0.0f, 120.0f / 255.0f, 1.0f};
         Color edgeColor{0.02f, 0.02f, 0.02f, 1.0f};
         Color fixedVertexColor{0.0f, 0.0f, 0.0f, 1.0f};
         bool drawFaces{true};
