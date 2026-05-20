@@ -22,6 +22,14 @@ namespace alice2 {
         Wireframe
     };
 
+    enum class SceneRenderMode {
+        Regular,
+        MeshWireframe,
+        MeshWireframeWithVertices,
+        MeshNormalShaded,
+        MeshGray
+    };
+
     class Renderer {
     public:
         Renderer();
@@ -66,6 +74,8 @@ namespace alice2 {
         // Rendering modes
         void setRenderMode(RenderMode mode);
         RenderMode getRenderMode() const { return m_renderMode; }
+        void setSceneRenderMode(SceneRenderMode mode);
+        SceneRenderMode getSceneRenderMode() const { return m_sceneRenderMode; }
 
         // Basic drawing
         void drawPoint(const Vec3& position);
@@ -132,6 +142,7 @@ namespace alice2 {
         float m_pointSize;
         float m_lineWidth;
         RenderMode m_renderMode;
+        SceneRenderMode m_sceneRenderMode;
         
         // Lighting
         bool m_lightingEnabled;

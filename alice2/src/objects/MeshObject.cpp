@@ -191,6 +191,11 @@ namespace alice2 {
         // Ensure triangulation is up to date
         ensureTriangulation();
 
+        if (renderer.getSceneRenderMode() != SceneRenderMode::Regular) {
+            renderSceneModeOverride(renderer, camera);
+            return;
+        }
+
         // Render faces if enabled
         if (m_showFaces) {
             renderMesh(renderer, camera);
@@ -214,6 +219,83 @@ namespace alice2 {
         Vec3 minBounds, maxBounds;
         m_meshData->updateBounds(minBounds, maxBounds);
         setBounds(minBounds, maxBounds);
+    }
+
+    void MeshObject::renderSceneModeOverride(Renderer& renderer, Camera& camera) {
+        const SceneRenderMode mode = renderer.getSceneRenderMode();
+        const Color edgeColor(0.0f, 0.0f, 0.0f, 1.0f);
+        const Color vertexColor(1.0f, 0.0f, 120.0f / 255.0f, 1.0f);
+        const Color faceColor(0.5f, 0.5f, 0.5f, 0.18f);
+        const Color normalFrontColor(1.0f, 1.0f, 1.0f, 1.0f);
+        const Color normalBackColor(0.18f, 0.18f, 0.18f, 1.0f);
+
+        std::vector<Vec3> vertexPositions;
+        vertexPositions.reserve(m_meshData->vertices.size());
+        for (const auto& vertex : m_meshData->vertices) {
+            vertexPositions.push_back(vertex.position);
+        }
+
+        if (mode == SceneRenderMode::MeshNormalShaded) {
+            const Color oldFrontColor = m_frontColor;
+            const Color oldBackColor = m_backColor;
+            m_frontColor = normalFrontColor;
+            m_backColor = normalBackColor;
+            renderNormalShaded(renderer, camera);
+            m_frontColor = oldFrontColor;
+            m_backColor = oldBackColor;
+            return;
+        }
+
+        if (mode == SceneRenderMode::MeshGray && !m_meshData->triangleIndices.empty()) {
+            const bool wasLightingEnabled = glIsEnabled(GL_LIGHTING);
+            if (wasLightingEnabled) {
+                glDisable(GL_LIGHTING);
+            }
+
+            renderer.setColor(faceColor);
+            glBegin(GL_TRIANGLES);
+            for (int index : m_meshData->triangleIndices) {
+                if (index >= 0 && index < static_cast<int>(m_meshData->vertices.size())) {
+                    const Vec3& p = m_meshData->vertices[index].position;
+                    glVertex3f(p.x, p.y, p.z);
+                }
+            }
+            glEnd();
+
+            if (wasLightingEnabled) {
+                glEnable(GL_LIGHTING);
+            }
+        }
+
+        if (!m_meshData->edges.empty()) {
+            std::vector<int> edgeIndices;
+            std::vector<Color> edgeColors;
+            edgeIndices.reserve(m_meshData->edges.size() * 2);
+            edgeColors.reserve(m_meshData->edges.size());
+
+            for (const auto& edge : m_meshData->edges) {
+                if (edge.vertexA >= 0 && edge.vertexA < static_cast<int>(m_meshData->vertices.size()) &&
+                    edge.vertexB >= 0 && edge.vertexB < static_cast<int>(m_meshData->vertices.size())) {
+                    edgeIndices.push_back(edge.vertexA);
+                    edgeIndices.push_back(edge.vertexB);
+                    edgeColors.push_back(edgeColor);
+                }
+            }
+
+            renderer.setLineWidth(std::max(m_edgeWidth, 1.0f));
+            renderer.drawMeshEdges(
+                vertexPositions.data(),
+                edgeIndices.data(),
+                edgeColors.data(),
+                static_cast<int>(edgeColors.size())
+            );
+        }
+
+        if (mode == SceneRenderMode::MeshWireframeWithVertices) {
+            renderer.setColor(vertexColor);
+            renderer.setPointSize(std::max(m_vertexSize, 5.0f));
+            renderer.drawPoints(vertexPositions.data(), static_cast<int>(vertexPositions.size()));
+        }
     }
 
     void MeshObject::renderMesh(Renderer& renderer, Camera& camera) {

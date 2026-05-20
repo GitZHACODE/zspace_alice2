@@ -1,8 +1,17 @@
 #include "Renderer.h"
 #include "Camera.h"
 #include "FontRenderer.h"
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4005)
+#endif
+#include <gl2ps.h>
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 #include <iostream>
 #include <cmath>
+#include <algorithm>
 
 // Debug logging flag - set to true to enable detailed renderer logging
 #define DEBUG_RENDERER_LOGGING false
@@ -20,6 +29,7 @@ namespace alice2 {
         , m_pointSize(1.0f)
         , m_lineWidth(1.0f)
         , m_renderMode(RenderMode::Triangles)
+        , m_sceneRenderMode(SceneRenderMode::Regular)
         , m_lightingEnabled(true)
         , m_ambientLight(0.2f, 0.2f, 0.2f, 1.0f)
         , m_lightDirection(0.0f, -1.0f, -1.0f)
@@ -179,6 +189,7 @@ namespace alice2 {
     void Renderer::setLineWidth(float width) {
         m_lineWidth = width;
         GLState::setLineWidth(width);
+        gl2psLineWidth(width);
     }
 
     void Renderer::enableLighting(bool enable) {
@@ -225,6 +236,27 @@ namespace alice2 {
     void Renderer::setRenderMode(RenderMode mode) {
         m_renderMode = mode;
         applyRenderMode();
+    }
+
+    void Renderer::setSceneRenderMode(SceneRenderMode mode) {
+        m_sceneRenderMode = mode;
+        switch (mode) {
+            case SceneRenderMode::MeshWireframe:
+                std::cout << "[RENDERER] Scene render mode: mesh wireframe" << std::endl;
+                break;
+            case SceneRenderMode::MeshWireframeWithVertices:
+                std::cout << "[RENDERER] Scene render mode: mesh wireframe with vertices" << std::endl;
+                break;
+            case SceneRenderMode::MeshNormalShaded:
+                std::cout << "[RENDERER] Scene render mode: normal shaded" << std::endl;
+                break;
+            case SceneRenderMode::MeshGray:
+                std::cout << "[RENDERER] Scene render mode: gray" << std::endl;
+                break;
+            case SceneRenderMode::Regular:
+                std::cout << "[RENDERER] Scene render mode: regular" << std::endl;
+                break;
+        }
     }
 
     void Renderer::drawPoint(const Vec3& position) {
@@ -539,8 +571,19 @@ namespace alice2 {
     void Renderer::drawMesh(const Vec3* vertices, const Vec3* normals, const Color* colors, int vertexCount, const int* indices, int indexCount, bool enableLighting) {
         if (!vertices || vertexCount == 0) return;
 
-        // Save current lighting state
         bool wasLightingEnabled = glIsEnabled(GL_LIGHTING);
+        GLint polygonMode[2];
+        glGetIntegerv(GL_POLYGON_MODE, polygonMode);
+
+        const bool overrideMesh = m_sceneRenderMode != SceneRenderMode::Regular;
+        const bool grayMode = m_sceneRenderMode == SceneRenderMode::MeshGray;
+        const bool normalShadedMode = m_sceneRenderMode == SceneRenderMode::MeshNormalShaded;
+        const bool meshDataWireMode = m_sceneRenderMode == SceneRenderMode::MeshWireframe ||
+                                      m_sceneRenderMode == SceneRenderMode::MeshWireframeWithVertices;
+        const Color forcedVertexColor(1.0f, 0.0f, 120.0f / 255.0f, 1.0f);
+        const Color forcedFaceColor(0.5f, 0.5f, 0.5f, 0.18f);
+        const Color normalFrontColor(1.0f, 1.0f, 1.0f, 1.0f);
+        const Color normalBackColor(0.18f, 0.18f, 0.18f, 1.0f);
 
         if (enableLighting && !wasLightingEnabled) {
             glEnable(GL_LIGHTING);
@@ -548,10 +591,53 @@ namespace alice2 {
             glDisable(GL_LIGHTING);
         }
 
+        if (meshDataWireMode) {
+            if (m_sceneRenderMode == SceneRenderMode::MeshWireframeWithVertices) {
+                bool lightingForVertices = glIsEnabled(GL_LIGHTING);
+                if (lightingForVertices) {
+                    glDisable(GL_LIGHTING);
+                }
+
+                glColor4f(forcedVertexColor.r, forcedVertexColor.g, forcedVertexColor.b, forcedVertexColor.a);
+                glPointSize(std::max(m_pointSize, 5.0f));
+                glBegin(GL_POINTS);
+                for (int i = 0; i < vertexCount; i++) {
+                    glVertex3f(vertices[i].x, vertices[i].y, vertices[i].z);
+                }
+                glEnd();
+                glPointSize(m_pointSize);
+
+                if (lightingForVertices) {
+                    glEnable(GL_LIGHTING);
+                }
+            }
+
+            glPolygonMode(GL_FRONT, polygonMode[0]);
+            glPolygonMode(GL_BACK, polygonMode[1]);
+
+            if (enableLighting && !wasLightingEnabled) {
+                glDisable(GL_LIGHTING);
+            } else if (!enableLighting && wasLightingEnabled) {
+                glEnable(GL_LIGHTING);
+            }
+
+            glColor4f(m_currentColor.r, m_currentColor.g, m_currentColor.b, m_currentColor.a);
+            return;
+        }
+
+        if (overrideMesh) {
+            glColor4f(
+                grayMode ? forcedFaceColor.r : normalFrontColor.r,
+                grayMode ? forcedFaceColor.g : normalFrontColor.g,
+                grayMode ? forcedFaceColor.b : normalFrontColor.b,
+                grayMode ? forcedFaceColor.a : normalFrontColor.a
+            );
+            glPolygonMode(GL_FRONT_AND_BACK, (grayMode || normalShadedMode) ? GL_FILL : GL_LINE);
+        }
+
         glBegin(GL_TRIANGLES);
 
         if (indices && indexCount > 0) {
-            // Use indices - render triangles
             for (int i = 0; i < indexCount; i += 3) {
                 for (int j = 0; j < 3; j++) {
                     int idx = indices[i + j];
@@ -559,7 +645,19 @@ namespace alice2 {
                         if (normals) {
                             glNormal3f(normals[idx].x, normals[idx].y, normals[idx].z);
                         }
-                        if (colors) {
+                        if (normalShadedMode && normals) {
+                            const float t = std::clamp(normals[idx].z * 0.5f + 0.5f, 0.0f, 1.0f);
+                            glColor4f(
+                                normalBackColor.r + t * (normalFrontColor.r - normalBackColor.r),
+                                normalBackColor.g + t * (normalFrontColor.g - normalBackColor.g),
+                                normalBackColor.b + t * (normalFrontColor.b - normalBackColor.b),
+                                1.0f
+                            );
+                        } else if (normalShadedMode) {
+                            glColor4f(normalFrontColor.r, normalFrontColor.g, normalFrontColor.b, normalFrontColor.a);
+                        } else if (grayMode) {
+                            glColor4f(forcedFaceColor.r, forcedFaceColor.g, forcedFaceColor.b, forcedFaceColor.a);
+                        } else if (!overrideMesh && colors) {
                             glColor4f(colors[idx].r, colors[idx].g, colors[idx].b, colors[idx].a);
                         }
                         glVertex3f(vertices[idx].x, vertices[idx].y, vertices[idx].z);
@@ -567,12 +665,23 @@ namespace alice2 {
                 }
             }
         } else {
-            // Use vertices directly - assume triangles
             for (int i = 0; i < vertexCount; i++) {
                 if (normals) {
                     glNormal3f(normals[i].x, normals[i].y, normals[i].z);
                 }
-                if (colors) {
+                if (normalShadedMode && normals) {
+                    const float t = std::clamp(normals[i].z * 0.5f + 0.5f, 0.0f, 1.0f);
+                    glColor4f(
+                        normalBackColor.r + t * (normalFrontColor.r - normalBackColor.r),
+                        normalBackColor.g + t * (normalFrontColor.g - normalBackColor.g),
+                        normalBackColor.b + t * (normalFrontColor.b - normalBackColor.b),
+                        1.0f
+                    );
+                } else if (normalShadedMode) {
+                    glColor4f(normalFrontColor.r, normalFrontColor.g, normalFrontColor.b, normalFrontColor.a);
+                } else if (grayMode) {
+                    glColor4f(forcedFaceColor.r, forcedFaceColor.g, forcedFaceColor.b, forcedFaceColor.a);
+                } else if (!overrideMesh && colors) {
                     glColor4f(colors[i].r, colors[i].g, colors[i].b, colors[i].a);
                 }
                 glVertex3f(vertices[i].x, vertices[i].y, vertices[i].z);
@@ -581,14 +690,15 @@ namespace alice2 {
 
         glEnd();
 
-        // Restore lighting state
+        glPolygonMode(GL_FRONT, polygonMode[0]);
+        glPolygonMode(GL_BACK, polygonMode[1]);
+
         if (enableLighting && !wasLightingEnabled) {
             glDisable(GL_LIGHTING);
         } else if (!enableLighting && wasLightingEnabled) {
             glEnable(GL_LIGHTING);
         }
 
-        // Restore current color
         glColor4f(m_currentColor.r, m_currentColor.g, m_currentColor.b, m_currentColor.a);
     }
 
@@ -639,6 +749,11 @@ namespace alice2 {
     void Renderer::drawMeshEdges(const Vec3* vertices, const int* edgeIndices, const Color* edgeColors, int edgeCount) {
         if (!vertices || !edgeIndices || edgeCount == 0) return;
 
+        const bool forceBlackEdges = m_sceneRenderMode == SceneRenderMode::MeshWireframe ||
+                                     m_sceneRenderMode == SceneRenderMode::MeshWireframeWithVertices ||
+                                     m_sceneRenderMode == SceneRenderMode::MeshGray;
+        const Color forcedEdgeColor(0.0f, 0.0f, 0.0f, 1.0f);
+
         glBegin(GL_LINES);
 
         for (int i = 0; i < edgeCount; i++) {
@@ -646,7 +761,9 @@ namespace alice2 {
             int vertexB = edgeIndices[i * 2 + 1];
 
             // Set edge color if provided
-            if (edgeColors) {
+            if (forceBlackEdges) {
+                glColor4f(forcedEdgeColor.r, forcedEdgeColor.g, forcedEdgeColor.b, forcedEdgeColor.a);
+            } else if (edgeColors) {
                 glColor4f(edgeColors[i].r, edgeColors[i].g, edgeColors[i].b, edgeColors[i].a);
             }
 

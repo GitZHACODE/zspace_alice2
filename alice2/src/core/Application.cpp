@@ -370,6 +370,31 @@ namespace alice2 {
                 return;
             }
 
+            if (key == GLFW_KEY_1) {
+                s_instance->m_renderer->setSceneRenderMode(SceneRenderMode::MeshWireframe);
+                return;
+            }
+
+            if (key == GLFW_KEY_2) {
+                s_instance->m_renderer->setSceneRenderMode(SceneRenderMode::MeshWireframeWithVertices);
+                return;
+            }
+
+            if (key == GLFW_KEY_3) {
+                s_instance->m_renderer->setSceneRenderMode(SceneRenderMode::Regular);
+                return;
+            }
+
+            if (key == GLFW_KEY_4) {
+                s_instance->m_renderer->setSceneRenderMode(SceneRenderMode::MeshNormalShaded);
+                return;
+            }
+
+            if (key == GLFW_KEY_5) {
+                s_instance->m_renderer->setSceneRenderMode(SceneRenderMode::MeshGray);
+                return;
+            }
+
             // Convert GLFW key to character for compatibility
             unsigned char charKey = 0;
 

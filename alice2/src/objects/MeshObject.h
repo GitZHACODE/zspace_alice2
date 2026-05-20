@@ -174,6 +174,7 @@ namespace alice2 {
 
         // Rendering methods
         void renderMesh(Renderer& renderer, Camera& camera);
+        void renderSceneModeOverride(Renderer& renderer, Camera& camera);
         void renderWireframe(Renderer& renderer);  // Keep for backward compatibility
         void renderLit(Renderer& renderer);
         void renderNormalShaded(Renderer& renderer, Camera& camera);
