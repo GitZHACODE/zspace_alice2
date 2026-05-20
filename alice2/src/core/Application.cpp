@@ -597,6 +597,7 @@ namespace alice2 {
 
         GLint state = GL2PS_OVERFLOW;
         GLint bufferSize = 1024 * 1024;
+        m_renderer->setVectorExportMode(true);
         while (state == GL2PS_OVERFLOW) {
             std::rewind(file);
             gl2psBeginPage(
@@ -621,6 +622,7 @@ namespace alice2 {
             state = gl2psEndPage();
             bufferSize *= 2;
         }
+        m_renderer->setVectorExportMode(false);
 
         std::fclose(file);
 

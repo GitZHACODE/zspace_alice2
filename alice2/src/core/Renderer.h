@@ -76,6 +76,8 @@ namespace alice2 {
         RenderMode getRenderMode() const { return m_renderMode; }
         void setSceneRenderMode(SceneRenderMode mode);
         SceneRenderMode getSceneRenderMode() const { return m_sceneRenderMode; }
+        void setVectorExportMode(bool enabled) { m_vectorExportMode = enabled; }
+        bool getVectorExportMode() const { return m_vectorExportMode; }
 
         // Basic drawing
         void drawPoint(const Vec3& position);
@@ -143,6 +145,7 @@ namespace alice2 {
         float m_lineWidth;
         RenderMode m_renderMode;
         SceneRenderMode m_sceneRenderMode;
+        bool m_vectorExportMode;
         
         // Lighting
         bool m_lightingEnabled;
@@ -156,6 +159,10 @@ namespace alice2 {
         // OpenGL state management
         void setupOpenGL();
         void applyRenderMode();
+
+        // SVG/gl2ps text export
+        void drawTextVectorExport(const std::string& text, const Vec3& position, float size);
+        void drawStringVectorExport(const std::string& text, float x, float y);
     };
 
 } // namespace alice2

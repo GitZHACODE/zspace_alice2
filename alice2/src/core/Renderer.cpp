@@ -30,6 +30,7 @@ namespace alice2 {
         , m_lineWidth(1.0f)
         , m_renderMode(RenderMode::Triangles)
         , m_sceneRenderMode(SceneRenderMode::Regular)
+        , m_vectorExportMode(false)
         , m_lightingEnabled(true)
         , m_ambientLight(0.2f, 0.2f, 0.2f, 1.0f)
         , m_lightDirection(0.0f, -1.0f, -1.0f)
@@ -456,6 +457,11 @@ namespace alice2 {
     }
 
     void Renderer::drawText(const std::string& text, const Vec3& position, float size) {
+        if (m_vectorExportMode) {
+            drawTextVectorExport(text, position, size);
+            return;
+        }
+
         if (!m_initialized || !m_fontRenderer || !m_fontRenderer->isInitialized()) {
             return;
         }
@@ -466,11 +472,63 @@ namespace alice2 {
 
 
     void Renderer::drawString(const std::string& text, float x, float y) {
+        if (m_vectorExportMode) {
+            drawStringVectorExport(text, x, y);
+            return;
+        }
+
         if (!m_initialized || !m_fontRenderer || !m_fontRenderer->isInitialized()) {
             return;
         }
 
         m_fontRenderer->drawString(text, x, y, m_currentColor);
+    }
+
+    void Renderer::drawTextVectorExport(const std::string& text, const Vec3& position, float size) {
+        if (text.empty()) return;
+
+        GL2PSrgba rgba = {m_currentColor.r, m_currentColor.g, m_currentColor.b, m_currentColor.a};
+        const GLshort fontSize = static_cast<GLshort>(std::max(1.0f, size * 20.0f));
+
+        glRasterPos3f(position.x, position.y, position.z);
+        gl2psTextOptColor(text.c_str(), "Helvetica", fontSize, GL2PS_TEXT_C, 0.0f, rgba);
+    }
+
+    void Renderer::drawStringVectorExport(const std::string& text, float x, float y) {
+        if (text.empty()) return;
+
+        GL2PSrgba rgba = {m_currentColor.r, m_currentColor.g, m_currentColor.b, m_currentColor.a};
+        constexpr GLshort fontSize = 12;
+        constexpr float lineHeight = 18.0f;
+
+        glMatrixMode(GL_PROJECTION);
+        glPushMatrix();
+        glLoadIdentity();
+        glOrtho(0, m_viewportWidth, m_viewportHeight, 0, -1, 1);
+
+        glMatrixMode(GL_MODELVIEW);
+        glPushMatrix();
+        glLoadIdentity();
+
+        float currentY = y;
+        size_t lineStart = 0;
+        while (lineStart <= text.size()) {
+            size_t lineEnd = text.find('\n', lineStart);
+            std::string line = text.substr(lineStart, lineEnd == std::string::npos ? std::string::npos : lineEnd - lineStart);
+            if (!line.empty()) {
+                glRasterPos2f(x, currentY);
+                gl2psTextOptColor(line.c_str(), "Helvetica", fontSize, GL2PS_TEXT_BL, 0.0f, rgba);
+            }
+
+            if (lineEnd == std::string::npos) break;
+            lineStart = lineEnd + 1;
+            currentY += lineHeight;
+        }
+
+        glPopMatrix();
+        glMatrixMode(GL_PROJECTION);
+        glPopMatrix();
+        glMatrixMode(GL_MODELVIEW);
     }
 
     void Renderer::draw2dPoint(const Vec2& position) {
