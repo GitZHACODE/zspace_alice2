@@ -140,10 +140,10 @@ namespace alice2 {
             pan(-delta.x * m_panSpeed * 0.1f, delta.y * m_panSpeed * 0.1f);
         }
 
-        // Handle right mouse for panning as well
+        // Handle right mouse for horizontal zooming only.
         if (m_inputManager.isMouseButtonDown(MouseButton::Right)) {
             Vec3 delta = mouse.delta;
-            pan(-delta.x * m_panSpeed * 0.1f, delta.y * m_panSpeed * 0.1f);
+            dolly(-delta.x * m_zoomSpeed * 0.05f);
         }
 
         // Handle mouse wheel for zooming
