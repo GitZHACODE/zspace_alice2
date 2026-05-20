@@ -10,8 +10,276 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
+#include <array>
 
 namespace alice2 {
+
+    namespace {
+        // Curvature estimators follow standard discrete differential geometry:
+        // - Meyer, Desbrun, Schroder, Barr, "Discrete Differential-Geometry Operators
+        //   for Triangulated 2-Manifolds", 2003. https://doi.org/10.1007/978-3-662-05105-4_2
+        // - Rusinkiewicz, "Estimating Curvatures and Their Derivatives on Triangle Meshes",
+        //   3DPVT 2004. https://gfx.cs.princeton.edu/pubs/Rusinkiewicz_2004_ECA/
+        constexpr float kPi = 3.14159265358979323846f;
+        constexpr float kEpsilon = 1e-8f;
+
+        struct CurvatureData {
+            std::vector<float> gaussian;
+            std::vector<float> mean;
+            std::vector<float> area;
+            std::vector<bool> boundary;
+            std::vector<std::vector<int>> neighbors;
+        };
+
+        struct EdgeKey {
+            int a;
+            int b;
+
+            EdgeKey(int v0, int v1) : a(std::min(v0, v1)), b(std::max(v0, v1)) {}
+
+            bool operator==(const EdgeKey& other) const {
+                return a == other.a && b == other.b;
+            }
+        };
+
+        struct EdgeKeyHash {
+            std::size_t operator()(const EdgeKey& key) const {
+                return std::hash<int>()(key.a) ^ (std::hash<int>()(key.b) << 1);
+            }
+        };
+
+        float triangleArea(const Vec3& a, const Vec3& b, const Vec3& c) {
+            return 0.5f * (b - a).cross(c - a).length();
+        }
+
+        float vertexAngle(const Vec3& center, const Vec3& a, const Vec3& b) {
+            Vec3 u = a - center;
+            Vec3 v = b - center;
+            const float ul = u.length();
+            const float vl = v.length();
+            if (ul <= kEpsilon || vl <= kEpsilon) return 0.0f;
+            float cosine = u.dot(v) / (ul * vl);
+            cosine = std::clamp(cosine, -1.0f, 1.0f);
+            return std::acos(cosine);
+        }
+
+        float cotangent(const Vec3& a, const Vec3& b) {
+            const float crossLength = a.cross(b).length();
+            if (crossLength <= kEpsilon) return 0.0f;
+            return a.dot(b) / crossLength;
+        }
+
+        void addNeighbor(std::vector<std::vector<int>>& neighbors, int a, int b) {
+            auto& list = neighbors[a];
+            if (std::find(list.begin(), list.end(), b) == list.end()) {
+                list.push_back(b);
+            }
+        }
+
+        std::vector<std::array<int, 3>> buildTriangles(const MeshData& data) {
+            std::vector<std::array<int, 3>> triangles;
+            for (const auto& face : data.faces) {
+                if (face.vertices.size() < 3) continue;
+                for (size_t i = 1; i + 1 < face.vertices.size(); ++i) {
+                    const int a = face.vertices[0];
+                    const int b = face.vertices[i];
+                    const int c = face.vertices[i + 1];
+                    const int vertexCount = static_cast<int>(data.vertices.size());
+                    if (a >= 0 && a < vertexCount &&
+                        b >= 0 && b < vertexCount &&
+                        c >= 0 && c < vertexCount &&
+                        a != b && b != c && c != a) {
+                        triangles.push_back({a, b, c});
+                    }
+                }
+            }
+            return triangles;
+        }
+
+        Color scalarToColor(float value, float minValue, float maxValue) {
+            if (maxValue - minValue <= kEpsilon) {
+                return Color(1.0f, 1.0f, 1.0f, 1.0f);
+            }
+
+            const float zeroRange = std::max(std::abs(minValue), std::abs(maxValue));
+            float t = 0.5f;
+            if (zeroRange > kEpsilon) {
+                t = 0.5f + 0.5f * std::clamp(value / zeroRange, -1.0f, 1.0f);
+            } else {
+                t = (value - minValue) / (maxValue - minValue);
+            }
+
+            if (t < 0.5f) {
+                return Color::lerp(Color(0.0f, 0.2f, 1.0f, 1.0f), Color(1.0f, 1.0f, 1.0f, 1.0f), t * 2.0f);
+            }
+            return Color::lerp(Color(1.0f, 1.0f, 1.0f, 1.0f), Color(1.0f, 0.05f, 0.15f, 1.0f), (t - 0.5f) * 2.0f);
+        }
+
+        void minMaxValues(const std::vector<float>& values, float& minValue, float& maxValue) {
+            if (values.empty()) {
+                minValue = 0.0f;
+                maxValue = 0.0f;
+                return;
+            }
+
+            minValue = values.front();
+            maxValue = values.front();
+            for (float value : values) {
+                minValue = std::min(minValue, value);
+                maxValue = std::max(maxValue, value);
+            }
+        }
+
+        void updateVertexColors(MeshData& data, const std::vector<float>& values, float minValue, float maxValue) {
+            const size_t count = std::min(data.vertices.size(), values.size());
+            for (size_t i = 0; i < count; ++i) {
+                data.vertices[i].color = scalarToColor(values[i], minValue, maxValue);
+            }
+        }
+
+        void colorRange(float actualMin, float actualMax,
+                        std::optional<float> remapMin, std::optional<float> remapMax,
+                        float& colorMin, float& colorMax) {
+            colorMin = actualMin;
+            colorMax = actualMax;
+
+            if (remapMin && remapMax && *remapMax > *remapMin) {
+                colorMin = *remapMin;
+                colorMax = *remapMax;
+            }
+        }
+
+        CurvatureData computeCurvatureData(const MeshData& data) {
+            const size_t vertexCount = data.vertices.size();
+            CurvatureData result;
+            result.gaussian.assign(vertexCount, 0.0f);
+            result.mean.assign(vertexCount, 0.0f);
+            result.area.assign(vertexCount, 0.0f);
+            result.boundary.assign(vertexCount, false);
+            result.neighbors.assign(vertexCount, {});
+
+            const auto triangles = buildTriangles(data);
+            std::vector<float> angleSum(vertexCount, 0.0f);
+            std::vector<Vec3> meanNormal(vertexCount, Vec3(0, 0, 0));
+            std::unordered_map<EdgeKey, int, EdgeKeyHash> edgeUse;
+
+            for (const auto& tri : triangles) {
+                const int i0 = tri[0];
+                const int i1 = tri[1];
+                const int i2 = tri[2];
+                const Vec3& p0 = data.vertices[i0].position;
+                const Vec3& p1 = data.vertices[i1].position;
+                const Vec3& p2 = data.vertices[i2].position;
+
+                const float area = triangleArea(p0, p1, p2);
+                if (area <= kEpsilon) continue;
+
+                result.area[i0] += area / 3.0f;
+                result.area[i1] += area / 3.0f;
+                result.area[i2] += area / 3.0f;
+
+                angleSum[i0] += vertexAngle(p0, p1, p2);
+                angleSum[i1] += vertexAngle(p1, p2, p0);
+                angleSum[i2] += vertexAngle(p2, p0, p1);
+
+                const float cot0 = cotangent(p1 - p0, p2 - p0);
+                const float cot1 = cotangent(p2 - p1, p0 - p1);
+                const float cot2 = cotangent(p0 - p2, p1 - p2);
+
+                meanNormal[i1] += (p2 - p1) * cot0;
+                meanNormal[i2] += (p1 - p2) * cot0;
+                meanNormal[i2] += (p0 - p2) * cot1;
+                meanNormal[i0] += (p2 - p0) * cot1;
+                meanNormal[i0] += (p1 - p0) * cot2;
+                meanNormal[i1] += (p0 - p1) * cot2;
+
+                ++edgeUse[EdgeKey(i0, i1)];
+                ++edgeUse[EdgeKey(i1, i2)];
+                ++edgeUse[EdgeKey(i2, i0)];
+
+                addNeighbor(result.neighbors, i0, i1);
+                addNeighbor(result.neighbors, i1, i0);
+                addNeighbor(result.neighbors, i1, i2);
+                addNeighbor(result.neighbors, i2, i1);
+                addNeighbor(result.neighbors, i2, i0);
+                addNeighbor(result.neighbors, i0, i2);
+            }
+
+            for (const auto& edge : edgeUse) {
+                if (edge.second == 1) {
+                    result.boundary[edge.first.a] = true;
+                    result.boundary[edge.first.b] = true;
+                }
+            }
+
+            for (size_t i = 0; i < vertexCount; ++i) {
+                if (result.area[i] <= kEpsilon) continue;
+
+                const float targetAngle = result.boundary[i] ? kPi : 2.0f * kPi;
+                result.gaussian[i] = (targetAngle - angleSum[i]) / result.area[i];
+
+                Vec3 laplace = meanNormal[i] / (2.0f * result.area[i]);
+                const Vec3 normal = data.vertices[i].normal.normalized();
+                const float sign = laplace.dot(normal) <= 0.0f ? 1.0f : -1.0f;
+                result.mean[i] = 0.5f * laplace.length() * sign;
+            }
+
+            return result;
+        }
+
+        bool solve3x3(float a[3][3], float b[3], float x[3]) {
+            for (int pivot = 0; pivot < 3; ++pivot) {
+                int best = pivot;
+                for (int row = pivot + 1; row < 3; ++row) {
+                    if (std::abs(a[row][pivot]) > std::abs(a[best][pivot])) {
+                        best = row;
+                    }
+                }
+
+                if (std::abs(a[best][pivot]) <= kEpsilon) return false;
+
+                if (best != pivot) {
+                    for (int col = pivot; col < 3; ++col) {
+                        std::swap(a[pivot][col], a[best][col]);
+                    }
+                    std::swap(b[pivot], b[best]);
+                }
+
+                const float invPivot = 1.0f / a[pivot][pivot];
+                for (int col = pivot; col < 3; ++col) {
+                    a[pivot][col] *= invPivot;
+                }
+                b[pivot] *= invPivot;
+
+                for (int row = 0; row < 3; ++row) {
+                    if (row == pivot) continue;
+                    const float factor = a[row][pivot];
+                    for (int col = pivot; col < 3; ++col) {
+                        a[row][col] -= factor * a[pivot][col];
+                    }
+                    b[row] -= factor * b[pivot];
+                }
+            }
+
+            x[0] = b[0];
+            x[1] = b[1];
+            x[2] = b[2];
+            return true;
+        }
+
+        void tangentFrame(const Vec3& normal, Vec3& tangent, Vec3& bitangent) {
+            Vec3 n = normal.normalized();
+            if (n.lengthSquared() <= kEpsilon) {
+                n = Vec3(0, 0, 1);
+            }
+            const Vec3 reference = std::abs(n.z) < 0.9f ? Vec3(0, 0, 1) : Vec3(1, 0, 0);
+            tangent = reference.cross(n).normalized();
+            if (tangent.lengthSquared() <= kEpsilon) {
+                tangent = Vec3(1, 0, 0);
+            }
+            bitangent = n.cross(tangent).normalized();
+        }
+    }
 
     // MeshData implementation
     void MeshData::clear() {
@@ -219,6 +487,176 @@ namespace alice2 {
         Vec3 minBounds, maxBounds;
         m_meshData->updateBounds(minBounds, maxBounds);
         setBounds(minBounds, maxBounds);
+    }
+
+    MeshObject::MeshScalarAnalysisResult MeshObject::gaussianCurvature(bool updateMeshColors,
+                                                                       std::optional<float> remapMin,
+                                                                       std::optional<float> remapMax) {
+        MeshScalarAnalysisResult result;
+        if (!m_meshData || m_meshData->vertices.empty()) {
+            return result;
+        }
+
+        m_meshData->calculateNormals();
+        CurvatureData curvature = computeCurvatureData(*m_meshData);
+        result.vertexValues = std::move(curvature.gaussian);
+        minMaxValues(result.vertexValues, result.minValue, result.maxValue);
+
+        if (updateMeshColors) {
+            float colorMin = result.minValue;
+            float colorMax = result.maxValue;
+            colorRange(result.minValue, result.maxValue, remapMin, remapMax, colorMin, colorMax);
+            updateVertexColors(*m_meshData, result.vertexValues, colorMin, colorMax);
+        }
+
+        return result;
+    }
+
+    MeshObject::MeshScalarAnalysisResult MeshObject::meanCurvature(bool updateMeshColors,
+                                                                   std::optional<float> remapMin,
+                                                                   std::optional<float> remapMax) {
+        MeshScalarAnalysisResult result;
+        if (!m_meshData || m_meshData->vertices.empty()) {
+            return result;
+        }
+
+        m_meshData->calculateNormals();
+        CurvatureData curvature = computeCurvatureData(*m_meshData);
+        result.vertexValues = std::move(curvature.mean);
+        minMaxValues(result.vertexValues, result.minValue, result.maxValue);
+
+        if (updateMeshColors) {
+            float colorMin = result.minValue;
+            float colorMax = result.maxValue;
+            colorRange(result.minValue, result.maxValue, remapMin, remapMax, colorMin, colorMax);
+            updateVertexColors(*m_meshData, result.vertexValues, colorMin, colorMax);
+        }
+
+        return result;
+    }
+
+    MeshObject::MeshPrincipalCurvatureResult MeshObject::principleCurvature(bool updateMeshColors,
+                                                                           std::optional<float> remapMin,
+                                                                           std::optional<float> remapMax) {
+        MeshPrincipalCurvatureResult result;
+        if (!m_meshData || m_meshData->vertices.empty()) {
+            return result;
+        }
+
+        m_meshData->calculateNormals();
+        const CurvatureData curvature = computeCurvatureData(*m_meshData);
+        const size_t vertexCount = m_meshData->vertices.size();
+
+        result.k1.assign(vertexCount, 0.0f);
+        result.k2.assign(vertexCount, 0.0f);
+        result.principalDirections.assign(vertexCount, Vec3(1, 0, 0));
+        result.otherDirections.assign(vertexCount, Vec3(0, 1, 0));
+
+        for (size_t i = 0; i < vertexCount; ++i) {
+            const MeshVertex& vertex = m_meshData->vertices[i];
+            Vec3 normal = vertex.normal.normalized();
+            if (normal.lengthSquared() <= kEpsilon) {
+                normal = Vec3(0, 0, 1);
+            }
+
+            Vec3 tangent;
+            Vec3 bitangent;
+            tangentFrame(normal, tangent, bitangent);
+
+            float ata[3][3] = {
+                {0.0f, 0.0f, 0.0f},
+                {0.0f, 0.0f, 0.0f},
+                {0.0f, 0.0f, 0.0f}
+            };
+            float atb[3] = {0.0f, 0.0f, 0.0f};
+
+            int equationCount = 0;
+            for (int neighborIndex : curvature.neighbors[i]) {
+                if (neighborIndex < 0 || neighborIndex >= static_cast<int>(vertexCount)) continue;
+
+                Vec3 edge = m_meshData->vertices[neighborIndex].position - vertex.position;
+                edge -= normal * edge.dot(normal);
+                if (edge.lengthSquared() <= kEpsilon) continue;
+
+                Vec3 normalDelta = m_meshData->vertices[neighborIndex].normal - vertex.normal;
+                normalDelta -= normal * normalDelta.dot(normal);
+
+                const float x = edge.dot(tangent);
+                const float y = edge.dot(bitangent);
+                const float qx = -normalDelta.dot(tangent);
+                const float qy = -normalDelta.dot(bitangent);
+
+                const float row0[3] = {x, y, 0.0f};
+                const float row1[3] = {0.0f, x, y};
+
+                for (int r = 0; r < 3; ++r) {
+                    for (int c = 0; c < 3; ++c) {
+                        ata[r][c] += row0[r] * row0[c] + row1[r] * row1[c];
+                    }
+                    atb[r] += row0[r] * qx + row1[r] * qy;
+                }
+                equationCount += 2;
+            }
+
+            float shape[3] = {0.0f, 0.0f, 0.0f};
+            const bool hasShapeOperator = equationCount >= 4 && solve3x3(ata, atb, shape);
+
+            float k1 = 0.0f;
+            float k2 = 0.0f;
+            Vec3 dir1 = tangent;
+            Vec3 dir2 = bitangent;
+
+            if (hasShapeOperator) {
+                const float a = shape[0];
+                const float b = shape[1];
+                const float c = shape[2];
+                const float trace = a + c;
+                const float delta = std::sqrt(std::max(0.0f, (a - c) * (a - c) + 4.0f * b * b));
+                k1 = 0.5f * (trace + delta);
+                k2 = 0.5f * (trace - delta);
+
+                Vec3 localDir1;
+                if (std::abs(b) > kEpsilon || std::abs(k1 - a) > kEpsilon) {
+                    localDir1 = Vec3(b, k1 - a, 0.0f).normalized();
+                } else {
+                    localDir1 = Vec3(1, 0, 0);
+                }
+
+                dir1 = (tangent * localDir1.x + bitangent * localDir1.y).normalized();
+                dir2 = normal.cross(dir1).normalized();
+                if (dir2.lengthSquared() <= kEpsilon) {
+                    dir2 = bitangent;
+                }
+            } else {
+                const float mean = curvature.mean[i];
+                const float gaussian = curvature.gaussian[i];
+                const float discriminant = std::sqrt(std::max(0.0f, mean * mean - gaussian));
+                k1 = mean + discriminant;
+                k2 = mean - discriminant;
+            }
+
+            if (std::abs(k2) > std::abs(k1)) {
+                std::swap(k1, k2);
+                std::swap(dir1, dir2);
+            }
+
+            result.k1[i] = k1;
+            result.k2[i] = k2;
+            result.principalDirections[i] = dir1;
+            result.otherDirections[i] = dir2;
+        }
+
+        minMaxValues(result.k1, result.minK1, result.maxK1);
+        minMaxValues(result.k2, result.minK2, result.maxK2);
+
+        if (updateMeshColors) {
+            float colorMin = result.minK1;
+            float colorMax = result.maxK1;
+            colorRange(result.minK1, result.maxK1, remapMin, remapMax, colorMin, colorMax);
+            updateVertexColors(*m_meshData, result.k1, colorMin, colorMax);
+        }
+
+        return result;
     }
 
     void MeshObject::renderSceneModeOverride(Renderer& renderer, Camera& camera) {

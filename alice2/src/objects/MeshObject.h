@@ -7,6 +7,7 @@
 #include "../utils/Math.h"
 #include <vector>
 #include <memory>
+#include <optional>
 
 namespace alice2 {
 
@@ -149,6 +150,33 @@ namespace alice2 {
 
 
 
+        // Analysis
+        struct MeshScalarAnalysisResult {
+            std::vector<float> vertexValues;
+            float minValue = 0.0f;
+            float maxValue = 0.0f;
+        };
+
+        struct MeshPrincipalCurvatureResult {
+            std::vector<float> k1;
+            std::vector<float> k2;
+            std::vector<Vec3> principalDirections;
+            std::vector<Vec3> otherDirections;
+            float minK1 = 0.0f;
+            float maxK1 = 0.0f;
+            float minK2 = 0.0f;
+            float maxK2 = 0.0f;
+        };
+
+        MeshScalarAnalysisResult gaussianCurvature(bool updateMeshColors = false,
+                                                   std::optional<float> remapMin = std::nullopt,
+                                                   std::optional<float> remapMax = std::nullopt);
+        MeshScalarAnalysisResult meanCurvature(bool updateMeshColors = false,
+                                               std::optional<float> remapMin = std::nullopt,
+                                               std::optional<float> remapMax = std::nullopt);
+        MeshPrincipalCurvatureResult principleCurvature(bool updateMeshColors = false,
+                                                        std::optional<float> remapMin = std::nullopt,
+                                                        std::optional<float> remapMax = std::nullopt);
 
 
         // SceneObject overrides

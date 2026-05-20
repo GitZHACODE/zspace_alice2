@@ -73,17 +73,27 @@ public:
             return;
         }
 
-        m_analyzer.draw(renderer);
+        if (m_curvatureView == CurvatureView::Projection) {
+            m_analyzer.draw(renderer);
+        } else {
+            drawCurvatureVisualization(renderer);
+        }
+
         if(m_analyzer.drawSettings.drawConstraintGuides) drawOriginalWireframe(renderer);
         renderer.drawString(m_report, 10, 30);
-        renderer.drawString("c circular | v conical | u step | p run/pause | o solve", 10, 50);
+        renderer.drawString("x circular | v conical | c curvature | u step | p run/pause | o solve", 10, 50);
     }
 
     bool onKeyPress(unsigned char key, int x, int y) override {
         if (!hasMesh()) return false;
 
-        if (key == 'c') {
+        if (key == 'x') {
             setMode(ProjectionAnalysisMode::Circular);
+            return true;
+        }
+
+        if (key == 'c') {
+            cycleCurvatureView();
             return true;
         }
 
@@ -120,6 +130,13 @@ public:
     }
 
 private:
+    enum class CurvatureView {
+        Projection,
+        Gaussian,
+        Mean,
+        Principal
+    };
+
     bool hasMesh() const {
         return m_mesh && m_mesh->getMeshData() && !m_mesh->getMeshData()->vertices.empty();
     }
@@ -148,6 +165,9 @@ private:
         m_analyzer.tolerance = m_solver.settings.tolerance;
         m_analyzer.analyze(*m_mesh);
         m_report = m_analyzer.print();
+        if (m_curvatureView != CurvatureView::Projection) {
+            updateCurvatureAnalysis();
+        }
         std::cout << m_report << std::endl;
     }
 
@@ -157,6 +177,143 @@ private:
         if (keepGoing) ++m_iteration;
         analyze();
         return keepGoing;
+    }
+
+    void cycleCurvatureView() {
+        switch (m_curvatureView) {
+            case CurvatureView::Projection:
+                m_curvatureView = CurvatureView::Gaussian;
+                break;
+            case CurvatureView::Gaussian:
+                m_curvatureView = CurvatureView::Mean;
+                break;
+            case CurvatureView::Mean:
+                m_curvatureView = CurvatureView::Principal;
+                break;
+            case CurvatureView::Principal:
+                m_curvatureView = CurvatureView::Projection;
+                break;
+        }
+
+        if (m_curvatureView == CurvatureView::Projection) {
+            analyze();
+        } else {
+            updateCurvatureAnalysis();
+        }
+    }
+
+    void updateCurvatureAnalysis() {
+        if (!hasMesh()) return;
+
+        if (m_curvatureView == CurvatureView::Gaussian) {
+            auto result = m_mesh->gaussianCurvature(true);
+            m_report = "Gaussian curvature | min: " + std::to_string(result.minValue) +
+                       " max: " + std::to_string(result.maxValue);
+            std::cout << m_report << std::endl;
+            return;
+        }
+
+        if (m_curvatureView == CurvatureView::Mean) {
+            auto result = m_mesh->meanCurvature(true);
+            m_report = "Mean curvature | min: " + std::to_string(result.minValue) +
+                       " max: " + std::to_string(result.maxValue);
+            std::cout << m_report << std::endl;
+            return;
+        }
+
+        if (m_curvatureView == CurvatureView::Principal) {
+            m_principalCurvature = m_mesh->principleCurvature(true);
+            m_report = "Principal curvature | k1 min: " + std::to_string(m_principalCurvature.minK1) +
+                       " max: " + std::to_string(m_principalCurvature.maxK1) +
+                       " | k2 min: " + std::to_string(m_principalCurvature.minK2) +
+                       " max: " + std::to_string(m_principalCurvature.maxK2);
+            std::cout << m_report << std::endl;
+        }
+    }
+
+    void drawCurvatureVisualization(Renderer& renderer) const {
+        auto data = m_mesh->getMeshData();
+        if (!data || data->vertices.empty()) return;
+
+        std::vector<Vec3> triangleVertices;
+        std::vector<Vec3> triangleNormals;
+        std::vector<Color> triangleColors;
+
+        for (const auto& face : data->faces) {
+            if (face.vertices.size() < 3) continue;
+            for (size_t i = 1; i + 1 < face.vertices.size(); ++i) {
+                int ids[3] = {face.vertices[0], face.vertices[i], face.vertices[i + 1]};
+                bool validTriangle = true;
+                for (int id : ids) {
+                    if (id < 0 || id >= static_cast<int>(data->vertices.size())) {
+                        validTriangle = false;
+                        break;
+                    }
+                }
+                if (!validTriangle) continue;
+
+                for (int id : ids) {
+                    const MeshVertex& vertex = data->vertices[id];
+                    triangleVertices.push_back(vertex.position);
+                    triangleNormals.push_back(vertex.normal);
+                    triangleColors.push_back(vertex.color);
+                }
+            }
+        }
+
+        if (!triangleVertices.empty()) {
+            renderer.drawMesh(
+                triangleVertices.data(),
+                triangleNormals.data(),
+                triangleColors.data(),
+                static_cast<int>(triangleVertices.size()),
+                nullptr,
+                0,
+                false
+            );
+        }
+
+        drawMeshEdges(renderer, *data, Color(0.02f, 0.02f, 0.02f, 1.0f), 1.0f);
+
+        if (m_curvatureView == CurvatureView::Principal) {
+            drawPrincipalDirections(renderer, *data);
+        }
+    }
+
+    void drawMeshEdges(Renderer& renderer, const MeshData& data, const Color& color, float width) const {
+        if (data.edges.empty()) return;
+
+        std::vector<Vec3> vertices;
+        std::vector<int> edgeIndices;
+        std::vector<Color> edgeColors;
+
+        vertices.reserve(data.vertices.size());
+        edgeIndices.reserve(data.edges.size() * 2);
+        edgeColors.reserve(data.edges.size());
+
+        for (const auto& vertex : data.vertices) vertices.push_back(vertex.position);
+
+        for (const auto& edge : data.edges) {
+            if (edge.vertexA < 0 || edge.vertexA >= static_cast<int>(data.vertices.size())) continue;
+            if (edge.vertexB < 0 || edge.vertexB >= static_cast<int>(data.vertices.size())) continue;
+            edgeIndices.push_back(edge.vertexA);
+            edgeIndices.push_back(edge.vertexB);
+            edgeColors.push_back(color);
+        }
+
+        renderer.setLineWidth(width);
+        renderer.drawMeshEdges(vertices.data(), edgeIndices.data(), edgeColors.data(), static_cast<int>(edgeColors.size()));
+    }
+
+    void drawPrincipalDirections(Renderer& renderer, const MeshData& data) const {
+        const size_t count = std::min(data.vertices.size(), m_principalCurvature.principalDirections.size());
+        for (size_t i = 0; i < count; ++i) {
+            const Vec3& p = data.vertices[i].position;
+            const Vec3 d1 = m_principalCurvature.principalDirections[i] * m_principalScale;
+            const Vec3 d2 = m_principalCurvature.otherDirections[i] * m_principalScale;
+            renderer.drawLine(p - d1, p + d1, Color(1.0f, 0.05f, 0.15f, 1.0f), 1.5f);
+            renderer.drawLine(p - d2, p + d2, Color(0.0f, 0.25f, 1.0f, 1.0f), 1.0f);
+        }
     }
 
     void drawOriginalWireframe(Renderer& renderer) const {
@@ -193,6 +350,8 @@ private:
     ProjectionSolver m_solver;
     ProjectionConstraintAnalyzer m_analyzer;
     ProjectionAnalysisMode m_mode{ProjectionAnalysisMode::Circular};
+    CurvatureView m_curvatureView{CurvatureView::Projection};
+    MeshObject::MeshPrincipalCurvatureResult m_principalCurvature;
     std::string m_report;
     int m_iteration{0};
     bool m_running{false};
@@ -202,6 +361,7 @@ private:
     bool m_drawOriginalWireframe{true};
     Color m_originalWireColor{0.75f, 0.75f, 0.75f, 1.0f};
     float m_originalWireWidth{1.0f};
+    float m_principalScale{0.08f};
 };
 
 ALICE2_REGISTER_SKETCH_AUTO(CircularConicalSketch)
