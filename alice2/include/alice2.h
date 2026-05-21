@@ -18,7 +18,7 @@
 #include "../src/objects/ZSpaceObject.h"
 #include "../src/objects/PrimitiveObject.h"
 #include "../src/objects/MeshObject.h"
-#include "../src/analysis/ProjectionConstraintAnalyzer.h"
+#include "../src/analysis/MeshAnalyzer.h"
 #include "../src/solvers/ProjectionSolver.h"
 #include "../src/solvers/ProjectionConstraints.h"
 
