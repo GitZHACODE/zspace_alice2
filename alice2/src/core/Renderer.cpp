@@ -251,6 +251,9 @@ namespace alice2 {
             case SceneRenderMode::MeshNormalShaded:
                 std::cout << "[RENDERER] Scene render mode: normal shaded" << std::endl;
                 break;
+            case SceneRenderMode::MeshTransparent:
+                std::cout << "[RENDERER] Scene render mode: transparent" << std::endl;
+                break;
             case SceneRenderMode::MeshGray:
                 std::cout << "[RENDERER] Scene render mode: gray" << std::endl;
                 break;
@@ -643,6 +646,7 @@ namespace alice2 {
 
         const bool overrideMesh = m_sceneRenderMode != SceneRenderMode::Regular;
         const bool grayMode = m_sceneRenderMode == SceneRenderMode::MeshGray;
+        const bool transparentMode = m_sceneRenderMode == SceneRenderMode::MeshTransparent;
         const bool normalShadedMode = m_sceneRenderMode == SceneRenderMode::MeshNormalShaded;
         const bool meshDataWireMode = m_sceneRenderMode == SceneRenderMode::MeshWireframe ||
                                       m_sceneRenderMode == SceneRenderMode::MeshWireframeWithVertices;
@@ -650,7 +654,7 @@ namespace alice2 {
         const Color forcedFaceColor(0.5f, 0.5f, 0.5f, 0.18f);
         const Color normalFrontColor(1.0f, 1.0f, 1.0f, 1.0f);
         const Color normalBackColor(0.18f, 0.18f, 0.18f, 1.0f);
-        bool transparent = grayMode ? forcedFaceColor.a < 1.0f : m_currentColor.a < 1.0f;
+        bool transparent = grayMode || transparentMode ? true : m_currentColor.a < 1.0f;
         if (!overrideMesh && colors) {
             for (int i = 0; i < vertexCount; ++i) {
                 if (colors[i].a < 1.0f) {
@@ -705,7 +709,7 @@ namespace alice2 {
             glDisable(GL_CULL_FACE);
         }
 
-        if (overrideMesh) {
+        if (overrideMesh && !transparentMode) {
             glColor4f(
                 grayMode ? forcedFaceColor.r : normalFrontColor.r,
                 grayMode ? forcedFaceColor.g : normalFrontColor.g,
@@ -713,9 +717,11 @@ namespace alice2 {
                 grayMode ? forcedFaceColor.a : normalFrontColor.a
             );
             glPolygonMode(GL_FRONT_AND_BACK, (grayMode || normalShadedMode) ? GL_FILL : GL_LINE);
+        } else if (transparentMode) {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
 
-        if (polygonMode[0] == GL_FILL || polygonMode[1] == GL_FILL || grayMode || normalShadedMode) {
+        if (polygonMode[0] == GL_FILL || polygonMode[1] == GL_FILL || grayMode || normalShadedMode || transparentMode) {
             glEnable(GL_POLYGON_OFFSET_FILL);
             glPolygonOffset(1.0f, 1.0f);
         }
@@ -740,11 +746,11 @@ namespace alice2 {
                             );
                         } else if (normalShadedMode) {
                             glColor4f(normalFrontColor.r, normalFrontColor.g, normalFrontColor.b, normalFrontColor.a);
-                        } else if (grayMode) {
-                            glColor4f(forcedFaceColor.r, forcedFaceColor.g, forcedFaceColor.b, forcedFaceColor.a);
-                        } else if (!overrideMesh && colors) {
-                            glColor4f(colors[idx].r, colors[idx].g, colors[idx].b, colors[idx].a);
-                        }
+                } else if (grayMode) {
+                    glColor4f(forcedFaceColor.r, forcedFaceColor.g, forcedFaceColor.b, forcedFaceColor.a);
+                } else if ((!overrideMesh || transparentMode) && colors) {
+                    glColor4f(colors[idx].r, colors[idx].g, colors[idx].b, colors[idx].a);
+                }
                         glVertex3f(vertices[idx].x, vertices[idx].y, vertices[idx].z);
                     }
                 }
@@ -766,7 +772,7 @@ namespace alice2 {
                     glColor4f(normalFrontColor.r, normalFrontColor.g, normalFrontColor.b, normalFrontColor.a);
                 } else if (grayMode) {
                     glColor4f(forcedFaceColor.r, forcedFaceColor.g, forcedFaceColor.b, forcedFaceColor.a);
-                } else if (!overrideMesh && colors) {
+                } else if ((!overrideMesh || transparentMode) && colors) {
                     glColor4f(colors[i].r, colors[i].g, colors[i].b, colors[i].a);
                 }
                 glVertex3f(vertices[i].x, vertices[i].y, vertices[i].z);

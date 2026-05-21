@@ -27,6 +27,7 @@ namespace alice2 {
         MeshWireframe,
         MeshWireframeWithVertices,
         MeshNormalShaded,
+        MeshTransparent,
         MeshGray
     };
 

@@ -391,6 +391,11 @@ namespace alice2 {
             }
 
             if (key == GLFW_KEY_5) {
+                s_instance->m_renderer->setSceneRenderMode(SceneRenderMode::MeshTransparent);
+                return;
+            }
+
+            if (key == GLFW_KEY_6) {
                 s_instance->m_renderer->setSceneRenderMode(SceneRenderMode::MeshGray);
                 return;
             }
