@@ -23,6 +23,13 @@ namespace alice2 {
         NormalShaded    // Conceptual lighting based on normal-camera dot product
     };
 
+    enum class MeshExtrudeMode {
+        SmoothSurface,
+        SmoothSolid,
+        DiscreteSolid,
+        Stereotomy
+    };
+
 
 
     // Vertex data structure
@@ -114,6 +121,12 @@ namespace alice2 {
         // Mesh operations
         void weld(float epsilon = 1e-6f);
         void combineWith(const MeshObject &other);
+        MeshObject extrudeMesh(float dist,
+                               MeshExtrudeMode mode = MeshExtrudeMode::SmoothSurface,
+                               const std::vector<Vec3>& vertexDirs = {}) const;
+        MeshObject extrudeEdges(float dist,
+                                const std::vector<int>& edgeIds,
+                                const std::vector<Vec3>& vertexDirs = {}) const;
 
         // Read & Write
         void readFromObj(const std::string& filename);
