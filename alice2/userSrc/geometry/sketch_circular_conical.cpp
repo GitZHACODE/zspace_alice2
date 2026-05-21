@@ -27,13 +27,16 @@ public:
             m_originalMesh = std::make_shared<MeshObject>(m_mesh->duplicate());
         }
 
-        m_solver.settings.maxIterations = 200;
+        m_solver.settings.maxIterations = 500;
         m_solver.settings.strength = 1.0f;
         m_solver.settings.tolerance = 1e-5f;
         m_solver.settings.shapePreservationWeight = 1e-5f;
         updateFixedVertexSettings();
 
-        m_analyzer.tolerance = m_solver.settings.tolerance;
+        m_analyzer.planarVolumeTolerance = m_solver.settings.tolerance;
+        m_analyzer.planarPlaneTolerance = 1e-3f;
+        m_analyzer.circularTolerance = m_solver.settings.tolerance;
+        m_analyzer.conicalTolerance = m_solver.settings.tolerance;
         m_analyzer.drawSettings.edgeColor = Color(0.02f, 0.02f, 0.02f, 1.0f);
         m_analyzer.drawSettings.edgeWidth = 1.0f;
         m_analyzer.drawSettings.drawConstraintGuides = true;
@@ -43,11 +46,14 @@ public:
         m_analyzer.drawSettings.tangentScale = 0.18f;
         m_analyzer.drawSettings.circleSegments = 64;
         m_analyzer.drawSettings.drawCones = true;
+        m_analyzer.drawSettings.drawConeAxes = true;
         m_analyzer.drawSettings.coneColor = Color(0.0f, 0.35f, 1.0f, 1.0f);
+        m_analyzer.drawSettings.coneAxisColor = Color(0.9f, 0.0f, 1.0f, 1.0f);
         m_analyzer.drawSettings.coneScale = 0.8f;
+        m_analyzer.drawSettings.coneAxisLength = 0.2f;
         m_analyzer.drawSettings.coneSegments = 32;
 
-        setMode(ProjectionAnalysisMode::Circular);
+        setMode(MeshAnalysisMode::Circular);
     }
 
     void update(float deltaTime) override {
@@ -88,7 +94,7 @@ public:
         if (!hasMesh()) return false;
 
         if (key == 'x') {
-            setMode(ProjectionAnalysisMode::Circular);
+            setMode(MeshAnalysisMode::Circular);
             return true;
         }
 
@@ -98,7 +104,7 @@ public:
         }
 
         if (key == 'v') {
-            setMode(ProjectionAnalysisMode::Conical);
+            setMode(MeshAnalysisMode::Conical);
             return true;
         }
 
@@ -145,17 +151,20 @@ private:
         return m_mesh && m_mesh->getMeshData() && !m_mesh->getMeshData()->vertices.empty();
     }
 
-    void setMode(ProjectionAnalysisMode mode) {
+    void setMode(MeshAnalysisMode mode) {
         m_mode = mode;
         m_running = false;
         m_solver.clearConstraints();
 
-        if (m_mode == ProjectionAnalysisMode::Circular) {
+        if (m_mode == MeshAnalysisMode::Circular) {
             m_solver.addConstraint<CircularFaceConstraint>();
-        } else {
+        } else if (m_mode == MeshAnalysisMode::Conical) {
             auto planar = m_solver.addConstraint<PlanarFaceConstraint>();
             planar->weight = 0.5f;
             m_solver.addConstraint<ConicalVertexConstraint>();
+        } else {
+            auto planar = m_solver.addConstraint<PlanarFaceConstraint>();
+            planar->weight = 0.5f;
         }
 
         analyze();
@@ -166,7 +175,9 @@ private:
         updateFixedVertexSettings();
         m_analyzer.mode = m_mode;
         m_analyzer.iteration = m_iteration;
-        m_analyzer.tolerance = m_solver.settings.tolerance;
+        m_analyzer.planarVolumeTolerance = m_solver.settings.tolerance;
+        m_analyzer.circularTolerance = m_solver.settings.tolerance;
+        m_analyzer.conicalTolerance = m_solver.settings.tolerance;
         m_analyzer.analyze(*m_mesh);
         m_report = m_analyzer.print();
         if (m_curvatureView != CurvatureView::Projection) {
@@ -177,12 +188,22 @@ private:
 
     void extrudeMesh() {
         if (!hasMesh()) return;
-        MeshObject extruded = m_mesh->extrudeMesh(0.1f, MeshExtrudeMode::Stereotomy);
+        constexpr float extrudeDistance = 0.05f;
+        std::vector<Vec3> offsets;
+        const auto& directions = m_solver.resultVertexNormals();
+        offsets.reserve(directions.size());
+        for (const Vec3& direction : directions) {
+            offsets.push_back(direction.normalized() * extrudeDistance);
+        }
+
+        MeshObject extruded = m_mesh->extrudeMesh(extrudeDistance, MeshExtrudeMode::Stereotomy, offsets);
         m_mesh = std::make_shared<MeshObject>(std::move(extruded));
         m_originalMesh = std::make_shared<MeshObject>(m_mesh->duplicate());
         m_running = false;
         m_iteration = 0;
-        analyze();
+        setMode(MeshAnalysisMode::PlanarPlane);
+        m_analyzer.drawSettings.drawFixedVertices = false;
+        m_analyzer.fixedVertices.clear();
     }
 
     void updateFixedVertexSettings() {
@@ -391,12 +412,12 @@ private:
         renderer.drawMeshEdges(vertices.data(), edgeIndices.data(), edgeColors.data(), static_cast<int>(edgeColors.size()));
     }
 
-    std::string m_objPath = "pipe.obj";
+    std::string m_objPath = "skeleton.obj";
     std::shared_ptr<MeshObject> m_mesh;
     std::shared_ptr<MeshObject> m_originalMesh;
     ProjectionSolver m_solver;
-    ProjectionConstraintAnalyzer m_analyzer;
-    ProjectionAnalysisMode m_mode{ProjectionAnalysisMode::Circular};
+    MeshAnalyzer m_analyzer;
+    MeshAnalysisMode m_mode{MeshAnalysisMode::Circular};
     CurvatureView m_curvatureView{CurvatureView::Projection};
     MeshObject::MeshPrincipalCurvatureResult m_principalCurvature;
     std::string m_report;

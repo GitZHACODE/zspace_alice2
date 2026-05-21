@@ -26,8 +26,9 @@ public:
             m_originalMesh = std::make_shared<MeshObject>(m_mesh->duplicate());
         }
 
-        m_analyzer.mode = ProjectionAnalysisMode::Planar;
-        m_analyzer.tolerance = 1e-5f;
+        m_analyzer.mode = MeshAnalysisMode::PlanarVolume;
+        m_analyzer.planarVolumeTolerance = 1e-5f;
+        m_analyzer.planarPlaneTolerance = 1e-4f;
         m_analyzer.drawSettings.satisfiedColor = Color(120.0f / 255.0f, 1.0f, 0.0f, 1.0f);
         m_analyzer.drawSettings.unsatisfiedColor = Color(1.0f, 0.0f, 120.0f / 255.0f, 1.0f);
         m_analyzer.drawSettings.edgeColor = Color(0.0f, 0.0f, 0.0f, 1.0f);
@@ -40,7 +41,7 @@ public:
 
         m_solver.settings.maxIterations = 200;
         m_solver.settings.strength = 1.0f;
-        m_solver.settings.tolerance = m_analyzer.tolerance;
+        m_solver.settings.tolerance = m_analyzer.planarVolumeTolerance;
         m_solver.settings.shapePreservationWeight = 0.001f;
         m_solver.settings.fixBoundaryVertices = m_fixBoundary;
         m_solver.addConstraint<PlanarFaceConstraint>();
@@ -112,8 +113,8 @@ private:
         m_analyzer.drawSettings.drawFixedVertices = m_fixBoundary;
         m_analyzer.fixedVertices = m_fixBoundary ? m_solver.fixedVertexIndices_allBoundary(*m_mesh) : std::vector<int>{};
         m_analyzer.iteration = m_iteration;
-        m_analyzer.mode = ProjectionAnalysisMode::Planar;
-        m_analyzer.tolerance = m_solver.settings.tolerance;
+        m_analyzer.mode = MeshAnalysisMode::PlanarVolume;
+        m_analyzer.planarVolumeTolerance = m_solver.settings.tolerance;
         m_analyzer.analyze(*m_mesh);
         m_report = m_analyzer.print();
         std::cout << m_report << std::endl;
@@ -160,7 +161,7 @@ private:
     std::string m_objPath = "tunnel.obj";
     std::shared_ptr<MeshObject> m_mesh;
     std::shared_ptr<MeshObject> m_originalMesh;
-    ProjectionConstraintAnalyzer m_analyzer;
+    MeshAnalyzer m_analyzer;
     ProjectionSolver m_solver;
     std::string m_report;
     int m_iteration{0};
