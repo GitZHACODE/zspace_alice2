@@ -600,6 +600,15 @@ namespace alice2 {
         GLint viewport[4] = {0, 0, 0, 0};
         glGetIntegerv(GL_VIEWPORT, viewport);
 
+        GLboolean wasBlendEnabled = glIsEnabled(GL_BLEND);
+        GLint previousBlendSrc = GL_ONE;
+        GLint previousBlendDst = GL_ZERO;
+        glGetIntegerv(GL_BLEND_SRC, &previousBlendSrc);
+        glGetIntegerv(GL_BLEND_DST, &previousBlendDst);
+
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
         GLint state = GL2PS_OVERFLOW;
         GLint bufferSize = 1024 * 1024;
         m_renderer->setVectorExportMode(true);
@@ -611,7 +620,7 @@ namespace alice2 {
                 viewport,
                 GL2PS_SVG,
                 GL2PS_BSP_SORT,
-                GL2PS_SILENT | GL2PS_SIMPLE_LINE_OFFSET | GL2PS_USE_CURRENT_VIEWPORT | GL2PS_NO_BLENDING,
+                GL2PS_SILENT | GL2PS_SIMPLE_LINE_OFFSET | GL2PS_USE_CURRENT_VIEWPORT,
                 GL_RGBA,
                 0,
                 nullptr,
@@ -623,11 +632,21 @@ namespace alice2 {
                 filename.c_str()
             );
 
+            gl2psEnable(GL2PS_BLEND);
+            gl2psBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             render();
+            gl2psDisable(GL2PS_BLEND);
             state = gl2psEndPage();
             bufferSize *= 2;
         }
         m_renderer->setVectorExportMode(false);
+
+        glBlendFunc(previousBlendSrc, previousBlendDst);
+        if (wasBlendEnabled) {
+            glEnable(GL_BLEND);
+        } else {
+            glDisable(GL_BLEND);
+        }
 
         std::fclose(file);
 
