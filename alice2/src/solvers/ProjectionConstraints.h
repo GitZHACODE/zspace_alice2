@@ -26,6 +26,7 @@ namespace alice2 {
         void project(const MeshObject& mesh,
                      const ProjectionSolverSettings& settings,
                      std::vector<ProjectionTarget>& targets) const override;
+        bool providesConicalAxes() const override { return true; }
     };
 
 } // namespace alice2

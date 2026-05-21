@@ -38,6 +38,7 @@ namespace alice2 {
         virtual void project(const MeshObject& mesh,
                              const ProjectionSolverSettings& settings,
                              std::vector<ProjectionTarget>& targets) const = 0;
+        virtual bool providesConicalAxes() const { return false; }
     };
 
     class ProjectionSolver {
@@ -57,13 +58,18 @@ namespace alice2 {
         void clearConstraints();
         bool step(MeshObject& mesh) const;
         int solve(MeshObject& mesh) const;
+        const std::vector<Vec3>& resultVertexNormals() const;
         std::vector<int> fixedVertexIndices_allBoundary(const MeshObject& mesh) const;
         std::vector<int> fixedVertexIndices(const MeshObject& mesh, const std::vector<int>& vertexIds) const;
 
     protected:
         std::vector<std::shared_ptr<ProjectionConstraint>> m_constraints;
+        mutable MeshObject* m_resultMesh{nullptr};
+        mutable std::vector<Vec3> m_resultVertexNormals;
 
         bool computeProjectionTargets(const MeshObject& mesh, std::vector<ProjectionTarget>& targets) const;
+        bool hasConicalAxesProvider() const;
+        void updateResultNormals() const;
         std::vector<bool> buildFixedVertexMask(const MeshData& data) const;
         void addFixedVerticesToFixedMask(const std::vector<int>& vertexIds, std::vector<bool>& fixed) const;
         void addBoundaryVerticesToFixedMask(const MeshData& data, std::vector<bool>& fixed) const;
