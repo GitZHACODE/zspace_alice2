@@ -37,7 +37,7 @@ namespace alice2 {
         if (!computeProjectionTargets(mesh, targets) || targets.empty()) return false;
 
         int vertexCount = static_cast<int>(data->vertices.size());
-        std::vector<bool> fixed = buildFixedVertexMask_allBoundary(*data);
+        std::vector<bool> fixed = buildFixedVertexMask(*data);
         float strength = std::clamp(settings.strength, 0.0f, 1.0f);
 
         std::vector<Eigen::Triplet<double>> triplets;
@@ -156,7 +156,8 @@ namespace alice2 {
         auto data = mesh.getMeshData();
         if (!data) return {};
 
-        std::vector<bool> mask = buildFixedVertexMask_allBoundary(*data);
+        std::vector<bool> mask(data->vertices.size(), false);
+        addBoundaryVerticesToFixedMask(*data, mask);
         std::vector<int> indices;
         for (size_t i = 0; i < mask.size(); ++i) {
             if (mask[i]) indices.push_back(static_cast<int>(i));
@@ -165,16 +166,42 @@ namespace alice2 {
         return indices;
     }
 
-    std::vector<bool> ProjectionSolver::buildFixedVertexMask_allBoundary(const MeshData& data) const {
+    std::vector<int> ProjectionSolver::fixedVertexIndices(const MeshObject& mesh, const std::vector<int>& vertexIds) const {
+        auto data = mesh.getMeshData();
+        if (!data) return {};
+
+        std::vector<bool> mask(data->vertices.size(), false);
+        addFixedVerticesToFixedMask(vertexIds, mask);
+        std::vector<int> indices;
+        for (size_t i = 0; i < mask.size(); ++i) {
+            if (mask[i]) indices.push_back(static_cast<int>(i));
+        }
+
+        return indices;
+    }
+
+    std::vector<bool> ProjectionSolver::buildFixedVertexMask(const MeshData& data) const {
         std::vector<bool> fixed(data.vertices.size(), false);
 
-        for (int index : settings.fixedVertices) {
+        addFixedVerticesToFixedMask(settings.fixedVertices, fixed);
+
+        if (settings.fixBoundaryVertices) {
+            addBoundaryVerticesToFixedMask(data, fixed);
+        }
+
+        return fixed;
+    }
+
+    void ProjectionSolver::addFixedVerticesToFixedMask(const std::vector<int>& vertexIds, std::vector<bool>& fixed) const {
+        for (int index : vertexIds) {
             if (index >= 0 && index < static_cast<int>(fixed.size())) {
                 fixed[index] = true;
             }
         }
+    }
 
-        if (!settings.fixBoundaryVertices) return fixed;
+    void ProjectionSolver::addBoundaryVerticesToFixedMask(const MeshData& data, std::vector<bool>& fixed) const {
+        if (fixed.size() != data.vertices.size()) fixed.assign(data.vertices.size(), false);
 
         std::map<std::pair<int, int>, int> edgeUseCount;
 
@@ -195,8 +222,6 @@ namespace alice2 {
             fixed[edge.first.first] = true;
             fixed[edge.first.second] = true;
         }
-
-        return fixed;
     }
 
 } // namespace alice2

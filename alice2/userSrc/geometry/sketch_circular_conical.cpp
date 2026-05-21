@@ -3,6 +3,7 @@
 
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
+#include <cmath>
 
 using namespace alice2;
 
@@ -30,10 +31,9 @@ public:
         m_solver.settings.strength = 1.0f;
         m_solver.settings.tolerance = 1e-5f;
         m_solver.settings.shapePreservationWeight = 1e-5f;
-        m_solver.settings.fixBoundaryVertices = m_fixBoundary;
+        updateFixedVertexSettings();
 
         m_analyzer.tolerance = m_solver.settings.tolerance;
-        m_analyzer.drawSettings.drawFixedVertices = m_fixBoundary;
         m_analyzer.drawSettings.edgeColor = Color(0.02f, 0.02f, 0.02f, 1.0f);
         m_analyzer.drawSettings.edgeWidth = 2.0f;
         m_analyzer.drawSettings.drawConstraintGuides = true;
@@ -159,7 +159,7 @@ private:
 
     void analyze() {
         if (!hasMesh()) return;
-        m_solver.settings.fixBoundaryVertices = m_fixBoundary;
+        updateFixedVertexSettings();
         m_analyzer.mode = m_mode;
         m_analyzer.iteration = m_iteration;
         m_analyzer.tolerance = m_solver.settings.tolerance;
@@ -169,6 +169,39 @@ private:
             updateCurvatureAnalysis();
         }
         std::cout << m_report << std::endl;
+    }
+
+    void updateFixedVertexSettings() {
+        const bool fixZZero = m_fixBoundary && m_fixZZeroVertices;
+        const bool fixBoundary = m_fixBoundary && !m_fixZZeroVertices;
+
+        m_solver.settings.fixBoundaryVertices = fixBoundary;
+        m_solver.settings.fixedVertices = fixZZero ? fixedVertexIndices_zZero() : std::vector<int>{};
+        m_analyzer.drawSettings.drawFixedVertices = m_fixBoundary;
+
+        if (!hasMesh() || !m_fixBoundary) {
+            m_analyzer.fixedVertices.clear();
+            return;
+        }
+
+        m_analyzer.fixedVertices = fixZZero
+            ? m_solver.fixedVertexIndices(*m_mesh, m_solver.settings.fixedVertices)
+            : m_solver.fixedVertexIndices_allBoundary(*m_mesh);
+    }
+
+    std::vector<int> fixedVertexIndices_zZero() const {
+        std::vector<int> indices;
+        if (!hasMesh()) return indices;
+
+        auto data = m_mesh->getMeshData();
+        indices.reserve(data->vertices.size());
+        for (size_t i = 0; i < data->vertices.size(); ++i) {
+            if (std::abs(data->vertices[i].position.z) <= m_zZeroTolerance) {
+                indices.push_back(static_cast<int>(i));
+            }
+        }
+
+        return indices;
     }
 
     bool runStep() {
@@ -344,7 +377,7 @@ private:
         renderer.drawMeshEdges(vertices.data(), edgeIndices.data(), edgeColors.data(), static_cast<int>(edgeColors.size()));
     }
 
-    std::string m_objPath = "pipe.obj";
+    std::string m_objPath = "skeleton.obj";
     std::shared_ptr<MeshObject> m_mesh;
     std::shared_ptr<MeshObject> m_originalMesh;
     ProjectionSolver m_solver;
@@ -358,6 +391,9 @@ private:
     float m_stepsPerSecond{100.0f};
     float m_stepTimer{0.0f};
     bool m_fixBoundary{true};
+    // When fixing is enabled, true fixes vertices on z = 0 instead of all boundary vertices.
+    bool m_fixZZeroVertices{true};
+    float m_zZeroTolerance{7e-2f};
     bool m_drawOriginalWireframe{true};
     Color m_originalWireColor{0.75f, 0.75f, 0.75f, 1.0f};
     float m_originalWireWidth{1.0f};

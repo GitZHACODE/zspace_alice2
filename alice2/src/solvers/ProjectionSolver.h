@@ -58,12 +58,15 @@ namespace alice2 {
         bool step(MeshObject& mesh) const;
         int solve(MeshObject& mesh) const;
         std::vector<int> fixedVertexIndices_allBoundary(const MeshObject& mesh) const;
+        std::vector<int> fixedVertexIndices(const MeshObject& mesh, const std::vector<int>& vertexIds) const;
 
     protected:
         std::vector<std::shared_ptr<ProjectionConstraint>> m_constraints;
 
         bool computeProjectionTargets(const MeshObject& mesh, std::vector<ProjectionTarget>& targets) const;
-        std::vector<bool> buildFixedVertexMask_allBoundary(const MeshData& data) const;
+        std::vector<bool> buildFixedVertexMask(const MeshData& data) const;
+        void addFixedVerticesToFixedMask(const std::vector<int>& vertexIds, std::vector<bool>& fixed) const;
+        void addBoundaryVerticesToFixedMask(const MeshData& data, std::vector<bool>& fixed) const;
     };
 
 } // namespace alice2
