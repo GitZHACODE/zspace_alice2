@@ -652,6 +652,7 @@ namespace alice2 {
                                       m_sceneRenderMode == SceneRenderMode::MeshWireframeWithVertices;
         const Color forcedVertexColor(1.0f, 0.0f, 120.0f / 255.0f, 1.0f);
         const Color forcedFaceColor(0.5f, 0.5f, 0.5f, 0.18f);
+        const Color transparentFaceColor(m_currentColor.r, m_currentColor.g, m_currentColor.b, 0.18f);
         const Color normalFrontColor(1.0f, 1.0f, 1.0f, 1.0f);
         const Color normalBackColor(0.18f, 0.18f, 0.18f, 1.0f);
         bool transparent = grayMode || transparentMode ? true : m_currentColor.a < 1.0f;
@@ -718,6 +719,7 @@ namespace alice2 {
             );
             glPolygonMode(GL_FRONT_AND_BACK, (grayMode || normalShadedMode) ? GL_FILL : GL_LINE);
         } else if (transparentMode) {
+            glColor4f(transparentFaceColor.r, transparentFaceColor.g, transparentFaceColor.b, transparentFaceColor.a);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
 
@@ -748,6 +750,10 @@ namespace alice2 {
                             glColor4f(normalFrontColor.r, normalFrontColor.g, normalFrontColor.b, normalFrontColor.a);
                 } else if (grayMode) {
                     glColor4f(forcedFaceColor.r, forcedFaceColor.g, forcedFaceColor.b, forcedFaceColor.a);
+                } else if (transparentMode && colors) {
+                    glColor4f(colors[idx].r, colors[idx].g, colors[idx].b, transparentFaceColor.a);
+                } else if (transparentMode) {
+                    glColor4f(transparentFaceColor.r, transparentFaceColor.g, transparentFaceColor.b, transparentFaceColor.a);
                 } else if ((!overrideMesh || transparentMode) && colors) {
                     glColor4f(colors[idx].r, colors[idx].g, colors[idx].b, colors[idx].a);
                 }
@@ -772,6 +778,10 @@ namespace alice2 {
                     glColor4f(normalFrontColor.r, normalFrontColor.g, normalFrontColor.b, normalFrontColor.a);
                 } else if (grayMode) {
                     glColor4f(forcedFaceColor.r, forcedFaceColor.g, forcedFaceColor.b, forcedFaceColor.a);
+                } else if (transparentMode && colors) {
+                    glColor4f(colors[i].r, colors[i].g, colors[i].b, transparentFaceColor.a);
+                } else if (transparentMode) {
+                    glColor4f(transparentFaceColor.r, transparentFaceColor.g, transparentFaceColor.b, transparentFaceColor.a);
                 } else if ((!overrideMesh || transparentMode) && colors) {
                     glColor4f(colors[i].r, colors[i].g, colors[i].b, colors[i].a);
                 }
