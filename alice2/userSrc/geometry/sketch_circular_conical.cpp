@@ -35,7 +35,7 @@ public:
 
         m_analyzer.tolerance = m_solver.settings.tolerance;
         m_analyzer.drawSettings.edgeColor = Color(0.02f, 0.02f, 0.02f, 1.0f);
-        m_analyzer.drawSettings.edgeWidth = 2.0f;
+        m_analyzer.drawSettings.edgeWidth = 1.0f;
         m_analyzer.drawSettings.drawConstraintGuides = true;
         m_analyzer.drawSettings.circleColor = Color(0.0f, 0.2f, 1.0f, 1.0f);
         m_analyzer.drawSettings.tangentColor = Color(1.0f, 0.55f, 0.0f, 1.0f);
@@ -81,7 +81,7 @@ public:
 
         if(m_analyzer.drawSettings.drawConstraintGuides) drawOriginalWireframe(renderer);
         renderer.drawString(m_report, 10, 30);
-        renderer.drawString("x circular | v conical | c curvature | u step | p run/pause | o solve", 10, 50);
+        renderer.drawString("x circular | v conical | c curvature | e extrude | u step | p run/pause | o solve", 10, 50);
     }
 
     bool onKeyPress(unsigned char key, int x, int y) override {
@@ -118,6 +118,10 @@ public:
             return true;
         }
 
+        if (key == 'e') {
+            extrudeMesh();
+            return true;
+        }
 
         if (key == 'o') {
             m_iteration += m_solver.solve(*m_mesh);
@@ -169,6 +173,16 @@ private:
             updateCurvatureAnalysis();
         }
         std::cout << m_report << std::endl;
+    }
+
+    void extrudeMesh() {
+        if (!hasMesh()) return;
+        MeshObject extruded = m_mesh->extrudeMesh(0.1f, MeshExtrudeMode::Stereotomy);
+        m_mesh = std::make_shared<MeshObject>(std::move(extruded));
+        m_originalMesh = std::make_shared<MeshObject>(m_mesh->duplicate());
+        m_running = false;
+        m_iteration = 0;
+        analyze();
     }
 
     void updateFixedVertexSettings() {
@@ -377,7 +391,7 @@ private:
         renderer.drawMeshEdges(vertices.data(), edgeIndices.data(), edgeColors.data(), static_cast<int>(edgeColors.size()));
     }
 
-    std::string m_objPath = "skeleton.obj";
+    std::string m_objPath = "pipe.obj";
     std::shared_ptr<MeshObject> m_mesh;
     std::shared_ptr<MeshObject> m_originalMesh;
     ProjectionSolver m_solver;

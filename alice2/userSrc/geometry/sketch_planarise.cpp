@@ -35,7 +35,7 @@ public:
         m_analyzer.drawSettings.drawFaces = true;
         m_analyzer.drawSettings.drawEdges = true;
         m_analyzer.drawSettings.drawFixedVertices = m_fixBoundary;
-        m_analyzer.drawSettings.edgeWidth = 2.0f;
+        m_analyzer.drawSettings.edgeWidth = 1.0f;
         m_analyzer.drawSettings.fixedVertexSize = 8.0f;
 
         m_solver.settings.maxIterations = 200;
