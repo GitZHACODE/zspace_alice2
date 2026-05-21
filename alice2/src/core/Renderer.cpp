@@ -630,7 +630,15 @@ namespace alice2 {
         if (!vertices || vertexCount == 0) return;
 
         bool wasLightingEnabled = glIsEnabled(GL_LIGHTING);
+        const bool wasPolygonOffsetFillEnabled = glIsEnabled(GL_POLYGON_OFFSET_FILL);
+        const bool wasCullFaceEnabled = glIsEnabled(GL_CULL_FACE);
+        GLboolean oldDepthMask = GL_TRUE;
+        GLfloat oldPolygonOffsetFactor = 0.0f;
+        GLfloat oldPolygonOffsetUnits = 0.0f;
         GLint polygonMode[2];
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &oldDepthMask);
+        glGetFloatv(GL_POLYGON_OFFSET_FACTOR, &oldPolygonOffsetFactor);
+        glGetFloatv(GL_POLYGON_OFFSET_UNITS, &oldPolygonOffsetUnits);
         glGetIntegerv(GL_POLYGON_MODE, polygonMode);
 
         const bool overrideMesh = m_sceneRenderMode != SceneRenderMode::Regular;
@@ -642,6 +650,15 @@ namespace alice2 {
         const Color forcedFaceColor(0.5f, 0.5f, 0.5f, 0.18f);
         const Color normalFrontColor(1.0f, 1.0f, 1.0f, 1.0f);
         const Color normalBackColor(0.18f, 0.18f, 0.18f, 1.0f);
+        bool transparent = grayMode ? forcedFaceColor.a < 1.0f : m_currentColor.a < 1.0f;
+        if (!overrideMesh && colors) {
+            for (int i = 0; i < vertexCount; ++i) {
+                if (colors[i].a < 1.0f) {
+                    transparent = true;
+                    break;
+                }
+            }
+        }
 
         if (enableLighting && !wasLightingEnabled) {
             glEnable(GL_LIGHTING);
@@ -683,6 +700,11 @@ namespace alice2 {
             return;
         }
 
+        if (transparent) {
+            glDepthMask(GL_FALSE);
+            glDisable(GL_CULL_FACE);
+        }
+
         if (overrideMesh) {
             glColor4f(
                 grayMode ? forcedFaceColor.r : normalFrontColor.r,
@@ -691,6 +713,11 @@ namespace alice2 {
                 grayMode ? forcedFaceColor.a : normalFrontColor.a
             );
             glPolygonMode(GL_FRONT_AND_BACK, (grayMode || normalShadedMode) ? GL_FILL : GL_LINE);
+        }
+
+        if (polygonMode[0] == GL_FILL || polygonMode[1] == GL_FILL || grayMode || normalShadedMode) {
+            glEnable(GL_POLYGON_OFFSET_FILL);
+            glPolygonOffset(1.0f, 1.0f);
         }
 
         glBegin(GL_TRIANGLES);
@@ -747,6 +774,19 @@ namespace alice2 {
         }
 
         glEnd();
+
+        if (wasPolygonOffsetFillEnabled) {
+            glEnable(GL_POLYGON_OFFSET_FILL);
+        } else {
+            glDisable(GL_POLYGON_OFFSET_FILL);
+        }
+        glPolygonOffset(oldPolygonOffsetFactor, oldPolygonOffsetUnits);
+        glDepthMask(oldDepthMask);
+        if (wasCullFaceEnabled) {
+            glEnable(GL_CULL_FACE);
+        } else {
+            glDisable(GL_CULL_FACE);
+        }
 
         glPolygonMode(GL_FRONT, polygonMode[0]);
         glPolygonMode(GL_BACK, polygonMode[1]);
@@ -811,6 +851,9 @@ namespace alice2 {
                                      m_sceneRenderMode == SceneRenderMode::MeshWireframeWithVertices ||
                                      m_sceneRenderMode == SceneRenderMode::MeshGray;
         const Color forcedEdgeColor(0.0f, 0.0f, 0.0f, 1.0f);
+        GLint oldDepthFunc = GL_LESS;
+        glGetIntegerv(GL_DEPTH_FUNC, &oldDepthFunc);
+        glDepthFunc(GL_LEQUAL);
 
         glBegin(GL_LINES);
 
@@ -831,6 +874,8 @@ namespace alice2 {
         }
 
         glEnd();
+
+        glDepthFunc(oldDepthFunc);
 
         // Restore current color
         glColor4f(m_currentColor.r, m_currentColor.g, m_currentColor.b, m_currentColor.a);

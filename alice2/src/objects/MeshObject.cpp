@@ -685,23 +685,29 @@ namespace alice2 {
         }
 
         if (mode == SceneRenderMode::MeshGray && !m_meshData->triangleIndices.empty()) {
-            const bool wasLightingEnabled = glIsEnabled(GL_LIGHTING);
-            if (wasLightingEnabled) {
-                glDisable(GL_LIGHTING);
-            }
+            std::vector<Vec3> triangleVertices;
+            std::vector<Vec3> triangleNormals;
+            std::vector<Color> triangleColors;
 
-            renderer.setColor(faceColor);
-            glBegin(GL_TRIANGLES);
             for (int index : m_meshData->triangleIndices) {
                 if (index >= 0 && index < static_cast<int>(m_meshData->vertices.size())) {
-                    const Vec3& p = m_meshData->vertices[index].position;
-                    glVertex3f(p.x, p.y, p.z);
+                    const MeshVertex& vertex = m_meshData->vertices[index];
+                    triangleVertices.push_back(vertex.position);
+                    triangleNormals.push_back(vertex.normal);
+                    triangleColors.push_back(faceColor);
                 }
             }
-            glEnd();
 
-            if (wasLightingEnabled) {
-                glEnable(GL_LIGHTING);
+            if (!triangleVertices.empty()) {
+                renderer.drawMesh(
+                    triangleVertices.data(),
+                    triangleNormals.data(),
+                    triangleColors.data(),
+                    static_cast<int>(triangleVertices.size()),
+                    nullptr,
+                    0,
+                    false
+                );
             }
         }
 
