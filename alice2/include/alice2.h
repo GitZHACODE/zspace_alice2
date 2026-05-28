@@ -13,15 +13,6 @@
 #include "../src/core/Camera.h"
 #include "../src/core/Transform.h"
 
-// Object includes
-#include "../src/objects/SceneObject.h"
-#include "../src/objects/ZSpaceObject.h"
-#include "../src/objects/PrimitiveObject.h"
-#include "../src/objects/MeshObject.h"
-#include "../src/analysis/MeshAnalyzer.h"
-#include "../src/solvers/ProjectionSolver.h"
-#include "../src/solvers/ProjectionConstraints.h"
-
 // Input includes
 #include "../src/input/InputManager.h"
 #include "../src/input/CameraController.h"
@@ -36,6 +27,22 @@
 // Utility includes
 #include "../src/utils/Math.h"
 #include "../src/utils/OpenGL.h"
+
+// Object includes
+#include "../src/objects/SceneObject.h"
+#include "../src/objects/ZSpaceObject.h"
+#include "../src/objects/PrimitiveObject.h"
+#include "../src/objects/MeshObject.h"
+#include "../src/solvers/ProjectionSolver.h"
+#include "../src/solvers/ProjectionConstraints.h"
+#include "../src/computeGeom/TensorField.h"
+
+// Analyser
+#include "../src/analysis/MeshAnalyzer.h"
+#include "../src/analysis/StressAnalyzer.h"
+
+// Remesher
+#include "../src/remeshing/StressAlignedRemesher.h"
 
 // Convenience namespace
 namespace alice2 {
