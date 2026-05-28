@@ -104,6 +104,7 @@ namespace alice2 {
         // Vertex arrays
         void drawPoints(const Vec3* points, int count);
         void drawLines(const Vec3* points, int count);
+        void drawLines(const Vec3* points, int count, const Color& color, float width = 1.0f);
         void drawTriangles(const Vec3* vertices, int vertexCount, const int* indices = nullptr, int indexCount = 0);
 
         // Mesh rendering

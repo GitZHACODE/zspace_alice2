@@ -921,4 +921,16 @@ namespace alice2 {
         glEnd();
     }
 
+    void Renderer::drawLines(const Vec3* points, int count, const Color& color, float width) {
+        if (!points || count < 2) return;
+
+        Color oldColor = m_currentColor;
+        float oldWidth = m_lineWidth;
+        setColor(color);
+        setLineWidth(width);
+        drawLines(points, count);
+        setColor(oldColor);
+        setLineWidth(oldWidth);
+    }
+
 } // namespace alice2
