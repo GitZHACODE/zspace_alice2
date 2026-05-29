@@ -80,7 +80,22 @@ namespace alice2 {
         void triangulate();
         Vec3 calculateFaceNormal(const MeshFace& face) const;
         void updateBounds(Vec3& minBounds, Vec3& maxBounds) const;
+        void chamferVertices(const std::vector<int>& vertexIds,
+                             float edgePercentage,
+                             bool removeInternalEdges = true);
+        void catmullClarkSmooth(int levels,
+                                const std::vector<int>& fixedVertices = {},
+                                bool fixBoundaryCorners = true);
     };
+
+    MeshData chamferMeshVertices(const MeshData& mesh,
+                                 const std::vector<int>& vertexIds,
+                                 float edgePercentage,
+                                 bool removeInternalEdges = true);
+    MeshData catmullClarkSmoothMesh(const MeshData& mesh,
+                                    int levels,
+                                    const std::vector<int>& fixedVertices = {},
+                                    bool fixBoundaryCorners = true);
 
     // Main MeshObject class
     class MeshObject : public SceneObject {
@@ -120,6 +135,12 @@ namespace alice2 {
 
         // Mesh operations
         void weld(float epsilon = 1e-6f);
+        void chamferVertices(const std::vector<int>& vertexIds,
+                             float edgePercentage,
+                             bool removeInternalEdges = true);
+        void smoothMesh(int levels,
+                                const std::vector<int>& fixedVertices = {},
+                                bool fixBoundaryCorners = true);
         void combineWith(const MeshObject &other);
         MeshObject extrudeMesh(float dist,
                                MeshExtrudeMode mode = MeshExtrudeMode::SmoothSurface,
