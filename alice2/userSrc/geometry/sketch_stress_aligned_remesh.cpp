@@ -35,11 +35,16 @@ public:
         if (hasMesh()) {
             m_analyzer.draw(renderer, *m_mesh, m_drawSettings);
         }
+        if (m_showRemesh && m_remeshedMesh && m_remeshedMesh->getMeshData()) {
+            m_remeshedMesh->render(renderer, camera);
+        }
 
         renderer.setColor(Color(0.05f, 0.05f, 0.05f, 1.0f));
         renderer.drawString(m_report, 10, 30);
-        renderer.drawString("c colour | x cross | s streamlines | r reload | f flip load | o/p scale", 10, 50);
-        renderer.drawString("j/k smooth iterations: " + std::to_string(m_smoothingIterations), 10, 70);
+        renderer.drawString("c colour | x cross | s streamlines | q remesh | r reload | f flip load | o/p cross scale", 10, 50);
+        renderer.drawString("j/k field smooth: " + std::to_string(m_smoothingIterations) +
+                            " | u/i density | h/g chamfer: " + std::to_string(m_chamferPercentage) +
+                            " | n/m cc levels: " + std::to_string(m_smoothLevels), 10, 70);
     }
 
     bool onKeyPress(unsigned char key, int x, int y) override {
@@ -71,6 +76,40 @@ public:
         }
         if (key == 'x') {
             m_drawSettings.drawCrossField = !m_drawSettings.drawCrossField;
+            return true;
+        }
+        if (key == 'q') {
+            m_showRemesh = !m_showRemesh;
+            return true;
+        }
+        if (key == 'u') {
+            m_remeshTargetScale *= 1.15f;
+            buildRemesh();
+            return true;
+        }
+        if (key == 'i') {
+            m_remeshTargetScale /= 1.15f;
+            buildRemesh();
+            return true;
+        }
+        if (key == 'h') {
+            m_chamferPercentage = std::min(1.0f, m_chamferPercentage + 0.05f);
+            buildRemesh();
+            return true;
+        }
+        if (key == 'g') {
+            m_chamferPercentage = std::max(0.0f, m_chamferPercentage - 0.05f);
+            buildRemesh();
+            return true;
+        }
+        if (key == 'n') {
+            m_smoothLevels = std::max(0, m_smoothLevels - 1);
+            buildRemesh();
+            return true;
+        }
+        if (key == 'm') {
+            m_smoothLevels += 1;
+            buildRemesh();
             return true;
         }
         if (key == 'j') {
@@ -132,27 +171,71 @@ private:
             m_analyzer.colorMeshByMagnitude(*m_mesh,
                                             m_drawSettings.lowMagnitudeColor,
                                             m_drawSettings.highMagnitudeColor);
+            buildRemesh();
+        } else {
+            m_remeshedMesh.reset();
         }
 
         float maxStress = 0.0f;
         for (float value : m_analyzer.getStressMagnitudes()) maxStress = std::max(maxStress, value);
         m_report = ok ? "vertical slab analysis | vertices: " + std::to_string(m_mesh->getMeshData()->vertices.size()) +
                         " | faces: " + std::to_string(m_mesh->getMeshData()->faces.size()) +
+                        " | remesh faces: " + std::to_string(m_remeshedMesh && m_remeshedMesh->getMeshData() ? m_remeshedMesh->getMeshData()->faces.size() : 0) +
                         " | columns: " + std::to_string(m_columnVertexIds.size()) +
                         " | max stress: " + std::to_string(maxStress)
                       : "stress solve failed";
     }
 
+    void buildRemesh() {
+        auto data = m_mesh ? m_mesh->getMeshData() : nullptr;
+        if (!data) {
+            m_remeshedMesh.reset();
+            return;
+        }
+
+        Vec3 minBounds;
+        Vec3 maxBounds;
+        data->updateBounds(minBounds, maxBounds);
+        float extent = std::max(maxBounds.x - minBounds.x, maxBounds.y - minBounds.y);
+        if (extent > 1e-6f) {
+            m_remesher.setTargetEdgeLength((extent / 12.0f) * m_remeshTargetScale);
+        }
+        m_remesher.setSnapVertices(m_columnVertexIds);
+        m_remesher.setAngleSimplificationTolerance(m_angleSimplificationTolerance);
+        m_remesher.setChamferPercentage(m_chamferPercentage);
+        m_remesher.setSmoothLevels(m_smoothLevels);
+
+        auto remeshedData = m_remesher.remesh(*data, m_analyzer.getSmoothedCrossField());
+        if (!remeshedData || remeshedData->faces.empty()) {
+            m_remeshedMesh.reset();
+            return;
+        }
+
+        m_remeshedMesh = std::make_shared<MeshObject>("stress_aligned_remesh");
+        m_remeshedMesh->setMeshData(remeshedData);
+        m_remeshedMesh->setShowFaces(true);
+        m_remeshedMesh->setShowEdges(true);
+        m_remeshedMesh->setShowVertices(true);
+        m_remeshedMesh->setEdgeWidth(2.0f);
+    }
+
     std::string m_objPath{"slab.obj"};
     std::vector<int> m_columnVertexIds{0, 1, 2, 3};
     std::shared_ptr<MeshObject> m_mesh;
+    std::shared_ptr<MeshObject> m_remeshedMesh;
     StressAnalyzer m_analyzer;
+    StressAlignedRemesher m_remesher;
     StressAnalysisDrawSettings m_drawSettings;
     std::vector<int> m_loadVertices;
     std::string m_report;
     float m_loadMagnitude{0.03f};
     float m_forceSign{1.0f};
+    float m_remeshTargetScale{1.5f};
+    float m_angleSimplificationTolerance{0.38f};
+    float m_chamferPercentage{0.20f};
+    int m_smoothLevels{1};
     int m_smoothingIterations{15};
+    bool m_showRemesh{false};
 };
 
 ALICE2_REGISTER_SKETCH_AUTO(StressAnalysisSketch)
