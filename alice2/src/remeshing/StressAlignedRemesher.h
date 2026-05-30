@@ -6,6 +6,7 @@
 #include "../computeGeom/TensorField.h"
 #include "../objects/GraphObject.h"
 #include "../objects/MeshObject.h"
+#include "../solvers/ProjectionConstraints.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -19,18 +20,38 @@ namespace alice2 {
 
     class StressAlignedRemesher {
     public:
+        struct SingularityDebugPoint {
+            int vertex{-1};
+            Vec3 position;
+            float index{0.0f};
+        };
+
         void setTargetEdgeLength(double length) { targetEdgeLength_ = length; }
         void setSnapVertices(const std::vector<int>& vertexIds) { snapVertices_ = vertexIds; }
         void setAngleSimplificationTolerance(float radians) { angleSimplificationTolerance_ = radians; }
         void setChamferPercentage(float percentage) { chamferPercentage_ = std::clamp(percentage, 0.0f, 1.0f); }
         void setSmoothLevels(int levels) { smoothLevels_ = std::max(0, levels); }
+        void setFieldAlignmentIterations(int iterations) { fieldAlignmentIterations_ = std::max(0, iterations); }
+        void setFieldAlignmentWeight(float weight) { fieldAlignmentWeight_ = std::max(0.0f, weight); }
+        void setEqualAngleWeight(float weight) { equalAngleWeight_ = std::max(0.0f, weight); }
+        void setSingularityIndexThreshold(float threshold) { singularityIndexThreshold_ = std::max(0.0f, threshold); }
+        void setSingularityHullAreaTolerance(float tolerance) { singularityHullAreaTolerance_ = std::max(0.0f, tolerance); }
 
         double targetEdgeLength() const { return targetEdgeLength_; }
         float angleSimplificationTolerance() const { return angleSimplificationTolerance_; }
         float chamferPercentage() const { return chamferPercentage_; }
         int smoothLevels() const { return smoothLevels_; }
+        int fieldAlignmentIterations() const { return fieldAlignmentIterations_; }
+        float fieldAlignmentWeight() const { return fieldAlignmentWeight_; }
+        float equalAngleWeight() const { return equalAngleWeight_; }
+        float singularityIndexThreshold() const { return singularityIndexThreshold_; }
+        float singularityHullAreaTolerance() const { return singularityHullAreaTolerance_; }
+        const std::vector<SingularityDebugPoint>& singularityDebugPoints() const { return singularityDebugPoints_; }
 
         std::shared_ptr<MeshData> remesh(const MeshData& mesh, const TensorField& crossField) const;
+        std::shared_ptr<MeshData> remesh(const MeshData& mesh,
+                                         const TensorField& singularityField,
+                                         const TensorField& solverField) const;
 
     private:
         double targetEdgeLength_{0.2};
@@ -38,6 +59,12 @@ namespace alice2 {
         float angleSimplificationTolerance_{0.38f};
         float chamferPercentage_{0.20f};
         int smoothLevels_{1};
+        int fieldAlignmentIterations_{15};
+        float fieldAlignmentWeight_{1.0f};
+        float equalAngleWeight_{0.75f};
+        float singularityIndexThreshold_{0.12f};
+        float singularityHullAreaTolerance_{0.02f};
+        mutable std::vector<SingularityDebugPoint> singularityDebugPoints_;
     };
 
     namespace stress_aligned_remesher_detail {
@@ -45,6 +72,7 @@ namespace alice2 {
 
         struct Singularity {
             int vertex{-1};
+            Vec3 position;
             float index{0.0f};
             std::vector<int> faces;
         };
@@ -53,6 +81,7 @@ namespace alice2 {
             Vec3 center;
             std::vector<int> rawIds;
             std::vector<int> vertices;
+            std::vector<Vec3> points;
             std::vector<int> faces;
             float indexSum{0.0f};
         };
@@ -125,6 +154,17 @@ namespace alice2 {
             return result;
         }
 
+        inline float polygonAreaAbsXY(const std::vector<Vec3>& polygon) {
+            if (polygon.size() < 3) return 0.0f;
+            float area = 0.0f;
+            for (size_t i = 0; i < polygon.size(); ++i) {
+                const Vec3& a = polygon[i];
+                const Vec3& b = polygon[(i + 1) % polygon.size()];
+                area += a.x * b.y - b.x * a.y;
+            }
+            return std::abs(area) * 0.5f;
+        }
+
         inline std::vector<std::vector<int>> vertexFaces(const MeshData& mesh) {
             std::vector<std::vector<int>> result(mesh.vertices.size());
             for (int fi = 0; fi < static_cast<int>(mesh.faces.size()); ++fi) {
@@ -183,7 +223,9 @@ namespace alice2 {
             return sorted;
         }
 
-        inline std::vector<Singularity> findSingularities(const MeshData& mesh, const TensorField& field) {
+        inline std::vector<Singularity> findSingularities(const MeshData& mesh,
+                                                          const TensorField& field,
+                                                          float indexThreshold) {
             std::vector<Singularity> result;
             auto facesByVertex = vertexFaces(mesh);
             auto boundary = boundaryVertices(mesh);
@@ -220,8 +262,8 @@ namespace alice2 {
                 if (!valid) continue;
 
                 float index = total / (8.0f * kPi);
-                if (std::abs(index) >= 0.12f) {
-                    result.push_back({vi, index, faces});
+                if (std::abs(index) >= indexThreshold) {
+                    result.push_back({vi, mesh.vertices[vi].position, index, faces});
                 }
             }
 
@@ -229,6 +271,27 @@ namespace alice2 {
                 return std::abs(a.index) > std::abs(b.index);
             });
             return result;
+        }
+
+        inline bool clusterHasValidHull(const MeshData& mesh, const SingularityCluster& cluster, float minArea) {
+            std::vector<Vec3> points;
+            points.reserve(cluster.points.size() + cluster.vertices.size());
+            points.insert(points.end(), cluster.points.begin(), cluster.points.end());
+            for (int vertex : cluster.vertices) {
+                if (vertex >= 0 && vertex < static_cast<int>(mesh.vertices.size())) {
+                    points.push_back(mesh.vertices[vertex].position);
+                }
+            }
+            std::vector<Vec3> hull = convexHullXY(points);
+            return hull.size() >= 3 && polygonAreaAbsXY(hull) >= minArea;
+        }
+
+        inline void filterDegenerateSingularityClusters(const MeshData& mesh,
+                                                        std::vector<SingularityCluster>& clusters,
+                                                        float minArea) {
+            clusters.erase(std::remove_if(clusters.begin(), clusters.end(), [&](const SingularityCluster& cluster) {
+                return !clusterHasValidHull(mesh, cluster, minArea);
+            }), clusters.end());
         }
 
         inline std::vector<SingularityCluster> clusterSingularities(const MeshData& mesh,
@@ -239,8 +302,7 @@ namespace alice2 {
 
             for (int si = 0; si < static_cast<int>(singularities.size()); ++si) {
                 const Singularity& s = singularities[si];
-                if (s.vertex < 0 || s.vertex >= static_cast<int>(mesh.vertices.size())) continue;
-                const Vec3& p = mesh.vertices[s.vertex].position;
+                const Vec3& p = s.position;
 
                 int target = -1;
                 float bestDistance = clusterDistanceSq;
@@ -261,13 +323,16 @@ namespace alice2 {
 
                 SingularityCluster& cluster = clusters[target];
                 cluster.rawIds.push_back(si);
-                cluster.vertices.push_back(s.vertex);
+                if (s.vertex >= 0 && s.vertex < static_cast<int>(mesh.vertices.size())) {
+                    cluster.vertices.push_back(s.vertex);
+                }
+                cluster.points.push_back(s.position);
                 cluster.indexSum += s.index;
                 cluster.faces.insert(cluster.faces.end(), s.faces.begin(), s.faces.end());
 
                 Vec3 center;
-                for (int vertex : cluster.vertices) center += mesh.vertices[vertex].position;
-                cluster.center = center / static_cast<float>(cluster.vertices.size());
+                for (const Vec3& point : cluster.points) center += point;
+                cluster.center = center / static_cast<float>(cluster.points.size());
             }
 
             for (auto& cluster : clusters) {
@@ -682,23 +747,201 @@ namespace alice2 {
             mesh.calculateNormals();
             mesh.triangulationDirty = true;
         }
+
+        inline std::vector<int> nearestMeshVertices(const MeshData& mesh, const std::vector<Vec3>& points) {
+            std::vector<int> result;
+            for (const Vec3& point : points) {
+                int closest = -1;
+                float closestDistanceSq = std::numeric_limits<float>::max();
+                for (int i = 0; i < static_cast<int>(mesh.vertices.size()); ++i) {
+                    float distanceSq = (mesh.vertices[i].position - point).lengthSquared();
+                    if (distanceSq < closestDistanceSq) {
+                        closestDistanceSq = distanceSq;
+                        closest = i;
+                    }
+                }
+                if (closest >= 0 && std::find(result.begin(), result.end(), closest) == result.end()) {
+                    result.push_back(closest);
+                }
+            }
+            return result;
+        }
+
+        inline void removeFacesContainingAny(MeshData& mesh, const std::vector<int>& vertexIds) {
+            std::set<int> removeVertices;
+            for (int id : vertexIds) {
+                if (id >= 0 && id < static_cast<int>(mesh.vertices.size())) removeVertices.insert(id);
+            }
+            if (removeVertices.empty()) return;
+
+            mesh.faces.erase(std::remove_if(mesh.faces.begin(), mesh.faces.end(), [&](const MeshFace& face) {
+                for (int id : face.vertices) {
+                    if (removeVertices.count(id)) return true;
+                }
+                return false;
+            }), mesh.faces.end());
+
+            std::set<std::pair<int, int>> edgeSet;
+            mesh.edges.clear();
+            for (const MeshFace& face : mesh.faces) {
+                for (int i = 0; i < static_cast<int>(face.vertices.size()); ++i) {
+                    int a = face.vertices[i];
+                    int b = face.vertices[(i + 1) % static_cast<int>(face.vertices.size())];
+                    if (a < 0 || b < 0 || a >= static_cast<int>(mesh.vertices.size()) ||
+                        b >= static_cast<int>(mesh.vertices.size()) || a == b) continue;
+                    edgeSet.insert(sortedEdge(a, b));
+                }
+            }
+            for (const auto& edge : edgeSet) mesh.edges.emplace_back(edge.first, edge.second, Color(0, 0, 0, 1));
+            mesh.calculateNormals();
+            mesh.triangulationDirty = true;
+        }
+
+        inline bool barycentricXY(const Vec3& p, const Vec3& a, const Vec3& b, const Vec3& c, float& u, float& v, float& w) {
+            float v0x = b.x - a.x;
+            float v0y = b.y - a.y;
+            float v1x = c.x - a.x;
+            float v1y = c.y - a.y;
+            float v2x = p.x - a.x;
+            float v2y = p.y - a.y;
+            float den = v0x * v1y - v1x * v0y;
+            if (std::abs(den) <= 1e-10f) return false;
+
+            v = (v2x * v1y - v1x * v2y) / den;
+            w = (v0x * v2y - v2x * v0y) / den;
+            u = 1.0f - v - w;
+            return true;
+        }
+
+        inline float closestPointOnSegmentDistanceSqXY(const Vec3& p, const Vec3& a, const Vec3& b, Vec3& closest) {
+            Vec3 ab = b - a;
+            float lenSq = ab.x * ab.x + ab.y * ab.y;
+            float t = 0.0f;
+            if (lenSq > 1e-10f) {
+                t = ((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / lenSq;
+                t = std::clamp(t, 0.0f, 1.0f);
+            }
+            closest = a + ab * t;
+            float dx = p.x - closest.x;
+            float dy = p.y - closest.y;
+            return dx * dx + dy * dy;
+        }
+
+        inline bool projectPointToMeshZ(const MeshData& source, Vec3& point) {
+            bool found = false;
+            float projectedZ = point.z;
+            float bestDistanceSq = std::numeric_limits<float>::max();
+            float bestZ = point.z;
+
+            for (const MeshFace& face : source.faces) {
+                if (face.vertices.size() < 3) continue;
+                for (size_t i = 1; i + 1 < face.vertices.size(); ++i) {
+                    int ia = face.vertices[0];
+                    int ib = face.vertices[i];
+                    int ic = face.vertices[i + 1];
+                    if (ia < 0 || ib < 0 || ic < 0 ||
+                        ia >= static_cast<int>(source.vertices.size()) ||
+                        ib >= static_cast<int>(source.vertices.size()) ||
+                        ic >= static_cast<int>(source.vertices.size())) {
+                        continue;
+                    }
+
+                    const Vec3& a = source.vertices[ia].position;
+                    const Vec3& b = source.vertices[ib].position;
+                    const Vec3& c = source.vertices[ic].position;
+                    float u = 0.0f;
+                    float v = 0.0f;
+                    float w = 0.0f;
+                    if (!barycentricXY(point, a, b, c, u, v, w)) continue;
+
+                    const float eps = 1e-5f;
+                    if (u >= -eps && v >= -eps && w >= -eps) {
+                        projectedZ = a.z * u + b.z * v + c.z * w;
+                        found = true;
+                        break;
+                    }
+
+                    Vec3 ca;
+                    Vec3 cb;
+                    Vec3 cc;
+                    float da = closestPointOnSegmentDistanceSqXY(point, a, b, ca);
+                    float db = closestPointOnSegmentDistanceSqXY(point, b, c, cb);
+                    float dc = closestPointOnSegmentDistanceSqXY(point, c, a, cc);
+                    Vec3 closest = ca;
+                    float d = da;
+                    if (db < d) {
+                        d = db;
+                        closest = cb;
+                    }
+                    if (dc < d) {
+                        d = dc;
+                        closest = cc;
+                    }
+                    if (d < bestDistanceSq) {
+                        bestDistanceSq = d;
+                        bestZ = closest.z;
+                    }
+                }
+                if (found) break;
+            }
+
+            if (found) {
+                point.z = projectedZ;
+                return true;
+            }
+            if (bestDistanceSq < std::numeric_limits<float>::max()) {
+                point.z = bestZ;
+                return true;
+            }
+            return false;
+        }
+
+        inline void projectMeshToSourceZ(MeshData& mesh, const MeshData& source) {
+            for (auto& vertex : mesh.vertices) {
+                projectPointToMeshZ(source, vertex.position);
+            }
+        }
     }
 
     inline std::shared_ptr<MeshData> StressAlignedRemesher::remesh(const MeshData& mesh, const TensorField& crossField) const {
+        return remesh(mesh, crossField, crossField);
+    }
+
+    inline std::shared_ptr<MeshData> StressAlignedRemesher::remesh(const MeshData& mesh,
+                                                                   const TensorField& singularityField,
+                                                                   const TensorField& solverField) const {
         using namespace stress_aligned_remesher_detail;
 
         auto out = std::make_shared<MeshData>();
-        if (mesh.vertices.empty() || mesh.faces.empty() || crossField.empty()) return out;
+        if (mesh.vertices.empty() || mesh.faces.empty() || singularityField.empty()) return out;
 
         float target = static_cast<float>(targetEdgeLength_);
         if (target <= 1e-6f) return out;
 
-        std::vector<Singularity> singularities = findSingularities(mesh, crossField);
+        std::vector<Singularity> debugSingularities = findSingularities(mesh,
+                                                                        singularityField,
+                                                                        singularityIndexThreshold_);
+        std::vector<Singularity> singularities = findSingularities(mesh,
+                                                                   singularityField,
+                                                                   singularityIndexThreshold_);
         std::vector<SingularityCluster> clusters = clusterSingularities(mesh, singularities, target);
+        const int clusterCountBeforeHullFilter = static_cast<int>(clusters.size());
+        const float minHullArea = target * target * singularityHullAreaTolerance_;
+        filterDegenerateSingularityClusters(mesh, clusters, minHullArea);
+        singularityDebugPoints_.clear();
+        singularityDebugPoints_.reserve(debugSingularities.size());
+        for (const Singularity& singularity : debugSingularities) {
+            singularityDebugPoints_.push_back({singularity.vertex,
+                                               singularity.position,
+                                               singularity.index});
+        }
 
-        std::cout << "[StressAlignedRemesher] raw singularities: " << singularities.size()
+        std::cout << "[StressAlignedRemesher] singularities: " << singularities.size()
                   << " | clusters: " << clusters.size()
+                  << " | filtered clusters: " << (clusterCountBeforeHullFilter - static_cast<int>(clusters.size()))
                   << " | clusterDistance: " << target
+                  << " | indexThreshold: " << singularityIndexThreshold_
+                  << " | minHullArea: " << minHullArea
                   << std::endl;
 
         GraphData graph;
@@ -720,11 +963,7 @@ namespace alice2 {
             const SingularityCluster& cluster = clusters[ci];
 
             std::vector<Vec3> rawPoints;
-            for (int vertex : cluster.vertices) {
-                if (vertex >= 0 && vertex < static_cast<int>(mesh.vertices.size())) {
-                    rawPoints.push_back(mesh.vertices[vertex].position);
-                }
-            }
+            rawPoints.insert(rawPoints.end(), cluster.points.begin(), cluster.points.end());
             std::vector<Vec3> singularityHull = convexHullXY(rawPoints);
             std::vector<Vec3> dualPolygon = edgeMidpointDualPolygon(singularityHull);
 
@@ -847,11 +1086,54 @@ namespace alice2 {
         }
 
         if (!chamferVertices.empty()) {
+            std::vector<Vec3> columnPositions;
+            columnPositions.reserve(chamferVertices.size());
+            for (int id : chamferVertices) {
+                if (id >= 0 && id < static_cast<int>(out->vertices.size())) {
+                    columnPositions.push_back(out->vertices[id].position);
+                }
+            }
+
             connectFacesToVertices(*out, chamferVertices);
             out->chamferVertices(chamferVertices, chamferPercentage_, true);
+            std::vector<int> postChamferColumnVertices = nearestMeshVertices(*out, columnPositions);
+            removeFacesContainingAny(*out, postChamferColumnVertices);
             out->catmullClarkSmooth(smoothLevels_);
         }
 
+        if (fieldAlignmentIterations_ > 0 && fieldAlignmentWeight_ > 0.0f && !out->edges.empty() && !solverField.empty()) {
+            std::vector<Vec3> fixedPositions;
+            for (int sourceVertex : snapVertices_) {
+                if (sourceVertex >= 0 && sourceVertex < static_cast<int>(mesh.vertices.size())) {
+                    fixedPositions.push_back(mesh.vertices[sourceVertex].position);
+                }
+            }
+            for (const SingularityCluster& cluster : clusters) {
+                fixedPositions.push_back(cluster.center);
+            }
+
+            MeshObject alignmentMesh("stress_field_aligned_mesh");
+            alignmentMesh.setMeshData(out);
+
+            ProjectionSolver solver;
+            solver.settings.maxIterations = fieldAlignmentIterations_;
+            solver.settings.strength = 0.6f;
+            solver.settings.tolerance = 1e-5f;
+            solver.settings.shapePreservationWeight = 0.01f;
+            solver.settings.anchorWeight = 10000.0f;
+            solver.settings.fixBoundaryVertices = true;
+            solver.settings.fixedVertices = nearestMeshVertices(*out, fixedPositions);
+
+            auto constraint = solver.addConstraint<CrossFieldEdgeConstraint>(mesh, solverField);
+            constraint->weight = fieldAlignmentWeight_;
+            if (equalAngleWeight_ > 0.0f) {
+                auto angleConstraint = solver.addConstraint<EqualAngleVertexConstraint>();
+                angleConstraint->weight = equalAngleWeight_;
+            }
+            solver.solve(alignmentMesh);
+        }
+
+        projectMeshToSourceZ(*out, mesh);
         out->calculateNormals();
         out->triangulationDirty = true;
         return out;

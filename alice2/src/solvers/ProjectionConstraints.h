@@ -4,6 +4,7 @@
 #define ALICE2_PROJECTION_CONSTRAINTS_H
 
 #include "ProjectionSolver.h"
+#include "../computeGeom/TensorField.h"
 
 namespace alice2 {
 
@@ -27,6 +28,29 @@ namespace alice2 {
                      const ProjectionSolverSettings& settings,
                      std::vector<ProjectionTarget>& targets) const override;
         bool providesConicalAxes() const override { return true; }
+    };
+
+    class CrossFieldEdgeConstraint : public ProjectionConstraint {
+    public:
+        CrossFieldEdgeConstraint(const MeshData& sourceMesh, const TensorField& field);
+
+        void project(const MeshObject& mesh,
+                     const ProjectionSolverSettings& settings,
+                     std::vector<ProjectionTarget>& targets) const override;
+
+    private:
+        const MeshData* m_sourceMesh{nullptr};
+        const TensorField* m_field{nullptr};
+        std::vector<Vec3> m_sourceFaceCenters;
+
+        int nearestSourceFace(const Vec3& point) const;
+    };
+
+    class EqualAngleVertexConstraint : public ProjectionConstraint {
+    public:
+        void project(const MeshObject& mesh,
+                     const ProjectionSolverSettings& settings,
+                     std::vector<ProjectionTarget>& targets) const override;
     };
 
 } // namespace alice2

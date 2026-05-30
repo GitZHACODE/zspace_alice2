@@ -2,6 +2,9 @@
 #include <Eigen/Dense>
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <map>
+#include <set>
 #include <vector>
 
 namespace alice2 {
@@ -402,6 +405,164 @@ namespace alice2 {
                                         static_cast<float>(projected2.z())),
                                    weight,
                                    {centerIndex, corners[i].next},
+                                   {-1.0f, 1.0f}});
+            }
+        }
+    }
+
+    CrossFieldEdgeConstraint::CrossFieldEdgeConstraint(const MeshData& sourceMesh, const TensorField& field)
+        : m_sourceMesh(&sourceMesh)
+        , m_field(&field) {
+        m_sourceFaceCenters.reserve(sourceMesh.faces.size());
+        for (const auto& face : sourceMesh.faces) {
+            Vec3 center;
+            int count = 0;
+            for (int id : face.vertices) {
+                if (id < 0 || id >= static_cast<int>(sourceMesh.vertices.size())) continue;
+                center += sourceMesh.vertices[id].position;
+                ++count;
+            }
+            m_sourceFaceCenters.push_back(count > 0 ? center / static_cast<float>(count) : Vec3());
+        }
+    }
+
+    int CrossFieldEdgeConstraint::nearestSourceFace(const Vec3& point) const {
+        int best = -1;
+        float bestDistanceSq = std::numeric_limits<float>::max();
+        for (int i = 0; i < static_cast<int>(m_sourceFaceCenters.size()); ++i) {
+            float distanceSq = (m_sourceFaceCenters[i] - point).lengthSquared();
+            if (distanceSq < bestDistanceSq) {
+                bestDistanceSq = distanceSq;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    void CrossFieldEdgeConstraint::project(const MeshObject& mesh,
+                                           const ProjectionSolverSettings& settings,
+                                           std::vector<ProjectionTarget>& targets) const {
+        if (!enabled || !m_sourceMesh || !m_field) return;
+
+        auto data = mesh.getMeshData();
+        if (!data || data->vertices.empty() || data->edges.empty() || m_field->empty()) return;
+
+        for (const auto& edge : data->edges) {
+            int a = edge.vertexA;
+            int b = edge.vertexB;
+            if (a < 0 || b < 0 ||
+                a >= static_cast<int>(data->vertices.size()) ||
+                b >= static_cast<int>(data->vertices.size()) ||
+                a == b) continue;
+
+            const Vec3& pa = data->vertices[a].position;
+            const Vec3& pb = data->vertices[b].position;
+            Vec3 edgeVector = pb - pa;
+            float edgeLength = edgeVector.length();
+            if (edgeLength <= 1e-8f) continue;
+
+            int faceId = nearestSourceFace((pa + pb) * 0.5f);
+            if (faceId < 0 || faceId >= static_cast<int>(m_field->size())) continue;
+
+            Vec3 major = (*m_field)[faceId].majorDirection;
+            Vec3 minor = (*m_field)[faceId].minorDirection;
+            major.z = 0.0f;
+            minor.z = 0.0f;
+            if (major.lengthSquared() <= 1e-10f || minor.lengthSquared() <= 1e-10f) continue;
+            major.normalize();
+            minor.normalize();
+
+            Vec3 edgeDir = edgeVector;
+            edgeDir.z = 0.0f;
+            if (edgeDir.lengthSquared() <= 1e-10f) continue;
+            edgeDir.normalize();
+
+            float majorDot = edgeDir.dot(major);
+            float minorDot = edgeDir.dot(minor);
+            Vec3 direction = std::abs(majorDot) >= std::abs(minorDot) ? major : minor;
+            float sign = edgeDir.dot(direction) < 0.0f ? -1.0f : 1.0f;
+            Vec3 projected = direction * (edgeLength * sign);
+
+            targets.push_back({-1,
+                               projected,
+                               weight,
+                               {a, b},
+                               {-1.0f, 1.0f}});
+        }
+    }
+
+    void EqualAngleVertexConstraint::project(const MeshObject& mesh,
+                                             const ProjectionSolverSettings& settings,
+                                             std::vector<ProjectionTarget>& targets) const {
+        if (!enabled) return;
+
+        auto data = mesh.getMeshData();
+        if (!data || data->vertices.empty() || data->faces.empty()) return;
+
+        std::vector<std::set<int>> neighbors(data->vertices.size());
+        std::map<std::pair<int, int>, int> edgeUseCount;
+        for (const auto& face : data->faces) {
+            for (int i = 0; i < static_cast<int>(face.vertices.size()); ++i) {
+                int a = face.vertices[i];
+                int b = face.vertices[(i + 1) % static_cast<int>(face.vertices.size())];
+                if (a < 0 || b < 0 ||
+                    a >= static_cast<int>(data->vertices.size()) ||
+                    b >= static_cast<int>(data->vertices.size()) ||
+                    a == b) continue;
+                neighbors[a].insert(b);
+                neighbors[b].insert(a);
+                edgeUseCount[{std::min(a, b), std::max(a, b)}]++;
+            }
+        }
+
+        std::vector<bool> boundary(data->vertices.size(), false);
+        for (const auto& item : edgeUseCount) {
+            if (item.second != 1) continue;
+            boundary[item.first.first] = true;
+            boundary[item.first.second] = true;
+        }
+
+        for (int centerId = 0; centerId < static_cast<int>(data->vertices.size()); ++centerId) {
+            if (boundary[centerId]) continue;
+
+            std::vector<int> ring(neighbors[centerId].begin(), neighbors[centerId].end());
+            int valence = static_cast<int>(ring.size());
+            if (valence < 3) continue;
+
+            const Vec3& center = data->vertices[centerId].position;
+            std::sort(ring.begin(), ring.end(), [&](int a, int b) {
+                Vec3 da = data->vertices[a].position - center;
+                Vec3 db = data->vertices[b].position - center;
+                return std::atan2(da.y, da.x) < std::atan2(db.y, db.x);
+            });
+
+            std::vector<float> angles;
+            angles.reserve(ring.size());
+            for (int neighbor : ring) {
+                Vec3 d = data->vertices[neighbor].position - center;
+                angles.push_back(static_cast<float>(std::atan2(d.y, d.x)));
+            }
+            for (int i = 1; i < static_cast<int>(angles.size()); ++i) {
+                while (angles[i] <= angles[i - 1]) angles[i] += static_cast<float>(2.0 * kPi);
+            }
+
+            float step = static_cast<float>((2.0 * kPi) / static_cast<double>(valence));
+            float start = 0.0f;
+            for (int i = 0; i < valence; ++i) start += angles[i] - step * static_cast<float>(i);
+            start /= static_cast<float>(valence);
+
+            for (int i = 0; i < valence; ++i) {
+                int neighbor = ring[i];
+                Vec3 current = data->vertices[neighbor].position - center;
+                float length = current.length();
+                if (length <= 1e-8f) continue;
+
+                float angle = start + step * static_cast<float>(i);
+                Vec3 target(std::cos(angle) * length, std::sin(angle) * length, current.z);
+                targets.push_back({-1,
+                                   target,
+                                   weight,
+                                   {centerId, neighbor},
                                    {-1.0f, 1.0f}});
             }
         }
