@@ -65,6 +65,10 @@ public:
 
     void smoothInPlane();
     void applyStackLaplacian(int iterations);
+    bool applyVoronoiWalls(float voronoiOffset,
+                           float shellOffset,
+                           const GraphObject& firstGraph,
+                           const GraphObject& secondGraph);
 
     bool buildVolumeMesh();
     bool exportAll();
@@ -99,6 +103,7 @@ private:
     void clearContourObjects();
     void invalidateVolumeMesh();
     static void smoothField(ScalarField2D& field);
+    static void offsetField(ScalarField2D& field, float offset);
     void emitStatus(const std::string& message);
 
 private:

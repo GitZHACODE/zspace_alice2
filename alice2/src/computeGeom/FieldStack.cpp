@@ -176,6 +176,108 @@ void FieldStack::applyStackLaplacian(int iterations) {
     emitStatus("Stack Laplacian");
 }
 
+bool FieldStack::applyVoronoiWalls(float voronoiOffset,
+                                   float shellOffset,
+                                   const GraphObject& firstGraph,
+                                   const GraphObject& secondGraph) {
+    if (!ready_) {
+        emitStatus("Field stack not ready");
+        return false;
+    }
+    if (stackFields_.empty()) {
+        emitStatus("No slices");
+        return false;
+    }
+
+    auto firstData = firstGraph.getGraphData();
+    auto secondData = secondGraph.getGraphData();
+    if (!firstData || !secondData || firstData->vertices.empty() || secondData->vertices.empty()) {
+        emitStatus("Missing graph data for Voronoi carve");
+        return false;
+    }
+
+    const size_t siteCount = std::min(firstData->vertices.size(), secondData->vertices.size());
+    if (siteCount < 2) {
+        emitStatus("Need >=2 graph vertices");
+        return false;
+    }
+
+    std::vector<Vec3> sites;
+    sites.reserve(siteCount);
+
+    const size_t layerCount = stackFields_.size();
+    for (size_t layer = 0; layer < layerCount; ++layer) {
+        ScalarField2D originalField = stackFields_[layer];
+        ScalarField2D voronoiField = originalField;
+        voronoiField.clear_field();
+
+        const float t = (layerCount <= 1) ? 0.0f : float(layer) / float(layerCount - 1);
+        sites.clear();
+        for (size_t idx = 0; idx < siteCount; ++idx) {
+            const Vec3& startPos = firstData->vertices[idx].position;
+            const Vec3& endPos = secondData->vertices[idx].position;
+            sites.emplace_back(Vec3::lerp(startPos, endPos, t));
+        }
+
+        voronoiField.apply_scalar_voronoi(sites);
+        offsetField(voronoiField, voronoiOffset);
+
+        ScalarField2D interiorMask = originalField;
+        const float shellAmount = std::abs(shellOffset);
+        if (shellAmount > 1e-6f) {
+            offsetField(interiorMask, -shellAmount);
+        }
+        interiorMask.boolean_difference(voronoiField);
+
+        ScalarField2D carvedField = originalField;
+        carvedField.boolean_subtract(interiorMask);
+
+        ScalarField2D graphLinesField = originalField;
+        graphLinesField.clear_field();
+
+        const float lineThickness = std::max(0.01f, std::abs(0.5f * voronoiOffset));
+        const auto& edges = firstData->edges;
+        bool hasLineField = false;
+        if (!edges.empty()) {
+            for (const auto& edge : edges) {
+                if (edge.vertexA < 0 || edge.vertexB < 0) {
+                    continue;
+                }
+                if (size_t(edge.vertexA) >= siteCount || size_t(edge.vertexB) >= siteCount) {
+                    continue;
+                }
+                Vec3 startA = firstData->vertices[size_t(edge.vertexA)].position;
+                Vec3 startB = secondData->vertices[size_t(edge.vertexA)].position;
+                Vec3 endA = firstData->vertices[size_t(edge.vertexB)].position;
+                Vec3 endB = secondData->vertices[size_t(edge.vertexB)].position;
+                Vec3 start = Vec3::lerp(startA, startB, t);
+                Vec3 end = Vec3::lerp(endA, endB, t);
+
+                ScalarField2D lineField = graphLinesField;
+                lineField.clear_field();
+                lineField.apply_scalar_line(start, end, lineThickness);
+                if (!hasLineField) {
+                    graphLinesField = std::move(lineField);
+                    hasLineField = true;
+                } else {
+                    graphLinesField.boolean_union(lineField);
+                }
+            }
+        }
+        if (hasLineField) {
+            carvedField.boolean_subtract(graphLinesField);
+        }
+
+        stackFields_[layer] = std::move(carvedField);
+    }
+
+    alignedSliceCount_ = 0;
+    regenerateContours();
+    invalidateVolumeMesh();
+    emitStatus("Voronoi walls applied");
+    return true;
+}
+
 bool FieldStack::buildVolumeMesh() {
     if (stackFields_.empty()) {
         emitStatus("No slices");
@@ -577,6 +679,21 @@ void FieldStack::smoothField(ScalarField2D& field) {
         }
     }
     field.set_values(out);
+}
+
+void FieldStack::offsetField(ScalarField2D& field, float offset) {
+    if (std::fabs(offset) < 1e-6f) {
+        return;
+    }
+    const auto& values = field.get_values();
+    if (values.empty()) {
+        return;
+    }
+    std::vector<float> shifted(values.begin(), values.end());
+    for (float& value : shifted) {
+        value -= offset;
+    }
+    field.set_values(shifted);
 }
 
 void FieldStack::emitStatus(const std::string& message) {

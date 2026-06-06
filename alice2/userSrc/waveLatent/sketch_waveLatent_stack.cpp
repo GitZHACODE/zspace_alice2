@@ -9,6 +9,7 @@
 #include <sstream>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "ML/WaveLatent/WaveLatentNavigator.h"
 #include "computeGeom/FieldStack.h"
@@ -52,6 +53,29 @@ public:
         spineGraph->setShowVertices(false);
         spineGraph->setEdgeColor(Color(1,0,0));
         scene().addObject(spineGraph);
+        voronoiGraphStart_ = std::make_shared<GraphObject>("VoronoiStartGraph");
+        {
+            const std::vector<Vec3> line{
+                Vec3(-0.5f, 0.0f, 0.0f),
+                Vec3(0.0f, 0.0f, 0.0f),
+                Vec3(0.5f, 0.0f, 0.0f)
+            };
+            const std::vector<std::pair<int, int>> lineEdges{{0, 1}, {1, 2}};
+            voronoiGraphStart_->createFromPositionsAndEdges(line, lineEdges);
+            voronoiGraphStart_->setVisible(false);
+        }
+
+        voronoiGraphEnd_ = std::make_shared<GraphObject>("VoronoiEndGraph");
+        {
+            const std::vector<Vec3> triangle{
+                Vec3(-0.2f, -0.2f, 0.0f),
+                Vec3(0.0f, 0.2f, 0.0f),
+                Vec3(0.2f, -0.2f, 0.0f)
+            };
+            const std::vector<std::pair<int, int>> triEdges{{0, 1}, {1, 2}, {2, 0}};
+            voronoiGraphEnd_->createFromPositionsAndEdges(triangle, triEdges);
+            voronoiGraphEnd_->setVisible(false);
+        }
 
         const float uiLeft = kMargin;
         const float uiTop = kMargin + kVerticalOffset + kUIExtraOffset;
@@ -114,7 +138,6 @@ public:
             ready_ = false;
             return;
         }
-        fieldStack_.setSpineGraph(spineGraph);
 
         FieldStack::UIConfig stackUI;
         stackUI.ui = ui_.get();
@@ -209,6 +232,14 @@ public:
         case 'K':
             fieldStack_.applyStackLaplacian(5);
             return true;
+        case 'm':
+        case 'M':
+            fieldStack_.setSpineGraph(spineGraph);
+            return true;
+        case 'u':
+        case 'U':
+            applyVoronoiWallsToStack();
+            return true;
         default:
             return false;
         }
@@ -219,11 +250,70 @@ private:
         statusMessage_ = message;
     }
 
+    void applyVoronoiWallsToStack() {
+        if (fieldStack_.empty()) {
+            setStatus("No slices for Voronoi carve");
+            return;
+        }
+
+        std::shared_ptr<GraphObject> firstGraph;
+        std::shared_ptr<GraphObject> secondGraph;
+        if (!gatherVoronoiGraphs(firstGraph, secondGraph)) {
+            setStatus("Missing graphs for Voronoi carve");
+            return;
+        }
+
+        if (fieldStack_.applyVoronoiWalls(voronoiFieldOffset_,
+                                          shellFieldOffset_,
+                                          *firstGraph,
+                                          *secondGraph)) {
+            setStatus("Voronoi walls applied");
+        } else {
+            setStatus("Voronoi carve failed");
+        }
+    }
+
+    bool gatherVoronoiGraphs(std::shared_ptr<GraphObject>& first,
+                             std::shared_ptr<GraphObject>& second) const {
+        if (voronoiGraphStart_) {
+            first = voronoiGraphStart_;
+        } else {
+            for (const auto& contour : fieldStack_.stackContours_) {
+                if (contour) {
+                    first = contour;
+                    break;
+                }
+            }
+        }
+        if (!first) {
+            first = spineGraph;
+        }
+
+        if (voronoiGraphEnd_) {
+            second = voronoiGraphEnd_;
+        } else {
+            for (auto it = fieldStack_.stackContours_.rbegin();
+                 it != fieldStack_.stackContours_.rend(); ++it) {
+                if (*it) {
+                    second = *it;
+                    break;
+                }
+            }
+        }
+        if (!second) {
+            second = first;
+        }
+
+        return static_cast<bool>(first) && static_cast<bool>(second);
+    }
+
 private:
     WaveLatentNavigator navigator_;
     FieldStack fieldStack_;
     std::unique_ptr<SimpleUI> ui_;
     std::shared_ptr<GraphObject> spineGraph;
+    std::shared_ptr<GraphObject> voronoiGraphStart_;
+    std::shared_ptr<GraphObject> voronoiGraphEnd_;
 
     std::string statusMessage_ = "Idle";
     std::string modelPath_ = "WaveLatentModel.json";
@@ -238,6 +328,9 @@ private:
     float latentSnapRadius_ = 0.02f;
     bool contoursVisible_ = true;
     bool ready_ = false;
+
+    float voronoiFieldOffset_ = 0.1f;
+    float shellFieldOffset_ = 0.15f;
 };
 
 ALICE2_REGISTER_SKETCH_AUTO(Sketch_WaveLatent_Stack)
