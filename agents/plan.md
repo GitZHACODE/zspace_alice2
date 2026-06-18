@@ -1,40 +1,27 @@
 # Current Agent Plan
 
-Status: complete
+Status: completed
 
 ## User Intent
 
-Create an alice2 zSpace sketch that loads an OBJ from a default `data` folder beside `alice2.exe`, traverses mesh halfedges, and displays current/next/previous/symmetric halfedges with keyboard controls.
+Create a relocatable Windows alice2 release that runs and can be rebuilt with zSpace integration on another machine without distributing the private `zspace_core` source tree.
 
 ## Participating Agents
 
-- `zspace_agent`: zSpace OBJ IO, mesh object, function set, and halfedge iterator API.
-- `alice2_agent`: sketch lifecycle, keyboard input, display, and renderer overlay.
-- `code_agent`: helper methods for loading, traversal, and drawing highlighted halfedges.
-- `build_agent`: run `alice2\build_with_zspace.bat` and fix errors until clean.
+- `zspace_agent`: verify the public binary SDK layout and imported CMake targets.
+- `alice2_agent`: align build, run, data, and release-directory behavior.
+- `code_agent`: update the packaging scripts with the smallest practical surface.
+- `build_agent`: build from the packaged SDK and validate release contents.
 - `document_agent`: not triggered.
 
 ## Proposed Changes
 
-- Update CMake post-build step to create `$<TARGET_FILE_DIR:alice2>/data`.
-- Copy `alice2/data` into the Release `data` folder when present.
-- Add a default OBJ file under `alice2/data`.
-- Add a new active zSpace halfedge traversal sketch under `alice2/userSrc/zspace`.
-- Disable the previous zSpace base sketch as the active `__MAIN__` sketch.
-
-## Sketch Behavior
-
-- Load `data/halfedge_input.obj`.
-- Draw the loaded mesh with alice2 `scene().draw(mesh, display)`.
-- Highlight:
-  - current halfedge in blue
-  - next halfedge in red
-  - previous halfedge in blue/purple
-  - symmetric/twin halfedge in orange
-- Key controls:
-  - `n`: advance to next halfedge
-  - `p`: advance to previous halfedge
-  - `s`: jump to symmetric/twin halfedge
+- Replace the legacy zSpace SDK copier with the native zSpace CMake build/install flow.
+- Package public headers, import libraries, runtime DLLs, generated CMake package files, and no zSpace implementation sources.
+- Add an alice2 release packager that produces runtime and developer distributions.
+- Make `run_with_zspace.bat` support both a packaged root executable and the local build output.
+- Complete alice2 install rules for data and runtime DLL deployment.
+- Update SDK/release usage notes and add package validation checks.
 
 ## Build Command
 
@@ -44,17 +31,20 @@ alice2\build_with_zspace.bat
 
 ## Acceptance Checks
 
-- Build creates a `data` folder beside `alice2.exe`.
-- Default OBJ exists and is copied to the Release `data` folder.
-- Sketch compiles cleanly.
-- Keyboard methods use zSpace halfedge traversal API.
-- User can run `alice2\run_with_zspace.bat` after the build.
+- zSpace SDK is consumed through `find_package(zspace CONFIG)` with source mode disabled.
+- SDK contains `include`, `lib`, `bin`, and `lib/cmake/zspace`.
+- SDK contains no `zspace_core/src`, implementation `.cpp`, or PDB files.
+- alice2 output contains the executable, required zSpace DLLs, and runtime data.
+- run script works from both the repository and packaged release root.
+- clean Release build succeeds against the binary SDK.
 
 ## Implementation Status
 
-- [x] Inspect zSpace halfedge iterator API.
-- [x] Inspect alice2 keyboard/display APIs.
-- [x] Add Release data folder support.
-- [x] Add default OBJ input.
-- [x] Add halfedge traversal sketch.
-- [x] Build and fix until clean.
+- [x] Inspect current binary SDK and CMake export support.
+- [x] Replace legacy SDK packaging.
+- [x] Add alice2 release packaging and validation.
+- [x] Complete runtime install/run behavior.
+- [x] Configure alice2 exclusively against the installed binary SDK.
+- [x] Validate SDK privacy and required artifacts.
+- [x] Complete final MSBuild and generated release-package validation.
+

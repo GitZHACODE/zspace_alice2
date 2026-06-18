@@ -1,56 +1,99 @@
-# This script copies built DLLs, import libraries, and header files of zspace_core
-# into alice2/depends/zspace directory and compresses it to depends/zspace.zip
+[CmdletBinding()]
+param(
+    [string]$ZspaceCoreDir,
+    [string]$OutputDir,
+    [string]$BuildDir,
+    [ValidateSet("Debug", "Release", "RelWithDebInfo", "MinSizeRel")]
+    [string]$Configuration = "Release",
+    [switch]$SkipBuild
+)
 
 $ErrorActionPreference = "Stop"
 
-# Get script parent folder (alice2/scripts/)
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$ProjectDir = Resolve-Path (Join-Path $ScriptDir "..")
-$DependsDir = Join-Path $ProjectDir "depends"
-$SdkDir = Join-Path $DependsDir "zspace"
-$ZspaceCoreDir = Resolve-Path (Join-Path $ProjectDir "..\..\zspace_core")
-$BuildDir = Join-Path $ProjectDir "build_zspace"
+$ProjectDir = [System.IO.Path]::GetFullPath((Join-Path $ScriptDir ".."))
 
-Write-Host "Creating SDK directories..."
-$SdkIncludeDir = Join-Path $SdkDir "include\zspace"
-$SdkLibDir = Join-Path $SdkDir "lib"
-$SdkBinDir = Join-Path $SdkDir "bin"
-
-New-Item -ItemType Directory -Path $SdkIncludeDir -Force | Out-Null
-New-Item -ItemType Directory -Path $SdkLibDir -Force | Out-Null
-New-Item -ItemType Directory -Path $SdkBinDir -Force | Out-Null
-
-# 1. Copy headers
-Write-Host "Copying headers from $ZspaceCoreDir\include\zspace..."
-Copy-Item -Path "$ZspaceCoreDir\include\zspace\*" -Destination $SdkIncludeDir -Recurse -Force
-
-# Copy zspace third_party depends headers to include/depends
-Write-Host "Copying third_party depends headers from $ZspaceCoreDir\third_party\depends..."
-$SdkDependsDir = Join-Path $SdkDir "include\depends"
-New-Item -ItemType Directory -Path $SdkDependsDir -Force | Out-Null
-Copy-Item -Path "$ZspaceCoreDir\third_party\depends\*" -Destination $SdkDependsDir -Recurse -Force
-
-# Copy zspace src files to include/src (required by template definitions)
-Write-Host "Copying src files from $ZspaceCoreDir\src..."
-$SdkSrcDir = Join-Path $SdkDir "include\src"
-New-Item -ItemType Directory -Path $SdkSrcDir -Force | Out-Null
-Copy-Item -Path "$ZspaceCoreDir\src\*" -Destination $SdkSrcDir -Recurse -Force
-
-# 2. Copy libs
-Write-Host "Copying lib files from $BuildDir\lib\Release..."
-Copy-Item -Path "$BuildDir\lib\Release\zSpace_*.lib" -Destination $SdkLibDir -Force
-
-# 3. Copy dlls
-Write-Host "Copying dll files from $BuildDir\bin\Release..."
-Copy-Item -Path "$BuildDir\bin\Release\zSpace_*.dll" -Destination $SdkBinDir -Force
-
-# 4. Zip SDK
-$ZipPath = Join-Path $DependsDir "zspace.zip"
-if (Test-Path $ZipPath) {
-    Remove-Item $ZipPath -Force
+if ([string]::IsNullOrWhiteSpace($ZspaceCoreDir)) {
+    $ZspaceCoreDir = Join-Path $ProjectDir "..\..\zspace_core"
 }
-Write-Host "Compressing SDK to $ZipPath..."
-Compress-Archive -Path $SdkDir -DestinationPath $ZipPath -Force
+if ([string]::IsNullOrWhiteSpace($OutputDir)) {
+    $OutputDir = Join-Path $ProjectDir "sdk\zspace"
+}
+if ([string]::IsNullOrWhiteSpace($BuildDir)) {
+    $BuildDir = Join-Path $ZspaceCoreDir "build\alice2-sdk"
+}
 
-Write-Host "zSpace SDK successfully packaged at: $SdkDir"
-Write-Host "zSpace SDK zip successfully created at: $ZipPath"
+$ZspaceCoreDir = [System.IO.Path]::GetFullPath($ZspaceCoreDir)
+$OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
+$BuildDir = [System.IO.Path]::GetFullPath($BuildDir)
+
+if (-not (Test-Path -LiteralPath (Join-Path $ZspaceCoreDir "CMakeLists.txt"))) {
+    throw "zspace_core was not found at '$ZspaceCoreDir'."
+}
+$CmakeCommand = Get-Command cmake -ErrorAction SilentlyContinue
+$CmakeExe = if ($CmakeCommand) { $CmakeCommand.Source } else { $null }
+if (-not $CmakeExe) {
+    $CmakeCandidates = @(
+        "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe",
+        "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe",
+        "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+    )
+    $CmakeExe = $CmakeCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+}
+if (-not $CmakeExe) { throw "CMake was not found on PATH or in Visual Studio 2022." }
+
+Write-Host "[zSpace SDK] Source:  $ZspaceCoreDir"
+Write-Host "[zSpace SDK] Build:   $BuildDir"
+Write-Host "[zSpace SDK] Install: $OutputDir"
+
+if (-not $SkipBuild) {
+    & $CmakeExe -S $ZspaceCoreDir -B $BuildDir `
+        -DZSPACE_BUILD_SHARED=ON `
+        -DZSPACE_BUILD_INTERFACE=ON `
+        -DZSPACE_BUILD_IO=ON `
+        -DZSPACE_BUILD_DISPLAY=OFF `
+        -DZSPACE_BUILD_INTEROP=OFF `
+        -DZSPACE_BUILD_TESTS=OFF `
+        -DZSPACE_WITH_OPENGL=OFF
+    if ($LASTEXITCODE -ne 0) { throw "zSpace CMake configuration failed." }
+
+    & $CmakeExe --build $BuildDir --config $Configuration --parallel
+    if ($LASTEXITCODE -ne 0) { throw "zSpace build failed." }
+}
+
+if (Test-Path -LiteralPath $OutputDir) {
+    Remove-Item -LiteralPath $OutputDir -Recurse -Force
+}
+
+& $CmakeExe --install $BuildDir --config $Configuration --prefix $OutputDir
+if ($LASTEXITCODE -ne 0) { throw "zSpace SDK installation failed." }
+
+$RequiredFiles = @(
+    "include\zspace\interface.h",
+    "lib\zSpace_Core.lib",
+    "lib\zSpace_Interface.lib",
+    "lib\zSpace_IO.lib",
+    "bin\zSpace_Core.dll",
+    "bin\zSpace_Interface.dll",
+    "bin\zSpace_IO.dll",
+    "lib\cmake\zspace\zspaceConfig.cmake",
+    "lib\cmake\zspace\zspaceTargets.cmake"
+)
+
+foreach ($RelativePath in $RequiredFiles) {
+    if (-not (Test-Path -LiteralPath (Join-Path $OutputDir $RelativePath))) {
+        throw "Incomplete zSpace SDK: missing '$RelativePath'."
+    }
+}
+
+$PrivateFiles = Get-ChildItem -LiteralPath $OutputDir -Recurse -File | Where-Object {
+    $_.Extension -eq ".pdb" -or
+    ($_.Extension -in @(".cpp", ".cxx", ".cc") -and $_.FullName -match "[\\/]include[\\/]zspace[\\/]") -or
+    $_.FullName -match "[\\/]include[\\/]src[\\/]"
+}
+if ($PrivateFiles) {
+    $List = ($PrivateFiles.FullName -join [Environment]::NewLine)
+    throw "The SDK contains private implementation/debug files:$([Environment]::NewLine)$List"
+}
+
+Write-Host "[zSpace SDK] Complete. No zSpace implementation sources or PDB files were packaged."
