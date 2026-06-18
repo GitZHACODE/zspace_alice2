@@ -3,12 +3,12 @@ setlocal
 
 set "CONFIG=Release"
 set "BUILD_DIR=build_zspace"
-set "ZSPACE_CORE_DIR=%~1"
+set "ZSPACE_SDK_DIR=%~1"
 set "CMAKE_EXE=cmake"
 set "BUILD_TOOL_ARGS=/m /clp:ErrorsOnly"
 
-if "%ZSPACE_CORE_DIR%"=="" (
-    set "ZSPACE_CORE_DIR=%~dp0..\..\zspace_core"
+if "%ZSPACE_SDK_DIR%"=="" (
+    set "ZSPACE_SDK_DIR=%~dp0sdk\zspace"
 )
 
 where cmake >nul 2>nul
@@ -28,8 +28,15 @@ if errorlevel 1 (
 )
 
 echo.
-echo [alice2] Building with zspace_core
-echo [alice2] zspace_core: "%ZSPACE_CORE_DIR%"
+if not exist "%ZSPACE_SDK_DIR%\lib\cmake\zspace\zspaceConfig.cmake" (
+    echo.
+    echo [alice2] zSpace binary SDK was not found at "%ZSPACE_SDK_DIR%".
+    echo [alice2] Pass the SDK path as the first argument or place it in alice2\sdk\zspace.
+    goto :fail
+)
+
+echo [alice2] Building with zSpace binary SDK
+echo [alice2] zSpace SDK: "%ZSPACE_SDK_DIR%"
 echo [alice2] cmake: "%CMAKE_EXE%"
 echo.
 
@@ -38,7 +45,7 @@ if errorlevel 1 goto :fail
 
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
 
-"%CMAKE_EXE%" -S . -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%CONFIG% -DALICE2_WITH_ZSPACE_CORE=ON -DZSPACE_CORE_DIR="%ZSPACE_CORE_DIR%"
+"%CMAKE_EXE%" -S . -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%CONFIG% -DALICE2_WITH_ZSPACE_CORE=ON -DALICE2_USE_ZSPACE_SOURCE=OFF -DZSPACE_SDK_DIR="%ZSPACE_SDK_DIR%"
 if errorlevel 1 goto :fail_pop
 
 "%CMAKE_EXE%" --build "%BUILD_DIR%" --config %CONFIG% -- %BUILD_TOOL_ARGS%
@@ -47,7 +54,7 @@ if errorlevel 1 goto :fail_pop
 echo.
 echo [alice2] zspace build finished successfully.
 popd
-pause
+if not defined ALICE2_NO_PAUSE pause
 exit /b 0
 
 :fail_pop
@@ -56,5 +63,5 @@ popd
 :fail
 echo.
 echo [alice2] zspace build failed.
-pause
+if not defined ALICE2_NO_PAUSE pause
 exit /b 1

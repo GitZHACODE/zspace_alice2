@@ -8,6 +8,7 @@ echo.
 
 set "BUILD_DIR=build_zspace"
 set "BIN_DIR=%BUILD_DIR%\bin\Release"
+if exist "%~dp0alice2.exe" set "BIN_DIR=."
 set "EXE_PATH=%BIN_DIR%\alice2.exe"
 set "DLL_GLEW=%BIN_DIR%\glew32.dll"
 set "DLL_GLFW=%BIN_DIR%\glfw3.dll"
@@ -20,7 +21,8 @@ if errorlevel 1 goto :fail
 
 if not exist "%EXE_PATH%" (
     echo ERROR: alice2.exe not found!
-    echo Please build the zSpace configuration first using build_with_zspace.bat.
+    echo Expected alice2.exe beside this script or in build_zspace\bin\Release.
+    echo Build the zSpace configuration first using build_with_zspace.bat.
     goto :fail_pop
 )
 
@@ -44,7 +46,7 @@ if not exist "%DLL_ZSPACE_IO%" (
 echo.
 echo Launching Alice2 3D Viewer (zSpace)...
 cd /d "%BIN_DIR%"
-start alice2.exe
+start "" alice2.exe
 cd /d "%~dp0"
 echo Alice2 launched successfully!
 echo.

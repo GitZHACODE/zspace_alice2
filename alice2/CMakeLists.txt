@@ -3,8 +3,10 @@ cmake_minimum_required(VERSION 3.16)
 project(alice2 VERSION 3.0.0 LANGUAGES C CXX)
 
 option(ALICE2_ENABLE_CUDA "Enable CUDA build of alice2" OFF)
-option(ALICE2_WITH_ZSPACE_CORE "Enable local zspace_core integration" ON)
+option(ALICE2_WITH_ZSPACE_CORE "Enable zSpace integration" ON)
+option(ALICE2_USE_ZSPACE_SOURCE "Build zSpace from a local source checkout" OFF)
 set(ZSPACE_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../zspace_core" CACHE PATH "Path to local zspace_core checkout")
+set(ZSPACE_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/sdk/zspace" CACHE PATH "Path to installed zSpace binary SDK")
 set(ALICE2_BUILD_MODE "default" CACHE STRING "Select alice2 build mode (default or test)")
 set_property(CACHE ALICE2_BUILD_MODE PROPERTY STRINGS default test)
 set(ALICE2_USING_TEST_MODE OFF)
@@ -32,58 +34,63 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_deps/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_deps/lib)
 
-# Fallback to SDK if local source does not exist
-if(ALICE2_WITH_ZSPACE_CORE AND NOT EXISTS "${ZSPACE_CORE_DIR}/CMakeLists.txt")
-    message(STATUS "ALICE2_WITH_ZSPACE_CORE=ON but local zspace_core was not found at: ${ZSPACE_CORE_DIR}. Falling back to precompiled SDK.")
-    set(ALICE2_WITH_ZSPACE_CORE OFF)
-endif()
-
 set(ALICE2_USING_ZSPACE_SDK OFF)
-if(NOT ALICE2_WITH_ZSPACE_CORE)
-    set(ZSPACE_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/depends/zspace")
-    # Download and extract SDK if not present locally
-    if(NOT EXISTS "${ZSPACE_SDK_DIR}/include/zspace/interface.h")
-        set(ZSPACE_URL "https://github.com/GitZHACODE/zspace_alice2/releases/download/depends/zspace.zip")
-        message(STATUS "Downloading precompiled zSpace SDK from ${ZSPACE_URL}...")
-        file(DOWNLOAD "${ZSPACE_URL}" "${CMAKE_CURRENT_SOURCE_DIR}/depends/zspace.zip" SHOW_PROGRESS STATUS dl_status)
-        list(GET dl_status 0 dl_code)
-        if(NOT dl_code EQUAL 0)
-            message(WARNING "Failed to download zSpace SDK: ${dl_status}. If you have local zspace_core source, enable ALICE2_WITH_ZSPACE_CORE.")
-        else()
+if(ALICE2_WITH_ZSPACE_CORE)
+    if(ALICE2_USE_ZSPACE_SOURCE)
+        if(NOT EXISTS "${ZSPACE_CORE_DIR}/CMakeLists.txt")
+            message(FATAL_ERROR "ALICE2_USE_ZSPACE_SOURCE=ON requires ZSPACE_CORE_DIR to point to a zspace_core checkout")
+        endif()
+
+        set(ZSPACE_BUILD_INTERFACE ON CACHE BOOL "Build zSpace interface DLL" FORCE)
+        set(ZSPACE_BUILD_IO ON CACHE BOOL "Build zSpace IO DLL" FORCE)
+        set(ZSPACE_BUILD_DISPLAY OFF CACHE BOOL "Build zSpace display DLL" FORCE)
+        set(ZSPACE_BUILD_INTEROP OFF CACHE BOOL "Build zSpace interop DLL" FORCE)
+        set(ZSPACE_BUILD_TESTS OFF CACHE BOOL "Build zSpace tests" FORCE)
+        set(ZSPACE_BUILD_SHARED ON CACHE BOOL "Build zSpace DLLs" FORCE)
+        set(ZSPACE_WITH_OPENGL OFF CACHE BOOL "Disable zSpace display OpenGL for alice2 integration" FORCE)
+
+        add_subdirectory("${ZSPACE_CORE_DIR}" "${CMAKE_BINARY_DIR}/zspace_core_build")
+
+        set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+        set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_deps/lib)
+        set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_deps/lib)
+    else()
+        # Automatically download precompiled zSpace SDK if it is missing
+        set(ZSPACE_SDK_VERSION "v3.0.0" CACHE STRING "zSpace SDK Version to download")
+        set(ZSPACE_SDK_URL "https://github.com/GitZHCODE/zspace_alice2/releases/download/${ZSPACE_SDK_VERSION}/zspace.zip")
+
+        if(NOT EXISTS "${ZSPACE_SDK_DIR}/lib/cmake/zspace/zspaceConfig.cmake")
+            message(STATUS "zSpace SDK config not found. Downloading SDK version ${ZSPACE_SDK_VERSION}...")
+            file(MAKE_DIRECTORY "${ZSPACE_SDK_DIR}")
+            
+            file(DOWNLOAD "${ZSPACE_SDK_URL}" "${ZSPACE_SDK_DIR}/zspace.zip" SHOW_PROGRESS STATUS dl_status)
+            list(GET dl_status 0 dl_code)
+            if(NOT dl_code EQUAL 0)
+                message(FATAL_ERROR "Failed to download zSpace SDK from ${ZSPACE_SDK_URL}: ${dl_status}")
+            endif()
+
             execute_process(
-                COMMAND ${CMAKE_COMMAND} -E tar xzf "${CMAKE_CURRENT_SOURCE_DIR}/depends/zspace.zip"
-                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/depends"
+                COMMAND ${CMAKE_COMMAND} -E tar xzf "${ZSPACE_SDK_DIR}/zspace.zip"
+                WORKING_DIRECTORY "${ZSPACE_SDK_DIR}/.."
                 RESULT_VARIABLE unpack_ret
             )
             if(NOT unpack_ret EQUAL 0)
-                message(FATAL_ERROR "Failed to unpack zspace.zip")
+                message(FATAL_ERROR "Failed to unpack zSpace SDK")
             endif()
-            file(REMOVE "${CMAKE_CURRENT_SOURCE_DIR}/depends/zspace.zip")
-            message(STATUS "Extracted and removed zspace.zip")
+
+            file(REMOVE "${ZSPACE_SDK_DIR}/zspace.zip")
+            message(STATUS "Successfully installed zSpace SDK ${ZSPACE_SDK_VERSION}")
         endif()
-    endif()
 
-    if(EXISTS "${ZSPACE_SDK_DIR}/include/zspace/interface.h")
+        list(PREPEND CMAKE_PREFIX_PATH "${ZSPACE_SDK_DIR}")
+        find_package(zspace 3 CONFIG REQUIRED)
+        foreach(zspace_target zspace::core zspace::interface zspace::io)
+            if(NOT TARGET ${zspace_target})
+                message(FATAL_ERROR "zSpace SDK is missing required target: ${zspace_target}")
+            endif()
+        endforeach()
         set(ALICE2_USING_ZSPACE_SDK ON)
-    else()
-        message(FATAL_ERROR "zspace_core source not found and precompiled zSpace SDK is missing. Please enable ALICE2_WITH_ZSPACE_CORE or check internet connection.")
     endif()
-endif()
-
-if(ALICE2_WITH_ZSPACE_CORE)
-    set(ZSPACE_BUILD_INTERFACE ON CACHE BOOL "Build zSpace interface DLL" FORCE)
-    set(ZSPACE_BUILD_IO ON CACHE BOOL "Build zSpace IO DLL" FORCE)
-    set(ZSPACE_BUILD_DISPLAY OFF CACHE BOOL "Build zSpace display DLL" FORCE)
-    set(ZSPACE_BUILD_INTEROP OFF CACHE BOOL "Build zSpace interop DLL" FORCE)
-    set(ZSPACE_BUILD_TESTS OFF CACHE BOOL "Build zSpace tests" FORCE)
-    set(ZSPACE_BUILD_SHARED ON CACHE BOOL "Build zSpace DLLs" FORCE)
-    set(ZSPACE_WITH_OPENGL OFF CACHE BOOL "Disable zSpace display OpenGL for alice2 integration" FORCE)
-
-    add_subdirectory("${ZSPACE_CORE_DIR}" "${CMAKE_BINARY_DIR}/zspace_core_build")
-
-    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_deps/lib)
-    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_deps/lib)
 endif()
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
@@ -216,7 +223,7 @@ include_directories(
     ${NLOHMANN_JSON_INCLUDE_DIRS}
     ${GL2PS_INCLUDE_DIRS}
 )
-if(ALICE2_WITH_ZSPACE_CORE)
+if(ALICE2_WITH_ZSPACE_CORE AND ALICE2_USE_ZSPACE_SOURCE)
     include_directories(BEFORE
         "${ZSPACE_CORE_DIR}"
         "${ZSPACE_CORE_DIR}/include"
@@ -224,8 +231,10 @@ if(ALICE2_WITH_ZSPACE_CORE)
         "${ZSPACE_CORE_DIR}/third_party/depends"
     )
 elseif(ALICE2_USING_ZSPACE_SDK)
+    get_target_property(ZSPACE_SDK_INCLUDE_DIRS zspace::core INTERFACE_INCLUDE_DIRECTORIES)
     include_directories(BEFORE
-        "${ZSPACE_SDK_DIR}/include"
+        "${ZSPACE_SDK_DIR}/include/depends"
+        ${ZSPACE_SDK_INCLUDE_DIRS}
     )
 endif()
 if(ALICE2_USING_TEST_MODE)
@@ -322,13 +331,6 @@ if(ALICE2_WITH_ZSPACE_CORE)
         zspace::io
     )
     target_compile_definitions(alice2 PRIVATE ALICE2_WITH_ZSPACE_CORE=1)
-elseif(ALICE2_USING_ZSPACE_SDK)
-    target_link_libraries(alice2
-        "${ZSPACE_SDK_DIR}/lib/zSpace_Core.lib"
-        "${ZSPACE_SDK_DIR}/lib/zSpace_Interface.lib"
-        "${ZSPACE_SDK_DIR}/lib/zSpace_IO.lib"
-    )
-    target_compile_definitions(alice2 PRIVATE ALICE2_WITH_ZSPACE_CORE=1 ZSPACE_DYNAMIC_LIBRARY)
 endif()
 if(ALICE2_ENABLE_CUDA)
     target_link_libraries(alice2 CUDA::cublas CUDA::cudart)
@@ -387,20 +389,13 @@ if(WIN32)
     endif()
 
     if(ALICE2_WITH_ZSPACE_CORE)
-        foreach(zspace_target zSpace_Core zSpace_Interface zSpace_IO)
+        foreach(zspace_target zspace::core zspace::interface zspace::io)
             if(TARGET ${zspace_target})
                 add_custom_command(TARGET alice2 POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
                             $<TARGET_FILE:${zspace_target}> $<TARGET_FILE_DIR:alice2>
                     COMMENT "Copying ${zspace_target} DLL to alice2 output directory")
             endif()
-        endforeach()
-    elseif(ALICE2_USING_ZSPACE_SDK)
-        foreach(zspace_dll zSpace_Core zSpace_Interface zSpace_IO)
-            add_custom_command(TARGET alice2 POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                        "${ZSPACE_SDK_DIR}/bin/${zspace_dll}.dll" $<TARGET_FILE_DIR:alice2>
-                COMMENT "Copying precompiled ${zspace_dll} DLL to output directory")
         endforeach()
     endif()
 endif()
@@ -415,6 +410,9 @@ install(TARGETS alice2
     LIBRARY DESTINATION _deps/lib
     ARCHIVE DESTINATION _deps/lib
 )
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/data")
+    install(DIRECTORY data/ DESTINATION ${ALICE2_INSTALL_RUNTIME_DESTINATION}/data)
+endif()
 if(ALICE2_USING_TEST_MODE)
     install(DIRECTORY tests/
         DESTINATION build_tests
@@ -452,6 +450,13 @@ if(WIN32)
             install(FILES ${GLFW_DLL_PATH} DESTINATION bin)
         endif()
     endif()
+    if(ALICE2_WITH_ZSPACE_CORE)
+        foreach(zspace_target zspace::core zspace::interface zspace::io)
+            if(TARGET ${zspace_target})
+                install(FILES $<TARGET_FILE:${zspace_target}> DESTINATION ${ALICE2_INSTALL_RUNTIME_DESTINATION})
+            endif()
+        endforeach()
+    endif()
 endif()
 
 install(FILES CMakeLists.txt DESTINATION .)
@@ -463,7 +468,11 @@ message(STATUS "  C++ standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "  CUDA enabled: ${ALICE2_ENABLE_CUDA}")
 message(STATUS "  zspace_core enabled: ${ALICE2_WITH_ZSPACE_CORE}")
 if(ALICE2_WITH_ZSPACE_CORE)
-    message(STATUS "  zspace_core dir: ${ZSPACE_CORE_DIR}")
+    if(ALICE2_USE_ZSPACE_SOURCE)
+        message(STATUS "  zSpace mode: source (${ZSPACE_CORE_DIR})")
+    else()
+        message(STATUS "  zSpace mode: binary SDK (${ZSPACE_SDK_DIR})")
+    endif()
 endif()
 if(ALICE2_ENABLE_CUDA)
     message(STATUS "  CUDA standard: ${CMAKE_CUDA_STANDARD}")
