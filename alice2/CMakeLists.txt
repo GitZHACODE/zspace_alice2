@@ -258,9 +258,20 @@ if(ALICE2_USING_TEST_MODE)
     )
     list(APPEND ALICE2_SOURCES ${ALICE2_TEST_SOURCES})
 else()
-    file(GLOB_RECURSE ALICE2_USER_SOURCES
+    file(GLOB_RECURSE POTENTIAL_USER_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/*.cpp"
     )
+    set(ALICE2_USER_SOURCES)
+    foreach(source_file IN LISTS POTENTIAL_USER_SOURCES)
+        file(STRINGS "${source_file}" main_line REGEX "^[ \t]*#define[ \t]+__MAIN__")
+        if(main_line)
+            list(APPEND ALICE2_USER_SOURCES "${source_file}")
+        endif()
+    endforeach()
+    
+    if(NOT ALICE2_USER_SOURCES)
+        list(APPEND ALICE2_USER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/base/sketch_base.cpp")
+    endif()
     list(APPEND ALICE2_SOURCES ${ALICE2_USER_SOURCES})
 endif()
 
@@ -311,6 +322,8 @@ group_sources_by_folder("Source Files" "${ALICE2_SOURCES}")
 group_sources_by_folder("Header Files" "${ALICE2_HEADERS}")
 
 add_executable(alice2 ${ALICE2_SOURCES} ${ALICE2_HEADERS})
+
+target_precompile_headers(alice2 PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/src/core/pch.h>")
 
 if(ALICE2_ENABLE_CUDA)
     target_compile_definitions(alice2 PRIVATE ALICE2_WITH_CUDA=1)
