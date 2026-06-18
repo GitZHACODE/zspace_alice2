@@ -45,8 +45,8 @@ namespace alice2 {
 
         // Create default orbit quaternion for Z-up system
         inline Quaternion getDefaultOrbitRotation() {
-            Quaternion yawRotation = Quaternion::fromAxisAngle(ZUp::UP, -45.0f * DEG_TO_RAD);
-            Quaternion pitchRotation = Quaternion::fromAxisAngle(ZUp::RIGHT, 25.0f * DEG_TO_RAD);
+            Quaternion yawRotation = Quaternion::fromAxisAngle(ZUp::UP, -45.0f * ALICE2_DEG_TO_RAD);
+            Quaternion pitchRotation = Quaternion::fromAxisAngle(ZUp::RIGHT, 25.0f * ALICE2_DEG_TO_RAD);
             return yawRotation * pitchRotation;
         }
 

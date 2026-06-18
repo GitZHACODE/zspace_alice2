@@ -23,7 +23,7 @@ namespace alice2 {
 
         // Euler angle convenience methods (for backward compatibility)
         void setRotationEuler(const Vec3& euler) {
-            m_rotation = Quaternion::fromEuler(euler.x * DEG_TO_RAD, euler.y * DEG_TO_RAD, euler.z * DEG_TO_RAD);
+            m_rotation = Quaternion::fromEuler(euler.x * ALICE2_DEG_TO_RAD, euler.y * ALICE2_DEG_TO_RAD, euler.z * ALICE2_DEG_TO_RAD);
             markDirty();
         }
 

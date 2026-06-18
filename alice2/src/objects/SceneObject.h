@@ -16,7 +16,7 @@ namespace alice2 {
     enum class ObjectType {
         Unknown,
         Primitive,
-        ZSpaceObject,
+        zSpaceObject,
         Mesh,
         PointCloud,
         Graph

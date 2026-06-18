@@ -45,8 +45,8 @@ namespace alice2 {
 
         bool operator==(const Vec3 &o) const
         {
-            constexpr float EPS = 1e-6f;
-            return fabs(x - o.x) < EPS && fabs(y - o.y) < EPS && fabs(z - o.z) < EPS;
+            constexpr float tolerance = 1e-6f;
+            return fabs(x - o.x) < tolerance && fabs(y - o.y) < tolerance && fabs(z - o.z) < tolerance;
         }
         bool operator!=(const Vec3 &other) const { return !(*this == other); }
 
@@ -120,8 +120,8 @@ namespace alice2 {
 
         bool operator==(const Vec4 &o) const
         {
-            constexpr float EPS = 1e-6f;
-            return fabs(r - o.r) < EPS && fabs(g - o.g) < EPS && fabs(b - o.b) < EPS; //ignore alpha value
+            constexpr float tolerance = 1e-6f;
+            return fabs(r - o.r) < tolerance && fabs(g - o.g) < tolerance && fabs(b - o.b) < tolerance; //ignore alpha value
         }
         bool operator!=(const Vec4 &other) const { return !(*this == other); }
 

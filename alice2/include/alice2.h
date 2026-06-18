@@ -30,7 +30,7 @@
 
 // Object includes
 #include "../src/objects/SceneObject.h"
-#include "../src/objects/ZSpaceObject.h"
+#include "../src/objects/zSpaceObject.h"
 #include "../src/objects/PrimitiveObject.h"
 #include "../src/objects/MeshObject.h"
 #include "../src/solvers/ProjectionSolver.h"

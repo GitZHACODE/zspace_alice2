@@ -27,8 +27,8 @@ namespace alice2 {
 
         // Set initial orbit rotation for a good default view
         // Looking down at origin from a 45-degree angle, slightly elevated
-        Quaternion yawRotation = Quaternion::fromAxisAngle(ZUp::UP, 45.0f * DEG_TO_RAD);
-        Quaternion pitchRotation = Quaternion::fromAxisAngle(ZUp::RIGHT, -25.0f * DEG_TO_RAD);
+        Quaternion yawRotation = Quaternion::fromAxisAngle(ZUp::UP, 45.0f * ALICE2_DEG_TO_RAD);
+        Quaternion pitchRotation = Quaternion::fromAxisAngle(ZUp::RIGHT, -25.0f * ALICE2_DEG_TO_RAD);
         m_orbitRotation = yawRotation * pitchRotation;
 
         //std::cout << "[CAMERA] Initial orbit rotation set: yaw=-45°, pitch=25°" << std::endl;
@@ -78,11 +78,11 @@ namespace alice2 {
         m_orbitDistance = distance;
 
         // Yaw: world Z
-        Quaternion yawRotation = Quaternion::fromAxisAngle(ZUp::UP, -deltaX * DEG_TO_RAD);
+        Quaternion yawRotation = Quaternion::fromAxisAngle(ZUp::UP, -deltaX * ALICE2_DEG_TO_RAD);
 
         // Pitch: camera's right
         Vec3 currentRight = m_orbitRotation.rotate(ZUp::RIGHT);
-        Quaternion pitchRotation = Quaternion::fromAxisAngle(currentRight, -deltaY * DEG_TO_RAD); // Note the sign
+        Quaternion pitchRotation = Quaternion::fromAxisAngle(currentRight, -deltaY * ALICE2_DEG_TO_RAD); // Note the sign
 
         // Apply as: yaw, then pitch, then current
         m_orbitRotation = yawRotation * pitchRotation * m_orbitRotation;
@@ -106,7 +106,7 @@ namespace alice2 {
 
         // Scale pan speed based on distance from target and field of view
         // This provides more intuitive panning that scales with zoom level
-        float fovScale = std::tan(m_fov * DEG_TO_RAD * 0.5f);
+        float fovScale = std::tan(m_fov * ALICE2_DEG_TO_RAD * 0.5f);
         float panScale = m_orbitDistance * fovScale * 0.002f;
         Vec3 offset = (right * deltaX + up * deltaY) * panScale;
 

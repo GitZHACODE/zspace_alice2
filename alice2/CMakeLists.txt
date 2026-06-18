@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.16)
 project(alice2 VERSION 1.0.0 LANGUAGES C CXX)
 
 option(ALICE2_ENABLE_CUDA "Enable CUDA build of alice2" OFF)
+option(ALICE2_WITH_ZSPACE_CORE "Enable local zspace_core integration" ON)
+set(ZSPACE_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../zspace_core" CACHE PATH "Path to local zspace_core checkout")
 set(ALICE2_BUILD_MODE "default" CACHE STRING "Select alice2 build mode (default or test)")
 set_property(CACHE ALICE2_BUILD_MODE PROPERTY STRINGS default test)
 set(ALICE2_USING_TEST_MODE OFF)
@@ -29,6 +31,26 @@ endif()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_deps/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_deps/lib)
+
+if(ALICE2_WITH_ZSPACE_CORE)
+    if(NOT EXISTS "${ZSPACE_CORE_DIR}/CMakeLists.txt")
+        message(FATAL_ERROR "ALICE2_WITH_ZSPACE_CORE=ON but ZSPACE_CORE_DIR does not contain CMakeLists.txt: ${ZSPACE_CORE_DIR}")
+    endif()
+
+    set(ZSPACE_BUILD_INTERFACE ON CACHE BOOL "Build zSpace interface DLL" FORCE)
+    set(ZSPACE_BUILD_IO ON CACHE BOOL "Build zSpace IO DLL" FORCE)
+    set(ZSPACE_BUILD_DISPLAY OFF CACHE BOOL "Build zSpace display DLL" FORCE)
+    set(ZSPACE_BUILD_INTEROP OFF CACHE BOOL "Build zSpace interop DLL" FORCE)
+    set(ZSPACE_BUILD_TESTS OFF CACHE BOOL "Build zSpace tests" FORCE)
+    set(ZSPACE_BUILD_SHARED ON CACHE BOOL "Build zSpace DLLs" FORCE)
+    set(ZSPACE_WITH_OPENGL OFF CACHE BOOL "Disable zSpace display OpenGL for alice2 integration" FORCE)
+
+    add_subdirectory("${ZSPACE_CORE_DIR}" "${CMAKE_BINARY_DIR}/zspace_core_build")
+
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_deps/lib)
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_deps/lib)
+endif()
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "_deps/CMakeTargets")
@@ -160,6 +182,14 @@ include_directories(
     ${NLOHMANN_JSON_INCLUDE_DIRS}
     ${GL2PS_INCLUDE_DIRS}
 )
+if(ALICE2_WITH_ZSPACE_CORE)
+    include_directories(BEFORE
+        "${ZSPACE_CORE_DIR}"
+        "${ZSPACE_CORE_DIR}/include"
+        "${ZSPACE_CORE_DIR}/third_party"
+        "${ZSPACE_CORE_DIR}/third_party/depends"
+    )
+endif()
 if(ALICE2_USING_TEST_MODE)
     include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tests)
 else()
@@ -240,18 +270,37 @@ if(ALICE2_ENABLE_CUDA)
 else()
     target_compile_definitions(alice2 PRIVATE ALICE2_WITH_CUDA=0)
 endif()
+target_compile_definitions(alice2 PRIVATE JSON_SKIP_LIBRARY_VERSION_CHECK=1)
 
 target_link_libraries(alice2
     ${OPENGL_LIBRARIES}
     ${GLEW_LIBRARIES}
     ${GLFW_LIBRARIES}
 )
+if(ALICE2_WITH_ZSPACE_CORE)
+    target_link_libraries(alice2
+        zspace::core
+        zspace::interface
+        zspace::io
+    )
+    target_compile_definitions(alice2 PRIVATE ALICE2_WITH_ZSPACE_CORE=1)
+endif()
 if(ALICE2_ENABLE_CUDA)
     target_link_libraries(alice2 CUDA::cublas CUDA::cudart)
 endif()
 
 if(WIN32)
     target_link_libraries(alice2 user32 gdi32 shell32)
+endif()
+
+add_custom_command(TARGET alice2 POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:alice2>/data"
+    COMMENT "Creating runtime data directory")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/data")
+    add_custom_command(TARGET alice2 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/data" "$<TARGET_FILE_DIR:alice2>/data"
+        COMMENT "Copying data directory to output directory")
 endif()
 
 if(MSVC)
@@ -290,6 +339,17 @@ if(WIN32)
         endif()
     else()
         message(STATUS "Using static GLFW library - no DLL copy needed")
+    endif()
+
+    if(ALICE2_WITH_ZSPACE_CORE)
+        foreach(zspace_target zSpace_Core zSpace_Interface zSpace_IO)
+            if(TARGET ${zspace_target})
+                add_custom_command(TARGET alice2 POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            $<TARGET_FILE:${zspace_target}> $<TARGET_FILE_DIR:alice2>
+                    COMMENT "Copying ${zspace_target} DLL to alice2 output directory")
+            endif()
+        endforeach()
     endif()
 endif()
 
@@ -349,6 +409,10 @@ message(STATUS "  Build mode: ${ALICE2_BUILD_MODE}")
 message(STATUS "  Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "  CUDA enabled: ${ALICE2_ENABLE_CUDA}")
+message(STATUS "  zspace_core enabled: ${ALICE2_WITH_ZSPACE_CORE}")
+if(ALICE2_WITH_ZSPACE_CORE)
+    message(STATUS "  zspace_core dir: ${ZSPACE_CORE_DIR}")
+endif()
 if(ALICE2_ENABLE_CUDA)
     message(STATUS "  CUDA standard: ${CMAKE_CUDA_STANDARD}")
     message(STATUS "  CUDA archs: ${CMAKE_CUDA_ARCHITECTURES}")

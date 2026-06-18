@@ -1,13 +1,13 @@
-#include "ZSpaceObject.h"
+#include "zSpaceObject.h"
 #include "../core/Renderer.h"
 #include "../core/Camera.h"
 
 namespace alice2 {
 
-    ZSpaceObject::ZSpaceObject(const std::string& name)
+    zSpaceObject::zSpaceObject(const std::string& name)
         : SceneObject(name)
         , m_zspaceObject(nullptr)
-        , m_zspaceType(ZSpaceObjectType::Unknown)
+        , m_zspaceType(zSpaceObjectType::Unknown)
         , m_displayVertices(true)
         , m_displayEdges(true)
         , m_displayFaces(true)
@@ -16,44 +16,44 @@ namespace alice2 {
     {
     }
 
-    ZSpaceObject::ZSpaceObject(void* zspaceObj, ZSpaceObjectType type, const std::string& name)
+    zSpaceObject::zSpaceObject(void* zspaceObj, zSpaceObjectType type, const std::string& name)
         : SceneObject(name)
         , m_zspaceObject(zspaceObj)
         , m_zspaceType(type)
         , m_displayVertices(true)
         , m_displayEdges(true)
-        , m_displayFaces(type == ZSpaceObjectType::Mesh)
+        , m_displayFaces(type == zSpaceObjectType::Mesh)
         , m_vertexSize(3.0f)
         , m_edgeWidth(1.0f)
     {
         calculateBounds();
     }
 
-    void ZSpaceObject::setZSpaceObject(void* zspaceObj) {
+    void zSpaceObject::setZSpaceObject(void* zspaceObj) {
         m_zspaceObject = zspaceObj;
-        m_zspaceType = ZSpaceObjectType::Generic;
+        m_zspaceType = zSpaceObjectType::Generic;
         calculateBounds();
     }
 
-    void ZSpaceObject::setZSpaceMesh(void* zspaceMesh) {
+    void zSpaceObject::setZSpaceMesh(void* zspaceMesh) {
         m_zspaceObject = zspaceMesh;
-        m_zspaceType = ZSpaceObjectType::Mesh;
+        m_zspaceType = zSpaceObjectType::Mesh;
         calculateBounds();
     }
 
-    void ZSpaceObject::setZSpaceGraph(void* zspaceGraph) {
+    void zSpaceObject::setZSpaceGraph(void* zspaceGraph) {
         m_zspaceObject = zspaceGraph;
-        m_zspaceType = ZSpaceObjectType::Graph;
+        m_zspaceType = zSpaceObjectType::Graph;
         calculateBounds();
     }
 
-    void ZSpaceObject::setZSpacePointCloud(void* zspacePointCloud) {
+    void zSpaceObject::setZSpacePointCloud(void* zspacePointCloud) {
         m_zspaceObject = zspacePointCloud;
-        m_zspaceType = ZSpaceObjectType::PointCloud;
+        m_zspaceType = zSpaceObjectType::PointCloud;
         calculateBounds();
     }
 
-    void ZSpaceObject::renderImpl(Renderer& renderer, Camera& /*camera*/) {
+    void zSpaceObject::renderImpl(Renderer& renderer, Camera& /*camera*/) {
         if (!m_zspaceObject) {
             // Render a placeholder cube when no zSpace object is attached
             renderer.setColor(Color(0.5f, 0.5f, 0.5f));
@@ -64,29 +64,29 @@ namespace alice2 {
         renderer.setColor(m_color);
 
         switch (m_zspaceType) {
-            case ZSpaceObjectType::Mesh:
+            case zSpaceObjectType::Mesh:
                 renderMesh(renderer);
                 break;
-            case ZSpaceObjectType::Graph:
+            case zSpaceObjectType::Graph:
                 renderGraph(renderer);
                 break;
-            case ZSpaceObjectType::PointCloud:
+            case zSpaceObjectType::PointCloud:
                 renderPointCloud(renderer);
                 break;
-            case ZSpaceObjectType::Generic:
+            case zSpaceObjectType::Generic:
             default:
                 renderGeneric(renderer);
                 break;
         }
     }
 
-    void ZSpaceObject::update(float /*deltaTime*/) {
+    void zSpaceObject::update(float /*deltaTime*/) {
         // TODO: Update zSpace object if needed
         // For now, just update bounds
         calculateBounds();
     }
 
-    void ZSpaceObject::calculateBounds() {
+    void zSpaceObject::calculateBounds() {
         if (!m_zspaceObject) {
             // Default bounds for placeholder
             setBounds(Vec3(-0.5f, -0.5f, -0.5f), Vec3(0.5f, 0.5f, 0.5f));
@@ -94,13 +94,13 @@ namespace alice2 {
         }
 
         switch (m_zspaceType) {
-            case ZSpaceObjectType::Mesh:
+            case zSpaceObjectType::Mesh:
                 calculateMeshBounds();
                 break;
-            case ZSpaceObjectType::Graph:
+            case zSpaceObjectType::Graph:
                 calculateGraphBounds();
                 break;
-            case ZSpaceObjectType::PointCloud:
+            case zSpaceObjectType::PointCloud:
                 calculatePointCloudBounds();
                 break;
             default:
@@ -111,8 +111,8 @@ namespace alice2 {
         }
     }
 
-    void ZSpaceObject::renderMesh(Renderer& renderer) {
-        if (m_zspaceType != ZSpaceObjectType::Mesh) return;
+    void zSpaceObject::renderMesh(Renderer& renderer) {
+        if (m_zspaceType != zSpaceObjectType::Mesh) return;
 
         // For now, render a placeholder until we implement proper zSpace mesh rendering
         // TODO: Implement actual zSpace mesh rendering using zSpace mesh data
@@ -127,8 +127,8 @@ namespace alice2 {
         }
     }
 
-    void ZSpaceObject::renderGraph(Renderer& renderer) {
-        if (m_zspaceType != ZSpaceObjectType::Graph) return;
+    void zSpaceObject::renderGraph(Renderer& renderer) {
+        if (m_zspaceType != zSpaceObjectType::Graph) return;
 
         // For now, render placeholder lines
         // TODO: Implement actual zSpace graph rendering using zSpace graph data
@@ -139,8 +139,8 @@ namespace alice2 {
         renderer.drawLine(Vec3(0, 0, -1), Vec3(0, 0, 1));
     }
 
-    void ZSpaceObject::renderPointCloud(Renderer& renderer) {
-        if (m_zspaceType != ZSpaceObjectType::PointCloud) return;
+    void zSpaceObject::renderPointCloud(Renderer& renderer) {
+        if (m_zspaceType != zSpaceObjectType::PointCloud) return;
 
         // For now, render placeholder points
         // TODO: Implement actual zSpace point cloud rendering using zSpace point cloud data
@@ -152,23 +152,23 @@ namespace alice2 {
         }
     }
 
-    void ZSpaceObject::renderGeneric(Renderer& renderer) {
+    void zSpaceObject::renderGeneric(Renderer& renderer) {
         // For generic zSpace objects, try to call their draw method
         // TODO: Implement proper zSpace object drawing
         renderer.drawCube(1.0f);
     }
 
-    void ZSpaceObject::calculateMeshBounds() {
+    void zSpaceObject::calculateMeshBounds() {
         // TODO: Calculate bounds from zSpace mesh vertices
         setBounds(Vec3(-1.0f, -1.0f, -1.0f), Vec3(1.0f, 1.0f, 1.0f));
     }
 
-    void ZSpaceObject::calculateGraphBounds() {
+    void zSpaceObject::calculateGraphBounds() {
         // TODO: Calculate bounds from zSpace graph vertices
         setBounds(Vec3(-1.0f, -1.0f, -1.0f), Vec3(1.0f, 1.0f, 1.0f));
     }
 
-    void ZSpaceObject::calculatePointCloudBounds() {
+    void zSpaceObject::calculatePointCloudBounds() {
         // TODO: Calculate bounds from zSpace point cloud points
         setBounds(Vec3(-1.0f, -1.0f, -1.0f), Vec3(1.0f, 1.0f, 1.0f));
     }

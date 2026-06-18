@@ -158,7 +158,7 @@ namespace alice2 {
 
         static Mat4 perspective(float fovy, float aspect, float nearPlane, float farPlane) {
             Mat4 result;
-            float f = 1.0f / std::tan(fovy * DEG_TO_RAD * 0.5f);
+            float f = 1.0f / std::tan(fovy * ALICE2_DEG_TO_RAD * 0.5f);
 
             result.m[0] = f / aspect;
             result.m[5] = f;

@@ -7,15 +7,7 @@
 
 namespace alice2 {
 
-    // Forward declarations for zSpace types (to be implemented later)
-    namespace zSpace {
-        class zObj;
-        class zObjMesh;
-        class zObjGraph;
-        class zObjPointCloud;
-    }
-
-    enum class ZSpaceObjectType {
+    enum class zSpaceObjectType {
         Unknown,
         Mesh,
         Graph,
@@ -23,14 +15,14 @@ namespace alice2 {
         Generic
     };
 
-    class ZSpaceObject : public SceneObject {
+    class zSpaceObject : public SceneObject {
     public:
-        ZSpaceObject(const std::string& name = "ZSpaceObject");
-        ZSpaceObject(void* zspaceObj, ZSpaceObjectType type, const std::string& name = "ZSpaceObject");
-        virtual ~ZSpaceObject() = default;
+        zSpaceObject(const std::string& name = "zSpaceObject");
+        zSpaceObject(void* zspaceObj, zSpaceObjectType type, const std::string& name = "zSpaceObject");
+        virtual ~zSpaceObject() = default;
 
         // Type
-        ObjectType getType() const override { return ObjectType::ZSpaceObject; }
+        ObjectType getType() const override { return ObjectType::zSpaceObject; }
 
         // zSpace object management (placeholder for future implementation)
         void setZSpaceObject(void* zspaceObj);
@@ -39,7 +31,7 @@ namespace alice2 {
         void setZSpacePointCloud(void* zspacePointCloud);
 
         void* getZSpaceObject() const { return m_zspaceObject; }
-        ZSpaceObjectType getZSpaceType() const { return m_zspaceType; }
+        zSpaceObjectType getZSpaceType() const { return m_zspaceType; }
 
         // Rendering
         void renderImpl(Renderer& renderer, Camera& camera) override;
@@ -68,7 +60,7 @@ namespace alice2 {
 
     private:
         void* m_zspaceObject;  // Pointer to actual zSpace object (placeholder)
-        ZSpaceObjectType m_zspaceType;
+        zSpaceObjectType m_zspaceType;
 
         // Display properties
         bool m_displayVertices;
