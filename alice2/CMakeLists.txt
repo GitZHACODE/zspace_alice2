@@ -43,7 +43,7 @@ if(NOT ALICE2_WITH_ZSPACE_CORE)
     set(ZSPACE_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/depends/zspace")
     # Download and extract SDK if not present locally
     if(NOT EXISTS "${ZSPACE_SDK_DIR}/include/zspace/interface.h")
-        set(ZSPACE_URL "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/zspace.zip")
+        set(ZSPACE_URL "https://github.com/GitZHACODE/zspace_alice2/releases/download/depends/zspace.zip")
         message(STATUS "Downloading precompiled zSpace SDK from ${ZSPACE_URL}...")
         file(DOWNLOAD "${ZSPACE_URL}" "${CMAKE_CURRENT_SOURCE_DIR}/depends/zspace.zip" SHOW_PROGRESS STATUS dl_status)
         list(GET dl_status 0 dl_code)
