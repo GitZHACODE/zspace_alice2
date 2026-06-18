@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(alice2 VERSION 1.0.0 LANGUAGES C CXX)
+project(alice2 VERSION 3.0.0 LANGUAGES C CXX)
 
 option(ALICE2_ENABLE_CUDA "Enable CUDA build of alice2" OFF)
 option(ALICE2_WITH_ZSPACE_CORE "Enable local zspace_core integration" ON)
@@ -32,11 +32,45 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_deps/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_deps/lib)
 
-if(ALICE2_WITH_ZSPACE_CORE)
-    if(NOT EXISTS "${ZSPACE_CORE_DIR}/CMakeLists.txt")
-        message(FATAL_ERROR "ALICE2_WITH_ZSPACE_CORE=ON but ZSPACE_CORE_DIR does not contain CMakeLists.txt: ${ZSPACE_CORE_DIR}")
+# Fallback to SDK if local source does not exist
+if(ALICE2_WITH_ZSPACE_CORE AND NOT EXISTS "${ZSPACE_CORE_DIR}/CMakeLists.txt")
+    message(STATUS "ALICE2_WITH_ZSPACE_CORE=ON but local zspace_core was not found at: ${ZSPACE_CORE_DIR}. Falling back to precompiled SDK.")
+    set(ALICE2_WITH_ZSPACE_CORE OFF)
+endif()
+
+set(ALICE2_USING_ZSPACE_SDK OFF)
+if(NOT ALICE2_WITH_ZSPACE_CORE)
+    set(ZSPACE_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/depends/zspace")
+    # Download and extract SDK if not present locally
+    if(NOT EXISTS "${ZSPACE_SDK_DIR}/include/zspace/interface.h")
+        set(ZSPACE_URL "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/zspace.zip")
+        message(STATUS "Downloading precompiled zSpace SDK from ${ZSPACE_URL}...")
+        file(DOWNLOAD "${ZSPACE_URL}" "${CMAKE_CURRENT_SOURCE_DIR}/depends/zspace.zip" SHOW_PROGRESS STATUS dl_status)
+        list(GET dl_status 0 dl_code)
+        if(NOT dl_code EQUAL 0)
+            message(WARNING "Failed to download zSpace SDK: ${dl_status}. If you have local zspace_core source, enable ALICE2_WITH_ZSPACE_CORE.")
+        else()
+            execute_process(
+                COMMAND ${CMAKE_COMMAND} -E tar xzf "${CMAKE_CURRENT_SOURCE_DIR}/depends/zspace.zip"
+                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/depends"
+                RESULT_VARIABLE unpack_ret
+            )
+            if(NOT unpack_ret EQUAL 0)
+                message(FATAL_ERROR "Failed to unpack zspace.zip")
+            endif()
+            file(REMOVE "${CMAKE_CURRENT_SOURCE_DIR}/depends/zspace.zip")
+            message(STATUS "Extracted and removed zspace.zip")
+        endif()
     endif()
 
+    if(EXISTS "${ZSPACE_SDK_DIR}/include/zspace/interface.h")
+        set(ALICE2_USING_ZSPACE_SDK ON)
+    else()
+        message(FATAL_ERROR "zspace_core source not found and precompiled zSpace SDK is missing. Please enable ALICE2_WITH_ZSPACE_CORE or check internet connection.")
+    endif()
+endif()
+
+if(ALICE2_WITH_ZSPACE_CORE)
     set(ZSPACE_BUILD_INTERFACE ON CACHE BOOL "Build zSpace interface DLL" FORCE)
     set(ZSPACE_BUILD_IO ON CACHE BOOL "Build zSpace IO DLL" FORCE)
     set(ZSPACE_BUILD_DISPLAY OFF CACHE BOOL "Build zSpace display DLL" FORCE)
@@ -189,6 +223,10 @@ if(ALICE2_WITH_ZSPACE_CORE)
         "${ZSPACE_CORE_DIR}/third_party"
         "${ZSPACE_CORE_DIR}/third_party/depends"
     )
+elseif(ALICE2_USING_ZSPACE_SDK)
+    include_directories(BEFORE
+        "${ZSPACE_SDK_DIR}/include"
+    )
 endif()
 if(ALICE2_USING_TEST_MODE)
     include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tests)
@@ -284,6 +322,13 @@ if(ALICE2_WITH_ZSPACE_CORE)
         zspace::io
     )
     target_compile_definitions(alice2 PRIVATE ALICE2_WITH_ZSPACE_CORE=1)
+elseif(ALICE2_USING_ZSPACE_SDK)
+    target_link_libraries(alice2
+        "${ZSPACE_SDK_DIR}/lib/zSpace_Core.lib"
+        "${ZSPACE_SDK_DIR}/lib/zSpace_Interface.lib"
+        "${ZSPACE_SDK_DIR}/lib/zSpace_IO.lib"
+    )
+    target_compile_definitions(alice2 PRIVATE ALICE2_WITH_ZSPACE_CORE=1 ZSPACE_DYNAMIC_LIBRARY)
 endif()
 if(ALICE2_ENABLE_CUDA)
     target_link_libraries(alice2 CUDA::cublas CUDA::cudart)
@@ -349,6 +394,13 @@ if(WIN32)
                             $<TARGET_FILE:${zspace_target}> $<TARGET_FILE_DIR:alice2>
                     COMMENT "Copying ${zspace_target} DLL to alice2 output directory")
             endif()
+        endforeach()
+    elseif(ALICE2_USING_ZSPACE_SDK)
+        foreach(zspace_dll zSpace_Core zSpace_Interface zSpace_IO)
+            add_custom_command(TARGET alice2 POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${ZSPACE_SDK_DIR}/bin/${zspace_dll}.dll" $<TARGET_FILE_DIR:alice2>
+                COMMENT "Copying precompiled ${zspace_dll} DLL to output directory")
         endforeach()
     endif()
 endif()
