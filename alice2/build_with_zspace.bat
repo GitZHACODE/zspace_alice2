@@ -27,13 +27,7 @@ if errorlevel 1 (
     )
 )
 
-echo.
-if not exist "%ZSPACE_SDK_DIR%\lib\cmake\zspace\zspaceConfig.cmake" (
-    echo.
-    echo [alice2] zSpace binary SDK was not found at "%ZSPACE_SDK_DIR%".
-    echo [alice2] Pass the SDK path as the first argument or place it in alice2\sdk\zspace.
-    goto :fail
-)
+
 
 echo [alice2] Building with zSpace binary SDK
 echo [alice2] zSpace SDK: "%ZSPACE_SDK_DIR%"
