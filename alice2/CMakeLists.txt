@@ -57,7 +57,7 @@ if(ALICE2_WITH_ZSPACE_CORE)
     else()
         # Automatically download precompiled zSpace SDK if it is missing
         set(ZSPACE_SDK_VERSION "v3.0.0" CACHE STRING "zSpace SDK Version to download")
-        set(ZSPACE_SDK_URL "https://github.com/GitZHCODE/zspace_alice2/releases/download/${ZSPACE_SDK_VERSION}/zspace.zip")
+        set(ZSPACE_SDK_URL "https://github.com/GitZHACODE/zspace_alice2/releases/download/${ZSPACE_SDK_VERSION}/zspace.zip")
 
         if(NOT EXISTS "${ZSPACE_SDK_DIR}/lib/cmake/zspace/zspaceConfig.cmake")
             message(STATUS "zSpace SDK config not found. Downloading SDK version ${ZSPACE_SDK_VERSION}...")
