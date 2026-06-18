@@ -24,26 +24,67 @@ Optionally the library may also be pre-compiled into a statically  or dynamicall
 
 # Launching
 
-1. Go to the `/alice2` directory, double-click `build.bat` or run it in PowerShell. After building, run `alice2.exe`.
-2. Alternatively, you can build using CMake:
-   ```sh
-   cd alice2
-   cmake . -B build
-   cmake --build build --config Release
-   ```
-3. Third option, in powershell:
-    ```sh
-    cd alice2
-    ./build.bat
-    ./run.bat
-    ```
-    OR with cuda
+You can build and run alice2 either as a standalone 3D viewer or with full zSpace geometry & topology integration.
 
-    ```sh
-    cd alice2
-    ./build.bat cuda
-    ./run.bat cuda
-    ```
+### Option 1: Building with zSpace Integration (v3.0.0+)
+
+The zSpace integration supports two compilation modes:
+- **SDK Mode (Default fallback)**: If you do not have `zspace_core` cloned locally, the build system automatically downloads the precompiled zSpace SDK (`zspace.zip`) from GitHub Releases, extracts it to `depends/zspace/`, and links against it.
+- **Source Mode**: If you have the `zspace_core` repository cloned side-by-side (located at `../../zspace_core` relative to the `alice2/` subfolder), it builds the DLLs from source.
+
+To build and run:
+1. Open PowerShell or Command Prompt.
+2. Navigate to the `alice2` directory.
+3. Build the project:
+   ```sh
+   .\build_with_zspace.bat
+   ```
+4. Run the application:
+   ```sh
+   .\run_with_zspace.bat
+   ```
+
+---
+
+### Option 2: Standalone Viewer (No zSpace)
+
+To build and run without zSpace dependencies:
+1. Go to the `alice2` directory.
+2. Double-click `build.bat` or run it in PowerShell:
+   ```sh
+   .\build.bat
+   ```
+3. Run the application:
+   ```sh
+   .\run.bat
+   ```
+
+---
+
+### Option 3: Building with GPU Support (CUDA)
+
+If you want to run alice2 with CUDA acceleration:
+1. Go to the `alice2` directory.
+2. Build with CUDA:
+   ```sh
+   .\build.bat cuda
+   ```
+3. Run the application:
+   ```sh
+   .\run.bat cuda
+   ```
+
+---
+
+### Packaging the zSpace SDK (For Developers)
+
+If you are a developer with access to the `zspace_core` source repository and have updated its code, you can package a new version of the precompiled SDK using the automated PowerShell script:
+1. Navigate to the `zspace_alice2` root directory.
+2. Run the packaging script:
+   ```powershell
+   powershell -File alice2/scripts/package_zspace_sdk.ps1
+   ```
+This script will bundle the compiled libraries, public headers, template source implementations, and dependency headers into `alice2/depends/zspace/` and create the distributable `alice2/depends/zspace.zip` file which you can upload to the GitHub Releases page.
 
 # Citing
 If you use Alice2 in a project, please refer to the GitHub repository.
