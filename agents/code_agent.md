@@ -16,7 +16,8 @@ The `code_agent` creates small reusable methods and classes used by sketches.
 2. Ask `zspace_agent` for API details when geometry methods are involved.
 3. Ask `alice2_agent` where the helper belongs in the sketch structure.
 4. Patch the smallest useful code surface.
-5. Hand off to `build_agent`.
+5. Do NOT perform any git commit or git push commands unless explicitly requested by the user prompt.
+6. Hand off to `build_agent`.
 
 ## Good Helper Shape
 
