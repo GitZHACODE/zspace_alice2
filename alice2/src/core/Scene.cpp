@@ -1,6 +1,7 @@
 #include "Scene.h"
 #include "Renderer.h"
 #include "Camera.h"
+#include "../zspace/zSpaceDraw.h"
 #include <algorithm>
 #include <limits>
 
@@ -17,6 +18,7 @@ namespace alice2 {
         , m_boundsMin(-1, -1, -1)
         , m_boundsMax(1, 1, 1)
         , m_boundsDirty(true)
+        , m_activeRenderer(nullptr)
     {
     }
 
@@ -69,6 +71,8 @@ namespace alice2 {
     }
 
     void Scene::render(Renderer& renderer, Camera& camera) {
+        m_activeRenderer = &renderer;
+
         // Set background color
         renderer.clear();
         
@@ -92,6 +96,38 @@ namespace alice2 {
             }
         }
     }
+
+#if ALICE2_WITH_ZSPACE_CORE
+    void Scene::draw(zSpace::zObjectMesh& mesh) {
+        draw(mesh, zDisplayMeshSetting{});
+    }
+
+    void Scene::draw(zSpace::zObjectMesh& mesh, const zDisplayMeshSetting& display) {
+        if (m_activeRenderer) {
+            drawZSpaceMesh(*m_activeRenderer, mesh, display);
+        }
+    }
+
+    void Scene::draw(zSpace::zObjectGraph& graph) {
+        draw(graph, zDisplayGraphSetting{});
+    }
+
+    void Scene::draw(zSpace::zObjectGraph& graph, const zDisplayGraphSetting& display) {
+        if (m_activeRenderer) {
+            drawZSpaceGraph(*m_activeRenderer, graph, display);
+        }
+    }
+
+    void Scene::draw(zSpace::zObjectPointCloud& points) {
+        draw(points, zDisplayPointCloudSetting{});
+    }
+
+    void Scene::draw(zSpace::zObjectPointCloud& points, const zDisplayPointCloudSetting& display) {
+        if (m_activeRenderer) {
+            drawZSpacePointCloud(*m_activeRenderer, points, display);
+        }
+    }
+#endif
 
     void Scene::update(float deltaTime) {
         // Update all objects

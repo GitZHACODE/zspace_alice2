@@ -5,9 +5,18 @@
 
 #include "../utils/Math.h"
 #include "../objects/SceneObject.h"
+#include "../zspace/zDisplaySettings.h"
 #include <vector>
 #include <memory>
 #include <string>
+
+#if ALICE2_WITH_ZSPACE_CORE
+namespace zSpace {
+    class zObjectGraph;
+    class zObjectMesh;
+    class zObjectPointCloud;
+}
+#endif
 
 namespace alice2 {
 
@@ -29,6 +38,15 @@ namespace alice2 {
         // Rendering
         void render(Renderer& renderer, Camera& camera);
         void update(float deltaTime);
+
+#if ALICE2_WITH_ZSPACE_CORE
+        void draw(zSpace::zObjectMesh& mesh);
+        void draw(zSpace::zObjectMesh& mesh, const zDisplayMeshSetting& display);
+        void draw(zSpace::zObjectGraph& graph);
+        void draw(zSpace::zObjectGraph& graph, const zDisplayGraphSetting& display);
+        void draw(zSpace::zObjectPointCloud& points);
+        void draw(zSpace::zObjectPointCloud& points, const zDisplayPointCloudSetting& display);
+#endif
 
         // Scene properties
         void setBackgroundColor(const Color& color) { m_backgroundColor = color; }
@@ -91,6 +109,7 @@ namespace alice2 {
         Vec3 m_boundsMin;
         Vec3 m_boundsMax;
         bool m_boundsDirty;
+        Renderer* m_activeRenderer;
 
         void renderGrid(Renderer& renderer);
         void renderAxes(Renderer& renderer);

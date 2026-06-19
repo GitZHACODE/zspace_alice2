@@ -7,12 +7,16 @@
 #include "Matrix.h"
 #include <cmath>
 
+#ifdef PI
+#undef PI
+#endif
+
 namespace alice2 {
 
     // Constants
     const float PI = 3.14159265359f;
-    const float DEG_TO_RAD = PI / 180.0f;
-    const float RAD_TO_DEG = 180.0f / PI;
+    const float ALICE2_DEG_TO_RAD = PI / 180.0f;
+    const float ALICE2_RAD_TO_DEG = 180.0f / PI;
 
     // Quaternion class for Z-up coordinate system
     struct Quaternion {
