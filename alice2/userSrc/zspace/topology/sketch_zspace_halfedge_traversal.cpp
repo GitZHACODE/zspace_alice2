@@ -77,7 +77,7 @@ public:
 
         renderer.drawString("zSpace halfedge traversal", 10, 18);
         renderer.drawString("OBJ: " + m_objPath, 10, 36);
-        renderer.drawString("n: next   p: previous   s: symmetry/twin", 10, 54);
+        renderer.drawString("n: next   p: previous   s: symmetry/twin   e: export JSON", 10, 54);
         renderer.drawString(m_status, 10, 72);
     }
 
@@ -97,6 +97,16 @@ public:
             }
             if (key == 's' || key == 'S') {
                 setCurrent(current.getSym(), "symmetry");
+                return true;
+            }
+            if (key == 'e' || key == 'E') {
+                std::string exportPath = "data/halfedge_export.json";
+                auto result = zSpace::zIO::writeMesh(exportPath, m_mesh);
+                if (result) {
+                    m_status = "Exported mesh to " + exportPath;
+                } else {
+                    m_status = "Export failed: " + result.message();
+                }
                 return true;
             }
         }
