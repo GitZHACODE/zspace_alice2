@@ -65,7 +65,7 @@ public:
             meshDisplay.showFaces = true;
             meshDisplay.showEdges = true;
             meshDisplay.showVertices = true;
-            meshDisplay.faceColor = Color(0.82f, 0.84f, 0.86f, 0.55f);
+            //meshDisplay.faceColor = Color(0.82f, 0.84f, 0.86f, 0.55f);
             meshDisplay.edgeColor = Color(0.02f, 0.02f, 0.02f, 1.0f);
             meshDisplay.vertexColor = Color(0.02f, 0.02f, 0.02f, 1.0f);
             meshDisplay.edgeWidth = 1.5f;
@@ -76,8 +76,8 @@ public:
         }
 
         renderer.drawString("zSpace halfedge traversal", 10, 18);
-        renderer.drawString("OBJ: " + m_objPath, 10, 36);
-        renderer.drawString("n: next   p: previous   s: symmetry/twin", 10, 54);
+        renderer.drawString("USD: " + m_objPath, 10, 36);
+        renderer.drawString("n: next   p: previous   s: symmetry/twin   e: export USD", 10, 54);
         renderer.drawString(m_status, 10, 72);
     }
 
@@ -99,6 +99,16 @@ public:
                 setCurrent(current.getSym(), "symmetry");
                 return true;
             }
+            if (key == 'e' || key == 'E') {
+                std::string exportPath = "data/halfedge_export.usda";
+                auto result = zSpace::zIO::writeMesh(exportPath, m_mesh);
+                if (result) {
+                    m_status = "Exported mesh to " + exportPath;
+                } else {
+                    m_status = "Export failed: " + result.message();
+                }
+                return true;
+            }
         }
         catch (const std::exception& e) {
             m_status = std::string("Traversal failed: ") + e.what();
@@ -110,7 +120,7 @@ public:
 
 private:
     zSpace::zObjectMesh m_mesh;
-    std::string m_objPath = "data/halfedge_input_nansha.obj";
+    std::string m_objPath = "data/halfedge_import.usda";
     std::string m_status = "Waiting for mesh.";
     int m_currentHalfedgeId = 0;
     bool m_loaded = false;
@@ -127,7 +137,7 @@ private:
         auto result = zSpace::zIO::readMesh(m_objPath, m_mesh);
         if (!result) {
             m_loaded = false;
-            m_status = "Could not read OBJ: " + result.message();
+            m_status = "Could not read USD: " + result.message();
             return;
         }
 
