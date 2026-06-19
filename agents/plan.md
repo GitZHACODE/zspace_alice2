@@ -4,24 +4,22 @@ Status: completed
 
 ## User Intent
 
-Create a relocatable Windows alice2 release that runs and can be rebuilt with zSpace integration on another machine without distributing the private `zspace_core` source tree.
+Move the old Blend sketch methods into reusable free functions under `alice2/src/slicer/zUnroller.cpp`, and keep the current sketch under `alice2/userSrc/zspace/slicer`.
 
 ## Participating Agents
 
-- `zspace_agent`: verify the public binary SDK layout and imported CMake targets.
-- `alice2_agent`: align build, run, data, and release-directory behavior.
-- `code_agent`: update the packaging scripts with the smallest practical surface.
-- `build_agent`: build from the packaged SDK and validate release contents.
+- `zspace_agent`: preserve old zSpace mesh/unroll method names and adapt them to current SDK names.
+- `alice2_agent`: move the sketch to the slicer user source folder and keep display through `scene().draw(...)`.
+- `code_agent`: add `zUnroller.h/.cpp` as reusable slicer functions.
+- `build_agent`: run the zSpace build and fix compile/link errors.
 - `document_agent`: not triggered.
 
 ## Proposed Changes
 
-- Replace the legacy zSpace SDK copier with the native zSpace CMake build/install flow.
-- Package public headers, import libraries, runtime DLLs, generated CMake package files, and no zSpace implementation sources.
-- Add an alice2 release packager that produces runtime and developer distributions.
-- Make `run_with_zspace.bat` support both a packaged root executable and the local build output.
-- Complete alice2 install rules for data and runtime DLL deployment.
-- Update SDK/release usage notes and add package validation checks.
+- Add `alice2/src/slicer/zUnroller.h/.cpp` with namespace functions instead of a class.
+- Move the import sketch to `alice2/userSrc/zspace/slicer/`.
+- Add libigl include paths if required by unroller methods.
+- Keep one active `__MAIN__` user sketch.
 
 ## Build Command
 
@@ -31,20 +29,16 @@ alice2\build_with_zspace.bat
 
 ## Acceptance Checks
 
-- zSpace SDK is consumed through `find_package(zspace CONFIG)` with source mode disabled.
-- SDK contains `include`, `lib`, `bin`, and `lib/cmake/zspace`.
-- SDK contains no `zspace_core/src`, implementation `.cpp`, or PDB files.
-- alice2 output contains the executable, required zSpace DLLs, and runtime data.
-- run script works from both the repository and packaged release root.
-- clean Release build succeeds against the binary SDK.
+- New sketch builds against the binary zSpace SDK.
+- Mesh is loaded from `data/Natpower/blockMesh_64.json`.
+- Mesh is displayed via `scene().draw(mesh, display)`.
+- Runtime overlay reports mesh path and vertex/face counts.
 
 ## Implementation Status
 
-- [x] Inspect current binary SDK and CMake export support.
-- [x] Replace legacy SDK packaging.
-- [x] Add alice2 release packaging and validation.
-- [x] Complete runtime install/run behavior.
-- [x] Configure alice2 exclusively against the installed binary SDK.
-- [x] Validate SDK privacy and required artifacts.
-- [x] Complete final MSBuild and generated release-package validation.
-
+- [x] Read outdated sketch and identify mesh/import/unroll methods.
+- [x] Add `zUnroller` slicer module.
+- [x] Move sketch under `userSrc/zspace/slicer`.
+- [x] Build with zSpace and fix errors.
+- [x] Convert `zUnroller` from a class to free functions for geometry slicing.
+- [x] Rebuild after the conversion.
