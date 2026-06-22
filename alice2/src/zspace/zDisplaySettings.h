@@ -11,6 +11,7 @@ namespace alice2 {
         bool showVertices = true;
         bool showEdges = true;
         bool showFaces = true;
+        bool useMeshColors = false;
         Color vertexColor = Color(1.0f, 1.0f, 1.0f, 1.0f);
         Color edgeColor = Color(0.05f, 0.05f, 0.05f, 1.0f);
         Color faceColor = Color(0.75f, 0.78f, 0.82f, 1.0f);

@@ -15,11 +15,23 @@ namespace {
         return Vec3(p.x, p.y, p.z);
     }
 
+    Color toColor(const zSpace::zColor& c)
+    {
+        return Color(c.r, c.g, c.b, c.a);
+    }
+
     void appendTriangle(std::vector<Vec3>& vertices, const Vec3& a, const Vec3& b, const Vec3& c)
     {
         vertices.push_back(a);
         vertices.push_back(b);
         vertices.push_back(c);
+    }
+
+    void appendTriangleColors(std::vector<Color>& colors, const Color& a, const Color& b, const Color& c)
+    {
+        colors.push_back(a);
+        colors.push_back(b);
+        colors.push_back(c);
     }
 
 } // namespace
@@ -28,6 +40,13 @@ namespace {
     {
         if (display.showFaces) {
             std::vector<Vec3> triangles;
+            std::vector<Color> colors;
+            zSpace::zColorArray vertexColors;
+
+            if (display.useMeshColors) {
+                zSpace::zFnMesh fnMesh(mesh);
+                fnMesh.getVertexColors(vertexColors);
+            }
 
             for (zSpace::zItMeshFace face(mesh); !face.end(); face++) {
                 zSpace::zIntArray vertexIds;
@@ -39,13 +58,24 @@ namespace {
                 if (facePositions.size() < 3) continue;
 
                 const Vec3 root = toVec3(facePositions[0]);
+                const Color rootColor = (display.useMeshColors && vertexIds[0] < static_cast<int>(vertexColors.size()))
+                    ? toColor(vertexColors[vertexIds[0]])
+                    : display.faceColor;
+
                 for (size_t i = 1; i + 1 < facePositions.size(); ++i) {
                     appendTriangle(triangles, root, toVec3(facePositions[i]), toVec3(facePositions[i + 1]));
+                    const Color colorA = (display.useMeshColors && vertexIds[i] < static_cast<int>(vertexColors.size()))
+                        ? toColor(vertexColors[vertexIds[i]])
+                        : display.faceColor;
+                    const Color colorB = (display.useMeshColors && vertexIds[i + 1] < static_cast<int>(vertexColors.size()))
+                        ? toColor(vertexColors[vertexIds[i + 1]])
+                        : display.faceColor;
+                    appendTriangleColors(colors, rootColor, colorA, colorB);
                 }
             }
 
             if (!triangles.empty()) {
-                std::vector<Color> colors(triangles.size(), display.faceColor);
+                if (colors.size() != triangles.size()) colors.assign(triangles.size(), display.faceColor);
                 renderer.drawMesh(triangles.data(), nullptr, colors.data(), static_cast<int>(triangles.size()), nullptr, 0, false);
             }
         }

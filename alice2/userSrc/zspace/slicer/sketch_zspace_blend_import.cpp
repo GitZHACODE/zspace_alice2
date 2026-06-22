@@ -58,13 +58,23 @@ public:
         renderer.drawString(getName(), 10, 28);
         renderer.drawString("Mesh: " + m_meshPath, 10, 50);
         renderer.drawString(m_status, 10, 72);
-        renderer.drawString("'r' reload, 'x' remove mesh, 'f' focus, 'd' toggle sections, 'w/s' or '['/']' section", 10, 94);
+        renderer.drawString("'r' read mesh, 'p' compute vloops/slices, 'o' compute SDF, 'x' remove mesh, 'f' focus, 'd' toggle sections, 'w/s' or '['/']' section", 10, 94);
     }
 
     bool onKeyPress(unsigned char key, int, int) override
     {
         if (key == 'r' || key == 'R') {
             loadMesh();
+            return true;
+        }
+
+        if (key == 'p' || key == 'P') {
+            computeSlices();
+            return true;
+        }
+
+        if (key == 'o' || key == 'O') {
+            computeSdfField();
             return true;
         }
 
@@ -111,6 +121,8 @@ private:
     zSpace::zObjMeshArray m_sectionMeshes;
     zSpace::zObjGraphArray m_sectionGraphs;
     zSpace::zObjGraphArray m_contourGraphs;
+    zSpace::zObjGraphArray m_sdfFlatGraphs;
+    zSpace::zObjMeshScalarFieldArray m_sdfFields;
     std::string m_meshPath = "data/carbcomn/carbMesh.obj";
     std::string m_status = "Waiting for mesh.";
     bool m_loaded = false;
@@ -150,6 +162,17 @@ private:
             << " edges=" << fn.numEdges()
             << " halfEdges=" << fn.numHalfEdges()
             << " faces=" << fn.numPolygons()
+            << std::endl;
+    }
+
+    void debugPrintGraphStats(const char* label, zSpace::zObjGraph& graph)
+    {
+        if (!m_debugComputeVLoops) return;
+
+        zSpace::zFnGraph fn(graph);
+        std::cout << "[zSpaceBlendImport][computeVLoops] " << label
+            << " vertices=" << fn.numVertices()
+            << " edges=" << fn.numEdges()
             << std::endl;
     }
 
@@ -299,50 +322,26 @@ private:
         if (!alice2::loadMesh(m_meshPath, m_mesh, &message)) {
             m_loaded = false;
             m_status = "Could not read mesh: " + message;
+            std::cout << "[zSpaceBlendImport] " << m_status << std::endl;
             return;
         }
 
-        zSpace::zIntArray medialIds;
-        zSpace::zIntArray featuredNumStrides;
-        // const bool hasMedialIds = readIntArrayAttribute(m_meshPath, "MedialStartEnd", medialIds);
-        // const bool hasStrides = readIntArrayAttribute(m_meshPath, "FeaturedNumStrides", featuredNumStrides);
-        const bool hasMedialIds = true;
-        const bool hasStrides = true;
         m_loops.clear();
         m_scalars.clear();
         m_sectionMeshes.clear();
         m_sectionGraphs.clear();
         m_contourGraphs.clear();
+        m_sdfFlatGraphs.clear();
+        m_sdfFields.clear();
+        zSpace::zFnMesh fnTop(m_topMesh);
+        zSpace::zFnMesh fnBottom(m_bottomMesh);
+        fnTop.clear();
+        fnBottom.clear();
 
-        bool builtSections = false;
-        if (hasMedialIds && hasStrides) {
-            // zSpace::zVector norm(0, 0, 1);
-            medialIds = {43, 66};
-            debugPrintBeforeComputeVLoops(medialIds);
-            // alice2::computeVLoops(m_mesh, medialIds, featuredNumStrides, norm, m_loops, m_topMesh, m_bottomMesh);
-            alice2::computeVLoops(m_mesh, medialIds, m_loops, m_topMesh, m_bottomMesh);
-            debugPrintLoopsAfterComputeVLoops();
-
-            alice2::computeGeodesicScalars(m_mesh, m_loops, m_scalars, true);
-            alice2::computeGeodesicContours(m_loops, m_scalars, 0.01f, m_topMesh, m_bottomMesh, m_sectionMeshes);
-            alice2::createSectionGraphs(m_sectionMeshes, m_sectionGraphs);
-            alice2::computeSDF(m_sectionGraphs, m_sectionMeshes, m_contourGraphs);
-            debugPrintAfterScalarAndSections();
-            builtSections = !m_sectionGraphs.empty();
-        }
-
-        zSpace::zFnMesh fn(m_mesh);
         std::ostringstream out;
-        out << "Loaded vertices/faces: " << fn.numVertices() << "/" << fn.numPolygons();
-        if (builtSections) {
-            out << " | sections: " << m_sectionGraphs.size();
-            out << " | section meshes: " << m_sectionMeshes.size();
-        }
-        else {
-            out << " | sections unavailable";
-            if (!hasMedialIds) out << " | missing MedialStartEnd";
-            if (!hasStrides) out << " | missing FeaturedNumStrides";
-        }
+        zSpace::zFnMesh fn(m_mesh);
+        out << "Read mesh vertices/faces: " << fn.numVertices() << "/" << fn.numPolygons()
+            << " | press 'p' for vloops/slices, 'o' for SDF after slices";
 
         m_status = out.str();
         m_loaded = true;
@@ -352,13 +351,116 @@ private:
         focusOnMesh();
     }
 
+    bool computeSlices()
+    {
+        if (!m_loaded) {
+            m_status = "No mesh loaded. Press 'r' first.";
+            std::cout << "[zSpaceBlendImport] " << m_status << std::endl;
+            return false;
+        }
+
+        zSpace::zIntArray medialIds = {43, 66};
+        m_loops.clear();
+        m_scalars.clear();
+        m_sectionMeshes.clear();
+        m_sectionGraphs.clear();
+        m_contourGraphs.clear();
+        m_sdfFlatGraphs.clear();
+        m_sdfFields.clear();
+        zSpace::zFnMesh fnTop(m_topMesh);
+        zSpace::zFnMesh fnBottom(m_bottomMesh);
+        fnTop.clear();
+        fnBottom.clear();
+
+        debugPrintBeforeComputeVLoops(medialIds);
+        alice2::computeVLoops(m_mesh, medialIds, m_loops, m_topMesh, m_bottomMesh);
+        debugPrintLoopsAfterComputeVLoops();
+
+        if (m_loops.empty()) {
+            m_status = "computeVLoops failed: no longitude loops.";
+            std::cout << "[zSpaceBlendImport] " << m_status << std::endl;
+            return false;
+        }
+
+        alice2::computeGeodesicScalars(m_mesh, m_loops, m_scalars, true);
+        alice2::computeGeodesicContours(m_loops, m_scalars, 0.01f, m_topMesh, m_bottomMesh, m_sectionMeshes);
+        alice2::createSectionGraphs(m_sectionMeshes, m_sectionGraphs);
+        debugPrintAfterScalarAndSections();
+
+        if (m_sectionGraphs.empty()) {
+            m_status = "Slice compute failed: no section graphs.";
+            std::cout << "[zSpaceBlendImport] " << m_status << std::endl;
+            return false;
+        }
+
+        m_currentSection = 0;
+        std::ostringstream out;
+        out << "Computed slices: loops=" << m_loops.size()
+            << " sectionMeshes=" << m_sectionMeshes.size()
+            << " sectionGraphs=" << m_sectionGraphs.size()
+            << " | press 'o' for SDF";
+        m_status = out.str();
+        std::cout << "[zSpaceBlendImport] " << m_status << std::endl;
+        return true;
+    }
+
+    bool computeSdfField()
+    {
+        if (m_sectionMeshes.empty() || m_sectionGraphs.empty()) {
+            m_status = "No slices available. Press 'p' before 'o'.";
+            std::cout << "[zSpaceBlendImport] " << m_status << std::endl;
+            return false;
+        }
+
+        m_contourGraphs.clear();
+        m_sdfFlatGraphs.clear();
+        m_sdfFields.clear();
+        alice2::computeSDF(m_sectionGraphs, m_sectionMeshes, m_contourGraphs, &m_sdfFields, &m_sdfFlatGraphs);
+
+        int contourEdgeCount = 0;
+        int fieldFaceCount = 0;
+        for (int i = 0; i < static_cast<int>(m_contourGraphs.size()); i++) {
+            std::ostringstream label;
+            label << "contourGraph[" << i << "]";
+            debugPrintGraphStats(label.str().c_str(), m_contourGraphs[i]);
+
+            zSpace::zFnGraph fn(m_contourGraphs[i]);
+            contourEdgeCount += fn.numEdges();
+        }
+        for (int i = 0; i < static_cast<int>(m_sdfFlatGraphs.size()); i++) {
+            std::ostringstream label;
+            label << "sdfFlatGraph[" << i << "]";
+            debugPrintGraphStats(label.str().c_str(), m_sdfFlatGraphs[i]);
+        }
+
+        for (int i = 0; i < static_cast<int>(m_sdfFields.size()); i++) {
+            std::ostringstream label;
+            label << "sdfField[" << i << "]";
+            debugPrintMeshStats(label.str().c_str(), m_sdfFields[i]);
+
+            zSpace::zFnMesh fn(m_sdfFields[i]);
+            fieldFaceCount += fn.numPolygons();
+        }
+
+        std::ostringstream out;
+        out << "Computed SDF fields=" << m_sdfFields.size()
+            << " fieldFaces=" << fieldFaceCount
+            << " contourGraphs=" << m_contourGraphs.size()
+            << " flatGraphs=" << m_sdfFlatGraphs.size()
+            << " contourEdges=" << contourEdgeCount;
+        if (contourEdgeCount == 0) out << " | WARNING no contour edges";
+        m_status = out.str();
+        std::cout << "[zSpaceBlendImport] " << m_status << std::endl;
+        return contourEdgeCount > 0 || fieldFaceCount > 0;
+    }
+
     void removeBlockMesh()
     {
         zSpace::zFnMesh fnMesh(m_mesh);
         fnMesh.clear();
 
         m_showBlockMesh = false;
-        m_status = "Block mesh removed. Sections remain visible. Press 'r' to reload.";
+        m_status = "Block mesh removed. Sections remain visible. Press 'r' to read again.";
         std::cout << "[zSpaceBlendImport] " << m_status << std::endl;
     }
 
@@ -382,7 +484,9 @@ private:
         std::ostringstream out;
         out << "Section " << (m_currentSection + 1) << "/" << sectionCount
             << " | section graphs: " << m_sectionGraphs.size()
-            << " | contour graphs: " << m_contourGraphs.size();
+            << " | contour graphs: " << m_contourGraphs.size()
+            << " | sdf flat graphs: " << m_sdfFlatGraphs.size()
+            << " | sdf fields: " << m_sdfFields.size();
         m_status = out.str();
         std::cout << "[zSpaceBlendImport] " << m_status << std::endl;
         return true;
@@ -401,14 +505,28 @@ private:
     {
         if (!m_displaySections) return;
 
+        if (m_currentSection >= 0 && m_currentSection < static_cast<int>(m_sdfFields.size())) {
+            zDisplayMeshSetting fieldDisplay;
+            fieldDisplay.showFaces = true;
+            fieldDisplay.showEdges = true;
+            fieldDisplay.showVertices = false;
+            fieldDisplay.useMeshColors = true;
+            fieldDisplay.faceColor = Color(1.0f, 1.0f, 1.0f, 0.85f);
+            fieldDisplay.edgeColor = Color(0.08f, 0.08f, 0.08f, 0.18f);
+            fieldDisplay.edgeWidth = 0.2f;
+            scene().draw(m_sdfFields[m_currentSection], fieldDisplay);
+        }
+        if (m_currentSection >= 0 && m_currentSection < static_cast<int>(m_sdfFlatGraphs.size())) {
+            scene().draw(m_sdfFlatGraphs[m_currentSection], Display::lines(Color(1.0f, 0.55f, 0.0f, 1.0f), 4.0f));
+        }
         if (m_currentSection >= 0 && m_currentSection < static_cast<int>(m_sectionMeshes.size())) {
-            scene().draw(m_sectionMeshes[m_currentSection], Display::wireframe(Color(0.0f, 0.7f, 0.15f, 1.0f), 2.0f));
+            scene().draw(m_sectionMeshes[m_currentSection], Display::wireframe(Color(0.0f, 0.55f, 0.12f, 1.0f), 1.2f));
         }
         if (m_currentSection >= 0 && m_currentSection < static_cast<int>(m_sectionGraphs.size())) {
-            scene().draw(m_sectionGraphs[m_currentSection], Display::lines(Color(0.0f, 0.9f, 0.1f, 1.0f), 3.0f));
+            scene().draw(m_sectionGraphs[m_currentSection], Display::lines(Color(0.0f, 0.9f, 0.1f, 1.0f), 2.0f));
         }
         if (m_currentSection >= 0 && m_currentSection < static_cast<int>(m_contourGraphs.size())) {
-            scene().draw(m_contourGraphs[m_currentSection], Display::lines(Color(0.0f, 0.2f, 1.0f, 1.0f), 3.0f));
+            scene().draw(m_contourGraphs[m_currentSection], Display::lines(Color(1.0f, 0.0f, 0.85f, 1.0f), 5.0f));
         }
     }
 };

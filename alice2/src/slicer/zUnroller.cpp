@@ -507,142 +507,57 @@ namespace alice2 {
                 : he.getStartVertex().getValence() == 3;
         };
 
+        auto sameUndirectedEdge = [](zItMeshHalfEdge a, zItMeshHalfEdge b) {
+            return a.getId() == b.getId() || a.getSym().getId() == b.getId();
+        };
+
+        auto orientLike = [](zItMeshHalfEdge he, zVector refDir) {
+            zVector dir = he.getVector();
+            if (dir * refDir < 0.0) return he.getSym();
+            return he;
+        };
+
         zPointArray topPositions;
         zIntArray topCounts;
         zIntArray topConnects;
         zIntArray topVertexMap(fn.numVertices(), -1);
-        std::vector<int> topOriginalVertexIds;
 
         zPointArray bottomPositions;
         zIntArray bottomCounts;
         zIntArray bottomConnects;
         zIntArray bottomVertexMap(fn.numVertices(), -1);
-        std::vector<int> bottomOriginalVertexIds;
 
-        auto mappedVertex = [&](int originalVertexId, zPointArray& positions, zIntArray& vertexMap, std::vector<int>& originalVertexIds) -> int {
+        auto mappedVertex = [&](int originalVertexId, zPointArray& positions, zIntArray& vertexMap) -> int {
             int& mappedId = vertexMap[originalVertexId];
             if (mappedId < 0) {
                 zItMeshVertex v(mesh, originalVertexId);
                 mappedId = static_cast<int>(positions.size());
                 positions.push_back(v.getPosition());
-                originalVertexIds.push_back(originalVertexId);
             }
             return mappedId;
         };
 
-        auto appendFace = [&](zItMeshHalfEdge he, bool flip, zPointArray& positions, zIntArray& vertexMap, std::vector<int>& originalVertexIds, zIntArray& counts, zIntArray& connects) {
+        auto appendFace = [&](zItMeshHalfEdge he, bool flip, zPointArray& positions, zIntArray& vertexMap, zIntArray& counts, zIntArray& connects) {
             zIntArray faceVerts;
             getFaceVerticesFromHalfedge(he, !flip, faceVerts);
 
             counts.push_back(static_cast<int>(faceVerts.size()));
             for (int originalVertexId : faceVerts) {
-                connects.push_back(mappedVertex(originalVertexId, positions, vertexMap, originalVertexIds));
+                connects.push_back(mappedVertex(originalVertexId, positions, vertexMap));
             }
-
-            return faceVerts;
         };
 
-        auto collectLongitudeEdges = [&](int startVID, int endVID) {
-            zItMeshHalfEdgeArray longitudeEdges;
-
-            zItMeshVertex vStart(mesh, startVID);
-            zItMeshVertex vEnd(mesh, endVID);
-            zVector dir = vEnd.getPosition() - vStart.getPosition();
-
-            std::cout << "[walkTopBottomStrips] longitude pair " << startVID << " -> " << endVID
-                << " val(" << vStart.getValence() << "," << vEnd.getValence() << ")"
-                << " dir length " << dir.length() << std::endl;
-
-            zItMeshHalfEdgeArray hEdgesStart;
-            vStart.getConnectedHalfEdges(hEdgesStart);
-            std::cout << "[walkTopBottomStrips] connected halfedges at longitude start: "
-                << hEdgesStart.size() << std::endl;
-
-            if (hEdgesStart.empty()) {
-                std::cout << "[walkTopBottomStrips] longitude abort: no connected halfedges." << std::endl;
-                return longitudeEdges;
-            }
-
-            float minAngle = std::numeric_limits<float>::max();
-            zItMeshHalfEdge heStart = hEdgesStart[0];
-
-            printHalfEdge("longitude initial candidate", heStart);
-            for (auto& he : hEdgesStart) {
-                const float angle = he.getVector().angle(dir);
-                printHalfEdge("longitude checking candidate", he);
-                std::cout << "[walkTopBottomStrips]   angle to longitude dir: " << angle << std::endl;
-                if (angle < minAngle) {
-                    minAngle = angle;
-                    heStart = he;
-                    std::cout << "[walkTopBottomStrips]   new longitude heStart, minAngle: " << minAngle << std::endl;
-                }
-            }
-
-            printHalfEdge("longitude selected heStart", heStart);
-
-            zItMeshHalfEdge heWalk = heStart;
-            for (int safety = 0; safety < fn.numPolygons() + 10; safety++) {
-                longitudeEdges.push_back(heWalk);
-                printHalfEdge("longitude walk edge", heWalk);
-
-                if (heWalk.getVertex().getId() == endVID) {
-                    std::cout << "[walkTopBottomStrips] longitude reached end vertex " << endVID << std::endl;
-                    break;
-                }
-
-                heWalk = heWalk.getNext().getSym().getNext();
-
-                if (safety == fn.numPolygons() + 9) {
-                    std::cout << "[walkTopBottomStrips] longitude warning: safety limit before end vertex "
-                        << endVID << std::endl;
-                }
-            }
-
-            return longitudeEdges;
+        auto collectLongitudeEdges = [&](zItMeshHalfEdge heTop, zItMeshHalfEdge heBottom) {
+            zItMeshHalfEdgeArray stationEdges;
+            
+             stationEdges.push_back(topOriented);
         };
 
-        std::vector<std::pair<int, int>> visitedLongitudePairs;
+        auto appendLongitudeEdges = [&](const zItMeshHalfEdgeArray& stationEdges) {
+            if (loops.size() < stationEdges.size()) loops.resize(stationEdges.size());
 
-        auto appendLongitudePair = [&](int startVID, int endVID) {
-            const std::pair<int, int> key(startVID, endVID);
-            if (std::find(visitedLongitudePairs.begin(), visitedLongitudePairs.end(), key) != visitedLongitudePairs.end()) {
-                std::cout << "[walkTopBottomStrips] longitude pair already visited: "
-                    << startVID << " -> " << endVID << std::endl;
-                return;
-            }
-
-            visitedLongitudePairs.push_back(key);
-
-            zItMeshHalfEdgeArray longitudeEdges = collectLongitudeEdges(startVID, endVID);
-            if (!longitudeEdges.empty()) loops.push_back(longitudeEdges);
-
-            std::cout << "[walkTopBottomStrips] longitude loop added from "
-                << startVID << " -> " << endVID
-                << " edge count=" << longitudeEdges.size() << std::endl;
-        };
-
-        auto appendLongitudePairsForStation = [&](const zIntArray& topFaceVerts, const zIntArray& bottomFaceVerts) {
-            std::cout << "[walkTopBottomStrips] station top input vertex ids:";
-            for (int id : topFaceVerts) std::cout << " " << id;
-            std::cout << std::endl;
-
-            std::cout << "[walkTopBottomStrips] station bottom input vertex ids:";
-            for (int id : bottomFaceVerts) std::cout << " " << id;
-            std::cout << std::endl;
-
-            if (topFaceVerts.size() != bottomFaceVerts.size()) {
-                std::cout << "[walkTopBottomStrips] longitude warning: top/bottom face vertex counts differ "
-                    << topFaceVerts.size() << " vs " << bottomFaceVerts.size() << std::endl;
-            }
-
-            const int pairCount = std::min(topFaceVerts.size(), bottomFaceVerts.size());
-            for (int i = 0; i < pairCount; i++) {
-                const int topVID = topFaceVerts[i];
-                const int bottomVID = bottomFaceVerts[i];
-                std::cout << "[walkTopBottomStrips] station longitude vertex pair "
-                    << "index " << i << ": " << topVID << " -> " << bottomVID << std::endl;
-
-                appendLongitudePair(topVID, bottomVID);
+            for (int i = 0; i < static_cast<int>(stationEdges.size()); i++) {
+                loops[i].push_back(stationEdges[i]);
             }
         };
 
@@ -656,10 +571,18 @@ namespace alice2 {
             printHalfEdge("top", heTopWalk);
             printHalfEdge("bottom", heBottomWalk);
 
-            zIntArray topFaceVerts = appendFace(heTopWalk, true, topPositions, topVertexMap, topOriginalVertexIds, topCounts, topConnects);
-            zIntArray bottomFaceVerts = appendFace(heBottomWalk, false, bottomPositions, bottomVertexMap, bottomOriginalVertexIds, bottomCounts, bottomConnects);
+            appendFace(heTopWalk, true, topPositions, topVertexMap, topCounts, topConnects);
+            appendFace(heBottomWalk, false, bottomPositions, bottomVertexMap, bottomCounts, bottomConnects);
 
-            appendLongitudePairsForStation(topFaceVerts, bottomFaceVerts);
+            zItMeshHalfEdgeArray stationEdges = collectLongitudeEdges(heTopWalk, heBottomWalk);
+            appendLongitudeEdges(stationEdges);
+
+            std::cout << "[walkTopBottomStrips] station " << station
+                << " longitude edges found: " << stationEdges.size() << std::endl;
+            for (int i = 0; i < static_cast<int>(stationEdges.size()); i++) {
+                std::string label = "longitude[" + std::to_string(i) + "]";
+                printHalfEdge(label.c_str(), stationEdges[i]);
+            }
 
             zItMeshHalfEdge nextTop = nextStripHalfEdge(heTopWalk, true);
             zItMeshHalfEdge nextBottom = nextStripHalfEdge(heBottomWalk, false);
@@ -689,19 +612,9 @@ namespace alice2 {
         std::cout << "[walkTopBottomStrips] top mesh positions=" << topPositions.size()
             << ", faces=" << topCounts.size()
             << ", connects=" << topConnects.size() << std::endl;
-        std::cout << "[walkTopBottomStrips] top result vertex map (resultVID -> inputVID):" << std::endl;
-        for (int i = 0; i < static_cast<int>(topOriginalVertexIds.size()); i++) {
-            std::cout << "[walkTopBottomStrips]   top " << i << " -> input " << topOriginalVertexIds[i] << std::endl;
-        }
-
         std::cout << "[walkTopBottomStrips] bottom mesh positions=" << bottomPositions.size()
             << ", faces=" << bottomCounts.size()
             << ", connects=" << bottomConnects.size() << std::endl;
-        std::cout << "[walkTopBottomStrips] bottom result vertex map (resultVID -> inputVID):" << std::endl;
-        for (int i = 0; i < static_cast<int>(bottomOriginalVertexIds.size()); i++) {
-            std::cout << "[walkTopBottomStrips]   bottom " << i << " -> input " << bottomOriginalVertexIds[i] << std::endl;
-        }
-
         std::cout << "[walkTopBottomStrips] longitude loop rows=" << loops.size() << std::endl;
         for (int i = 0; i < static_cast<int>(loops.size()); i++) {
             std::cout << "[walkTopBottomStrips]   loop[" << i << "] edge count=" << loops[i].size() << std::endl;
