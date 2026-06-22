@@ -29,12 +29,11 @@ namespace alice2 {
         zScalarArray& scalars, zObjMeshArray& sectionMeshes,
         zObjGraphArray& sectionGraphs, zObjGraphArray& contourGraphs)
     {
-        if (medialIds.size() < 2 || featuredNumStrides.empty()) return false;
+        if (medialIds.size() < 2) return false;
 
         zIntArray medial = medialIds;
-        zIntArray strides = featuredNumStrides;
         zVector normal(0, 0, 1);
-        computeVLoops(mesh, medial, strides, normal, loops, topMesh, bottomMesh);
+        computeVLoops(mesh, medial,  loops, topMesh, bottomMesh);
         computeGeodesicScalars(mesh, loops, scalars, true);
         computeGeodesicContours(loops, scalars, 0.01f, topMesh, bottomMesh, sectionMeshes);
         createSectionGraphs(sectionMeshes, sectionGraphs);
@@ -445,7 +444,7 @@ namespace alice2 {
     void createShapes(zObjMesh& mesh, zIntArray& medialIds, zIntArray& featuredNumStrides, zVector& norm, float, int& numFrames, zObjMesh& topMeshObj, zObjMesh& bottomMeshObj)
     {
         std::vector<zItMeshHalfEdgeArray> loops;
-        computeVLoops(mesh, medialIds, featuredNumStrides, norm, loops, topMeshObj, bottomMeshObj);
+        computeVLoops(mesh, medialIds,loops, topMeshObj, bottomMeshObj);
         numFrames = std::max(2, static_cast<int>(loops.size()));
     }
 
@@ -473,296 +472,365 @@ namespace alice2 {
             fnMesh.create(positions, counts, connects);
         }
     }
-
-    // void computeVLoops(zObjMesh& mesh, zIntArray& medialIds, zIntArray& featuredNumStrides, zVector& norm, std::vector<zItMeshHalfEdgeArray>& loops, zObjMesh& topMeshObj, zObjMesh& bottomMeshObj)
-    // {
-    //     loops.clear();
-    //     if (medialIds.size() < 2 || featuredNumStrides.empty()) return;
-
-    //     const int stride = std::max(1, featuredNumStrides[0]);
-    //     const int startVID = medialIds[0];
-    //     const int endVID = medialIds[1];
-
-    //     zItMeshVertex vStart(mesh, startVID);
-    //     zItMeshVertex vEnd(mesh, endVID);
-    //     zVector dir = vEnd.getPosition() - vStart.getPosition();
-
-    //     zItMeshHalfEdgeArray hEdgesStart;
-    //     vStart.getConnectedHalfEdges(hEdgesStart);
-    //     if (hEdgesStart.empty()) return;
-
-    //     float minAngle = std::numeric_limits<float>::max();
-    //     zItMeshHalfEdge heStart = hEdgesStart[0];
-    //     for (auto& he : hEdgesStart) {
-    //         const float angle = he.getVector().angle(dir);
-    //         if (angle < minAngle) {
-    //             minAngle = angle;
-    //             heStart = he;
-    //         }
-    //     }
-
-    //     zItMeshHalfEdge he = heStart;
-    //     norm.normalize();
-
-    //     zItMeshHalfEdge heBottom;
-    //     zItMeshHalfEdge heTop;
-    //     int vCounter = 0;
-    //     int tempCounter = 0;
-    //     do {
-    //         zVector faceNormal = he.getFace().getNormal();
-    //         faceNormal.normalize();
-
-    //         if (norm * faceNormal > 0.98) {
-    //             vCounter = tempCounter;
-    //             heTop = he;
-    //         }
-
-    //         if (norm * faceNormal < -0.98) {
-    //             heBottom = he;
-    //         }
-
-    //         he = he.getNext().getSym().getNext();
-    //         tempCounter++;
-    //     } while (he != heStart);
-
-    //     if (vCounter <= 0) return;
-
-    //     zPointArray positionsTop;
-    //     zPointArray positionsBottom;
-    //     zIntArray countsTop;
-    //     zIntArray countsBottom;
-    //     zIntArray connectsTop;
-    //     zIntArray connectsBottom;
-
-    //     zFnMesh fnMesh(mesh);
-    //     zIntArray pMapBottom(fnMesh.numVertices(), -1);
-    //     zIntArray pMapTop(fnMesh.numVertices(), -1);
-
-    //     bool corner = true;
-    //     for (int i = 0; i < stride; i++) {
-    //         heTop = heTop.getNext().getNext();
-    //         heBottom = heBottom.getNext().getNext();
-
-    //         if ((i + 1) % stride != 0) {
-    //             heBottom = heBottom.getSym();
-    //             heTop = heTop.getSym();
-    //         }
-    //     }
-
-    //     zItMeshHalfEdge heWalkBottom = heBottom;
-    //     int walkCounter = 0;
-    //     do {
-    //         if (corner) {
-    //             const int loopId = static_cast<int>(loops.size());
-    //             getLoop(heWalkBottom, true, corner, vCounter, loops);
-    //             corner = false;
-
-    //             if (!loops[loopId].empty()) {
-    //                 pMapBottom[loops[loopId][0].getVertex().getId()] = static_cast<int>(positionsBottom.size());
-    //                 positionsBottom.push_back(loops[loopId][0].getVertex().getPosition());
-
-    //                 pMapTop[loops[loopId].back().getStartVertex().getId()] = static_cast<int>(positionsTop.size());
-    //                 positionsTop.push_back(loops[loopId].back().getStartVertex().getPosition());
-    //             }
-    //         }
-
-    //         const int loopId = static_cast<int>(loops.size());
-    //         getLoop(heWalkBottom, true, corner, vCounter, loops);
-    //         if (!loops[loopId].empty()) {
-    //             pMapBottom[loops[loopId][0].getVertex().getId()] = static_cast<int>(positionsBottom.size());
-    //             positionsBottom.push_back(loops[loopId][0].getVertex().getPosition());
-
-    //             pMapTop[loops[loopId].back().getStartVertex().getId()] = static_cast<int>(positionsTop.size());
-    //             positionsTop.push_back(loops[loopId].back().getStartVertex().getPosition());
-    //         }
-
-    //         heWalkBottom = heWalkBottom.getNext().getNext();
-    //         if ((walkCounter + 1) % (2 * stride) != 0) heWalkBottom = heWalkBottom.getSym();
-    //         else corner = true;
-    //         walkCounter++;
-    //     } while (heWalkBottom != heBottom);
-
-    //     for (int i = 0; i < stride * 2; i++) {
-    //         zIntArray faceVerts;
-    //         getFaceVerticesFromHalfedge(heBottom, true, faceVerts);
-    //         bool valid = true;
-    //         for (auto id : faceVerts) {
-    //             if (id < 0 || id >= static_cast<int>(pMapBottom.size()) || pMapBottom[id] < 0) valid = false;
-    //         }
-    //         if (valid) {
-    //             for (auto id : faceVerts) connectsBottom.push_back(pMapBottom[id]);
-    //             countsBottom.push_back(static_cast<int>(faceVerts.size()));
-    //         }
-
-    //         faceVerts.clear();
-    //         getFaceVerticesFromHalfedge(heTop, true, faceVerts);
-    //         valid = true;
-    //         for (auto id : faceVerts) {
-    //             if (id < 0 || id >= static_cast<int>(pMapTop.size()) || pMapTop[id] < 0) valid = false;
-    //         }
-    //         if (valid) {
-    //             for (auto id : faceVerts) connectsTop.push_back(pMapTop[id]);
-    //             countsTop.push_back(static_cast<int>(faceVerts.size()));
-    //         }
-
-    //         heBottom = heBottom.getNext().getNext().getSym();
-    //         heTop = heTop.getNext().getNext().getSym();
-    //     }
-
-    //     zFnMesh fnTop(topMeshObj);
-    //     fnTop.clear();
-    //     if (!positionsTop.empty()) fnTop.create(positionsTop, countsTop, connectsTop);
-
-    //     zFnMesh fnBottom(bottomMeshObj);
-    //     fnBottom.clear();
-    //     if (!positionsBottom.empty()) fnBottom.create(positionsBottom, countsBottom, connectsBottom);
-    // }
-    
-    void computeVLoops(zObjMesh& mesh, zIntArray& longitudeCornerVIds, zVector& norm, std::vector<zItMeshHalfEdgeArray>& loops, zObjMesh& topMeshObj, zObjMesh& bottomMeshObj)
+    void walkTopBottomStrips(
+        zObjMesh& mesh,
+        zItMeshHalfEdge heTopStart,
+        zItMeshHalfEdge heBottomStart,
+        std::vector<zItMeshHalfEdgeArray>& loops,
+        zObjMesh& topMeshObj,
+        zObjMesh& bottomMeshObj)
     {
-        loops.clear();
-        if (longitudeCornerVIds.size() < 2 ) return;
+        zFnMesh fn(mesh);
 
-        // const int stride = std::max(1, featuredNumStrides[0]);
-        const int startVID = longitudeCornerVIds[0];
-        const int endVID = longitudeCornerVIds[1];
+        auto printHalfEdge = [](const char* label, zItMeshHalfEdge he) {
+            zItMeshVertex start = he.getStartVertex();
+            zItMeshVertex end = he.getVertex();
+            zVector edge = he.getVector();
+            std::cout << "[walkTopBottomStrips] " << label
+                << " he#" << he.getId()
+                << " face#" << he.getFace().getId()
+                << " " << start.getId() << " -> " << end.getId()
+                << " val(" << start.getValence() << "," << end.getValence() << ")"
+                << " len " << edge.length()
+                << std::endl;
+        };
 
-        zItMeshVertex vStart(mesh, startVID);
-        zItMeshVertex vEnd(mesh, endVID);
-        zVector dir = vEnd.getPosition() - vStart.getPosition();
+        auto nextStripHalfEdge = [](zItMeshHalfEdge he, bool flip) {
+            return flip
+                ? he.getPrev().getSym().getPrev()
+                : he.getNext().getSym().getNext();
+        };
 
-        zItMeshHalfEdgeArray hEdgesStart;
-        vStart.getConnectedHalfEdges(hEdgesStart);
-        if (hEdgesStart.empty()) return;
+        auto stripReachedCorner = [](zItMeshHalfEdge he, bool flip) {
+            return flip
+                ? he.getVertex().getValence() == 3
+                : he.getStartVertex().getValence() == 3;
+        };
 
-        float maxAngle = std::numeric_limits<float>::min();
-        zItMeshHalfEdge heStart = hEdgesStart[0];
-        for (auto& he : hEdgesStart) {
-            //should be checking abs(cos) --> get the longtitude
-            const float dot = he.getVector() * dir;
-            const float angle = std::acos(dot / (he.getVector().length() * dir.length()));
-            // const float angle = he.getVector().angle(dir);
-            if (angle > maxAngle) {
-                maxAngle = angle;
-                heStart = he;
+        zPointArray topPositions;
+        zIntArray topCounts;
+        zIntArray topConnects;
+        zIntArray topVertexMap(fn.numVertices(), -1);
+        std::vector<int> topOriginalVertexIds;
+
+        zPointArray bottomPositions;
+        zIntArray bottomCounts;
+        zIntArray bottomConnects;
+        zIntArray bottomVertexMap(fn.numVertices(), -1);
+        std::vector<int> bottomOriginalVertexIds;
+
+        auto mappedVertex = [&](int originalVertexId, zPointArray& positions, zIntArray& vertexMap, std::vector<int>& originalVertexIds) -> int {
+            int& mappedId = vertexMap[originalVertexId];
+            if (mappedId < 0) {
+                zItMeshVertex v(mesh, originalVertexId);
+                mappedId = static_cast<int>(positions.size());
+                positions.push_back(v.getPosition());
+                originalVertexIds.push_back(originalVertexId);
             }
-        }
+            return mappedId;
+        };
 
-        zItMeshHalfEdge he = heStart;
-        norm.normalize();
+        auto appendFace = [&](zItMeshHalfEdge he, bool flip, zPointArray& positions, zIntArray& vertexMap, std::vector<int>& originalVertexIds, zIntArray& counts, zIntArray& connects) {
+            zIntArray faceVerts;
+            getFaceVerticesFromHalfedge(he, !flip, faceVerts);
 
-        zItMeshHalfEdge heBottom;
-        zItMeshHalfEdge heTop;
-        int vCounter = 0;
-        int tempCounter = 0;
-        do {
-            zVector faceNormal = he.getFace().getNormal();
-            faceNormal.normalize();
-
-            if (norm * faceNormal > 0.98) {
-                vCounter = tempCounter;
-                heTop = he;
+            counts.push_back(static_cast<int>(faceVerts.size()));
+            for (int originalVertexId : faceVerts) {
+                connects.push_back(mappedVertex(originalVertexId, positions, vertexMap, originalVertexIds));
             }
 
-            if (norm * faceNormal < -0.98) {
-                heBottom = he;
+            return faceVerts;
+        };
+
+        auto collectLongitudeEdges = [&](int startVID, int endVID) {
+            zItMeshHalfEdgeArray longitudeEdges;
+
+            zItMeshVertex vStart(mesh, startVID);
+            zItMeshVertex vEnd(mesh, endVID);
+            zVector dir = vEnd.getPosition() - vStart.getPosition();
+
+            std::cout << "[walkTopBottomStrips] longitude pair " << startVID << " -> " << endVID
+                << " val(" << vStart.getValence() << "," << vEnd.getValence() << ")"
+                << " dir length " << dir.length() << std::endl;
+
+            zItMeshHalfEdgeArray hEdgesStart;
+            vStart.getConnectedHalfEdges(hEdgesStart);
+            std::cout << "[walkTopBottomStrips] connected halfedges at longitude start: "
+                << hEdgesStart.size() << std::endl;
+
+            if (hEdgesStart.empty()) {
+                std::cout << "[walkTopBottomStrips] longitude abort: no connected halfedges." << std::endl;
+                return longitudeEdges;
             }
 
-            he = he.getNext().getSym().getNext();
-            tempCounter++;
-        } while (he != heStart);
+            float minAngle = std::numeric_limits<float>::max();
+            zItMeshHalfEdge heStart = hEdgesStart[0];
 
-        if (vCounter <= 0) return;
-
-        zPointArray positionsTop;
-        zPointArray positionsBottom;
-        zIntArray countsTop;
-        zIntArray countsBottom;
-        zIntArray connectsTop;
-        zIntArray connectsBottom;
-
-        zFnMesh fnMesh(mesh);
-        zIntArray pMapBottom(fnMesh.numVertices(), -1);
-        zIntArray pMapTop(fnMesh.numVertices(), -1);
-
-        bool corner = true;
-        for (int i = 0; i < stride; i++) {
-            heTop = heTop.getNext().getNext();
-            heBottom = heBottom.getNext().getNext();
-
-            if ((i + 1) % stride != 0) {
-                heBottom = heBottom.getSym();
-                heTop = heTop.getSym();
-            }
-        }
-
-        zItMeshHalfEdge heWalkBottom = heBottom;
-        int walkCounter = 0;
-        do {
-            if (corner) {
-                const int loopId = static_cast<int>(loops.size());
-                getLoop(heWalkBottom, true, corner, vCounter, loops);
-                corner = false;
-
-                if (!loops[loopId].empty()) {
-                    pMapBottom[loops[loopId][0].getVertex().getId()] = static_cast<int>(positionsBottom.size());
-                    positionsBottom.push_back(loops[loopId][0].getVertex().getPosition());
-
-                    pMapTop[loops[loopId].back().getStartVertex().getId()] = static_cast<int>(positionsTop.size());
-                    positionsTop.push_back(loops[loopId].back().getStartVertex().getPosition());
+            printHalfEdge("longitude initial candidate", heStart);
+            for (auto& he : hEdgesStart) {
+                const float angle = he.getVector().angle(dir);
+                printHalfEdge("longitude checking candidate", he);
+                std::cout << "[walkTopBottomStrips]   angle to longitude dir: " << angle << std::endl;
+                if (angle < minAngle) {
+                    minAngle = angle;
+                    heStart = he;
+                    std::cout << "[walkTopBottomStrips]   new longitude heStart, minAngle: " << minAngle << std::endl;
                 }
             }
 
-            const int loopId = static_cast<int>(loops.size());
-            getLoop(heWalkBottom, true, corner, vCounter, loops);
-            if (!loops[loopId].empty()) {
-                pMapBottom[loops[loopId][0].getVertex().getId()] = static_cast<int>(positionsBottom.size());
-                positionsBottom.push_back(loops[loopId][0].getVertex().getPosition());
+            printHalfEdge("longitude selected heStart", heStart);
 
-                pMapTop[loops[loopId].back().getStartVertex().getId()] = static_cast<int>(positionsTop.size());
-                positionsTop.push_back(loops[loopId].back().getStartVertex().getPosition());
+            zItMeshHalfEdge heWalk = heStart;
+            for (int safety = 0; safety < fn.numPolygons() + 10; safety++) {
+                longitudeEdges.push_back(heWalk);
+                printHalfEdge("longitude walk edge", heWalk);
+
+                if (heWalk.getVertex().getId() == endVID) {
+                    std::cout << "[walkTopBottomStrips] longitude reached end vertex " << endVID << std::endl;
+                    break;
+                }
+
+                heWalk = heWalk.getNext().getSym().getNext();
+
+                if (safety == fn.numPolygons() + 9) {
+                    std::cout << "[walkTopBottomStrips] longitude warning: safety limit before end vertex "
+                        << endVID << std::endl;
+                }
             }
 
-            heWalkBottom = heWalkBottom.getNext().getNext();
-            if ((walkCounter + 1) % (2 * stride) != 0) heWalkBottom = heWalkBottom.getSym();
-            else corner = true;
-            walkCounter++;
-        } while (heWalkBottom != heBottom);
+            return longitudeEdges;
+        };
 
-        for (int i = 0; i < stride * 2; i++) {
-            zIntArray faceVerts;
-            getFaceVerticesFromHalfedge(heBottom, true, faceVerts);
-            bool valid = true;
-            for (auto id : faceVerts) {
-                if (id < 0 || id >= static_cast<int>(pMapBottom.size()) || pMapBottom[id] < 0) valid = false;
-            }
-            if (valid) {
-                for (auto id : faceVerts) connectsBottom.push_back(pMapBottom[id]);
-                countsBottom.push_back(static_cast<int>(faceVerts.size()));
+        std::vector<std::pair<int, int>> visitedLongitudePairs;
+
+        auto appendLongitudePair = [&](int startVID, int endVID) {
+            const std::pair<int, int> key(startVID, endVID);
+            if (std::find(visitedLongitudePairs.begin(), visitedLongitudePairs.end(), key) != visitedLongitudePairs.end()) {
+                std::cout << "[walkTopBottomStrips] longitude pair already visited: "
+                    << startVID << " -> " << endVID << std::endl;
+                return;
             }
 
-            faceVerts.clear();
-            getFaceVerticesFromHalfedge(heTop, true, faceVerts);
-            valid = true;
-            for (auto id : faceVerts) {
-                if (id < 0 || id >= static_cast<int>(pMapTop.size()) || pMapTop[id] < 0) valid = false;
-            }
-            if (valid) {
-                for (auto id : faceVerts) connectsTop.push_back(pMapTop[id]);
-                countsTop.push_back(static_cast<int>(faceVerts.size()));
+            visitedLongitudePairs.push_back(key);
+
+            zItMeshHalfEdgeArray longitudeEdges = collectLongitudeEdges(startVID, endVID);
+            if (!longitudeEdges.empty()) loops.push_back(longitudeEdges);
+
+            std::cout << "[walkTopBottomStrips] longitude loop added from "
+                << startVID << " -> " << endVID
+                << " edge count=" << longitudeEdges.size() << std::endl;
+        };
+
+        auto appendLongitudePairsForStation = [&](const zIntArray& topFaceVerts, const zIntArray& bottomFaceVerts) {
+            std::cout << "[walkTopBottomStrips] station top input vertex ids:";
+            for (int id : topFaceVerts) std::cout << " " << id;
+            std::cout << std::endl;
+
+            std::cout << "[walkTopBottomStrips] station bottom input vertex ids:";
+            for (int id : bottomFaceVerts) std::cout << " " << id;
+            std::cout << std::endl;
+
+            if (topFaceVerts.size() != bottomFaceVerts.size()) {
+                std::cout << "[walkTopBottomStrips] longitude warning: top/bottom face vertex counts differ "
+                    << topFaceVerts.size() << " vs " << bottomFaceVerts.size() << std::endl;
             }
 
-            heBottom = heBottom.getNext().getNext().getSym();
-            heTop = heTop.getNext().getNext().getSym();
+            const int pairCount = std::min(topFaceVerts.size(), bottomFaceVerts.size());
+            for (int i = 0; i < pairCount; i++) {
+                const int topVID = topFaceVerts[i];
+                const int bottomVID = bottomFaceVerts[i];
+                std::cout << "[walkTopBottomStrips] station longitude vertex pair "
+                    << "index " << i << ": " << topVID << " -> " << bottomVID << std::endl;
+
+                appendLongitudePair(topVID, bottomVID);
+            }
+        };
+
+        zItMeshHalfEdge heTopWalk = heTopStart;
+        zItMeshHalfEdge heBottomWalk = heBottomStart;
+        int station = 0;
+        int safety = 0;
+
+        do {
+            std::cout << "[walkTopBottomStrips] station " << station << std::endl;
+            printHalfEdge("top", heTopWalk);
+            printHalfEdge("bottom", heBottomWalk);
+
+            zIntArray topFaceVerts = appendFace(heTopWalk, true, topPositions, topVertexMap, topOriginalVertexIds, topCounts, topConnects);
+            zIntArray bottomFaceVerts = appendFace(heBottomWalk, false, bottomPositions, bottomVertexMap, bottomOriginalVertexIds, bottomCounts, bottomConnects);
+
+            appendLongitudePairsForStation(topFaceVerts, bottomFaceVerts);
+
+            zItMeshHalfEdge nextTop = nextStripHalfEdge(heTopWalk, true);
+            zItMeshHalfEdge nextBottom = nextStripHalfEdge(heBottomWalk, false);
+            const bool topDone = stripReachedCorner(nextTop, true);
+            const bool bottomDone = stripReachedCorner(nextBottom, false);
+
+            if (topDone || bottomDone) {
+                std::cout << "[walkTopBottomStrips] stop reason: "
+                    << (topDone ? "top valence 3" : "")
+                    << (topDone && bottomDone ? " + " : "")
+                    << (bottomDone ? "bottom valence 3" : "")
+                    << std::endl;
+                break;
+            }
+
+            heTopWalk = nextTop;
+            heBottomWalk = nextBottom;
+            station++;
+            safety++;
+
+        } while (safety < fn.numPolygons() + 10);
+
+        if (safety >= fn.numPolygons() + 10) {
+            std::cout << "[walkTopBottomStrips] stop reason: safety limit" << std::endl;
+        }
+
+        std::cout << "[walkTopBottomStrips] top mesh positions=" << topPositions.size()
+            << ", faces=" << topCounts.size()
+            << ", connects=" << topConnects.size() << std::endl;
+        std::cout << "[walkTopBottomStrips] top result vertex map (resultVID -> inputVID):" << std::endl;
+        for (int i = 0; i < static_cast<int>(topOriginalVertexIds.size()); i++) {
+            std::cout << "[walkTopBottomStrips]   top " << i << " -> input " << topOriginalVertexIds[i] << std::endl;
+        }
+
+        std::cout << "[walkTopBottomStrips] bottom mesh positions=" << bottomPositions.size()
+            << ", faces=" << bottomCounts.size()
+            << ", connects=" << bottomConnects.size() << std::endl;
+        std::cout << "[walkTopBottomStrips] bottom result vertex map (resultVID -> inputVID):" << std::endl;
+        for (int i = 0; i < static_cast<int>(bottomOriginalVertexIds.size()); i++) {
+            std::cout << "[walkTopBottomStrips]   bottom " << i << " -> input " << bottomOriginalVertexIds[i] << std::endl;
+        }
+
+        std::cout << "[walkTopBottomStrips] longitude loop rows=" << loops.size() << std::endl;
+        for (int i = 0; i < static_cast<int>(loops.size()); i++) {
+            std::cout << "[walkTopBottomStrips]   loop[" << i << "] edge count=" << loops[i].size() << std::endl;
         }
 
         zFnMesh fnTop(topMeshObj);
         fnTop.clear();
-        if (!positionsTop.empty()) fnTop.create(positionsTop, countsTop, connectsTop);
+        if (!topPositions.empty()) fnTop.create(topPositions, topCounts, topConnects);
 
         zFnMesh fnBottom(bottomMeshObj);
         fnBottom.clear();
-        if (!positionsBottom.empty()) fnBottom.create(positionsBottom, countsBottom, connectsBottom);
+        if (!bottomPositions.empty()) fnBottom.create(bottomPositions, bottomCounts, bottomConnects);
+    }
+    void computeVLoops(zObjMesh& mesh, zIntArray& medialIds,   std::vector<zItMeshHalfEdgeArray>& loops, zObjMesh& topMeshObj, zObjMesh& bottomMeshObj)
+    {
+        loops.clear();
+        std::cout << "[computeVLoops] ---- begin ----" << std::endl;
+        std::cout << "[computeVLoops] medialIds size: " << medialIds.size() << std::endl;
+        // if (medialIds.size() < 2 || featuredNumStrides.empty()) return;
+
+        // const int stride = std::max(1, featuredNumStrides[0]);
+        const int startVID = medialIds[0];
+        const int endVID = medialIds[1];
+        std::cout << "[computeVLoops] input edge vertices: " << startVID << " -> " << endVID << std::endl;
+
+        zItMeshVertex vStart(mesh, startVID);
+        zItMeshVertex vEnd(mesh, endVID);
+        zVector dir = vEnd.getPosition() - vStart.getPosition();
+        std::cout << "[computeVLoops] vStart valence: " << vStart.getValence()
+            << ", vEnd valence: " << vEnd.getValence()
+            << ", dir length: " << dir.length() << std::endl;
+
+        auto printHalfEdge = [](const char* label, zItMeshHalfEdge he) {
+            zItMeshVertex start = he.getStartVertex();
+            zItMeshVertex end = he.getVertex();
+            zVector edge = he.getVector();
+            std::cout << "[computeVLoops] " << label
+                << " he#" << he.getId()
+                << " face#" << he.getFace().getId()
+                << " " << start.getId() << " -> " << end.getId()
+                << " val(" << start.getValence() << "," << end.getValence() << ")"
+                << " len " << edge.length()
+                << std::endl;
+        };
+
+        zItMeshHalfEdgeArray hEdgesStart;
+        vStart.getConnectedHalfEdges(hEdgesStart);
+        std::cout << "[computeVLoops] connected halfedges at start vertex: " << hEdgesStart.size() << std::endl;
+        if (hEdgesStart.empty()) {
+            std::cout << "[computeVLoops] abort: no connected halfedges." << std::endl;
+            return;
+        }
+
+        float minAngle = std::numeric_limits<float>::max();
+        zItMeshHalfEdge heStart = hEdgesStart[0];
+        printHalfEdge("initial heStart candidate", heStart);
+        for (auto& he : hEdgesStart) {
+            const float angle = he.getVector().angle(dir);
+            printHalfEdge("checking start candidate", he);
+            std::cout << "[computeVLoops]   angle to input dir: " << angle << std::endl;
+            if (angle < minAngle) {
+                minAngle = angle;
+                heStart = he;
+                std::cout << "[computeVLoops]   new heStart, minAngle: " << minAngle << std::endl;
+            }
+        }
+        printHalfEdge("selected heStart", heStart);
+        //HESTARRT: LONGTITUDE CORNER
+        zItMeshHalfEdge he = heStart; // temp assign fix later?
+        // norm.normalize();
+
+        zItMeshHalfEdge heBottom;
+        zItMeshHalfEdge heTop;
+        int vCounter = 1;
+        int tempCounter = 0;
+        std::cout << "[computeVLoops] searching heTop / heBottom " << std::endl;
+        for (auto& he : hEdgesStart) {
+            printHalfEdge("top/bottom candidate root", he);
+            std::cout << "[computeVLoops]   next vertex valence: "
+                << he.getVertex().getValence() << std::endl;
+            if(he.getVertex().getValence() != 3 && he!=heStart) 
+            {
+                heTop = he.getSym();
+                printHalfEdge("  assigned heTop", heTop);
+            }
+            else if(he == heStart){
+                std::cout << "[computeVLoops]   walking to find heBottom." << std::endl;
+                while(he.getVertex().getValence() != 3)
+                {
+                    he = he.getNext().getSym().getNext();
+                    tempCounter++;
+                    printHalfEdge("    heBottom walk step", he);
+                    std::cout << "[computeVLoops]     tempCounter: " << tempCounter
+                        << ", next vertex valence: " << he.getNext().getVertex().getValence()
+                        << std::endl;
+                } while(he.getVertex().getValence() != 3);
+
+                heBottom = he.getSym().getPrev().getSym();
+                printHalfEdge("  assigned heBottom", heBottom);
+            }
+            }
+        //done 06.21
+        vCounter = std::max(1, tempCounter);
+        std::cout << "[computeVLoops] after top/bottom search tempCounter: " << tempCounter
+            << ", vCounter: " << vCounter << std::endl;
+
+        int tempStrideCounter = 0;
+        int stride = 0;
+        auto heTemp = heBottom;
+            do{
+                heTemp = heTemp.getNext().getSym().getNext();
+                tempStrideCounter++;
+                printHalfEdge("  stride walk he", heTemp);
+                std::cout << "[computeVLoops]   tempStrideCounter: " << tempStrideCounter
+                    << ", next vertex valence: " << heTemp.getVertex().getValence()
+                    << std::endl;
+            } while(he.getVertex().getValence() != 3);
+        stride = tempStrideCounter;
+        std::cout << "[computeVLoops] computed stride: " << stride << std::endl;
+            
+
+        if (vCounter <= 0) {
+            std::cout << "[computeVLoops] abort: vCounter <= 0. vCounter=" << vCounter
+                << ", stride=" << stride << std::endl;
+            std::cout << "[computeVLoops] ---- end abort ----" << std::endl;
+            return;
+        }
+
+        walkTopBottomStrips(mesh, heTop, heBottom, loops, topMeshObj, bottomMeshObj);
     }
 
     void computeGeodesicScalars(zObjMesh& mesh, std::vector<zItMeshHalfEdgeArray>& loops, zScalarArray& scalars, bool normalise)

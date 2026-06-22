@@ -53,7 +53,7 @@ namespace alice2 {
     void mergeMesh(zSpace::zObjMesh& mesh);
     void createShapes(zSpace::zObjMesh& mesh, zSpace::zIntArray& medialIds, zSpace::zIntArray& featuredNumStrides, zSpace::zVector& norm, float spacing, int& numFrames, zSpace::zObjMesh& topMesh, zSpace::zObjMesh& bottomMesh);
     void blendShapes(zSpace::zObjMesh& shape0, zSpace::zObjMesh& shape1, int numFrames, zSpace::zObjMeshArray& meshes);
-    void computeVLoops(zSpace::zObjMesh& mesh, zSpace::zIntArray& medialIds, zSpace::zIntArray& featuredNumStrides, zSpace::zVector& norm, std::vector<zSpace::zItMeshHalfEdgeArray>& loops, zSpace::zObjMesh& topMesh, zSpace::zObjMesh& bottomMesh);
+    void computeVLoops(zSpace::zObjMesh& mesh, zSpace::zIntArray& longitudeCornerVIds, std::vector<zSpace::zItMeshHalfEdgeArray>& loops, zSpace::zObjMesh& topMesh, zSpace::zObjMesh& bottomMesh);
     void computeGeodesicScalars(zSpace::zObjMesh& mesh, std::vector<zSpace::zItMeshHalfEdgeArray>& loops, zSpace::zScalarArray& scalars, bool normalise);
     void computeGeodesicContours(std::vector<zSpace::zItMeshHalfEdgeArray>& loops, zSpace::zScalarArray& scalars, float spacing, zSpace::zObjMesh& topMesh, zSpace::zObjMesh& bottomMesh, zSpace::zObjMeshArray& meshes);
     void computeGeodesicContours(zSpace::zObjMesh& mesh, zSpace::zFloatArray& scalars, float spacing, zSpace::zObjGraphArray& contourGraphs);

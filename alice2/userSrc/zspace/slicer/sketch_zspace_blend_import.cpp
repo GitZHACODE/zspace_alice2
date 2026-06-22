@@ -7,8 +7,10 @@
 #include <sketches/SketchRegistry.h>
 #include <slicer/zUnroller.h>
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <string>
@@ -82,6 +84,13 @@ public:
             return true;
         }
 
+        if (key == 'g' || key == 'G') {
+            m_debugComputeVLoops = !m_debugComputeVLoops;
+            std::cout << "[zSpaceBlendImport] computeVLoops debug: "
+                << (m_debugComputeVLoops ? "on" : "off") << std::endl;
+            return true;
+        }
+
         if (key == '[' || key == 's' || key == 'S') {
             return changeSection(-1);
         }
@@ -107,6 +116,7 @@ private:
     bool m_loaded = false;
     bool m_showBlockMesh = false;
     bool m_displaySections = true;
+    bool m_debugComputeVLoops = true;
     int m_currentSection = 0;
 
     static Vec3 toVec3(const zSpace::zVector& p)
@@ -130,6 +140,159 @@ private:
         return !values.empty();
     }
 
+    void debugPrintMeshStats(const char* label, zSpace::zObjMesh& mesh)
+    {
+        if (!m_debugComputeVLoops) return;
+
+        zSpace::zFnMesh fn(mesh);
+        std::cout << "[zSpaceBlendImport][computeVLoops] " << label
+            << " vertices=" << fn.numVertices()
+            << " edges=" << fn.numEdges()
+            << " halfEdges=" << fn.numHalfEdges()
+            << " faces=" << fn.numPolygons()
+            << std::endl;
+    }
+
+    void debugPrintHalfEdge(const char* label, zSpace::zItMeshHalfEdge he)
+    {
+        if (!m_debugComputeVLoops) return;
+
+        zSpace::zItMeshVertex start = he.getStartVertex();
+        zSpace::zItMeshVertex end = he.getVertex();
+        zSpace::zVector p0 = start.getPosition();
+        zSpace::zVector p1 = end.getPosition();
+        zSpace::zVector edge = he.getVector();
+        zSpace::zVector normal = he.getFace().getNormal();
+
+        std::cout << "[zSpaceBlendImport][computeVLoops] " << label
+            << " he=" << he.getId()
+            << " face=" << he.getFace().getId()
+            << " edge=" << start.getId() << "->" << end.getId()
+            << " valence=" << start.getValence() << "->" << end.getValence()
+            << " length=" << edge.length()
+            << " p0=(" << p0.x << "," << p0.y << "," << p0.z << ")"
+            << " p1=(" << p1.x << "," << p1.y << "," << p1.z << ")"
+            << " faceNormal=(" << normal.x << "," << normal.y << "," << normal.z << ")"
+            << std::endl;
+    }
+
+    void debugPrintVertex(int vertexId)
+    {
+        if (!m_debugComputeVLoops) return;
+
+        zSpace::zItMeshVertex v(m_mesh, vertexId);
+        zSpace::zVector p = v.getPosition();
+        std::cout << "[zSpaceBlendImport][computeVLoops] vertex=" << vertexId
+            << " valence=" << v.getValence()
+            << " position=(" << p.x << "," << p.y << "," << p.z << ")"
+            << std::endl;
+
+        zSpace::zItMeshHalfEdgeArray connected;
+        v.getConnectedHalfEdges(connected);
+        for (int i = 0; i < static_cast<int>(connected.size()); i++) {
+            std::ostringstream label;
+            label << "  connectedHalfEdge[" << i << "]";
+            debugPrintHalfEdge(label.str().c_str(), connected[i]);
+        }
+    }
+
+    void debugPrintBeforeComputeVLoops(const zSpace::zIntArray& medialIds)
+    {
+        if (!m_debugComputeVLoops) return;
+
+        std::cout << "[zSpaceBlendImport][computeVLoops] ===== begin call =====" << std::endl;
+        debugPrintMeshStats("input mesh", m_mesh);
+
+        std::cout << "[zSpaceBlendImport][computeVLoops] medialIds/longitudeCornerVIds:";
+        for (int id : medialIds) std::cout << " " << id;
+        std::cout << std::endl;
+
+        if (medialIds.size() < 2) {
+            std::cout << "[zSpaceBlendImport][computeVLoops] ERROR: need at least 2 ids." << std::endl;
+            return;
+        }
+
+        debugPrintVertex(medialIds[0]);
+        debugPrintVertex(medialIds[1]);
+
+        zSpace::zFnMesh fn(m_mesh);
+        zSpace::zItMeshHalfEdge he;
+        if (fn.halfEdgeExists(medialIds[0], medialIds[1], he)) {
+            debugPrintHalfEdge("corner edge forward", he);
+            debugPrintHalfEdge("  forward.next", he.getNext());
+            debugPrintHalfEdge("  forward.prev.sym", he.getPrev().getSym());
+        }
+        else {
+            std::cout << "[zSpaceBlendImport][computeVLoops] missing halfEdge "
+                << medialIds[0] << "->" << medialIds[1] << std::endl;
+        }
+
+        if (fn.halfEdgeExists(medialIds[1], medialIds[0], he)) {
+            debugPrintHalfEdge("corner edge reverse", he);
+            debugPrintHalfEdge("  reverse.next", he.getNext());
+            debugPrintHalfEdge("  reverse.prev.sym", he.getPrev().getSym());
+        }
+        else {
+            std::cout << "[zSpaceBlendImport][computeVLoops] missing halfEdge "
+                << medialIds[1] << "->" << medialIds[0] << std::endl;
+        }
+    }
+
+    void debugPrintLoopsAfterComputeVLoops()
+    {
+        if (!m_debugComputeVLoops) return;
+
+        std::cout << "[zSpaceBlendImport][computeVLoops] output loops=" << m_loops.size() << std::endl;
+        for (int i = 0; i < static_cast<int>(m_loops.size()); i++) {
+            const auto& loop = m_loops[i];
+            std::cout << "[zSpaceBlendImport][computeVLoops] loop[" << i << "] size=" << loop.size();
+
+            if (!loop.empty()) {
+                zSpace::zItMeshHalfEdge first = loop.front();
+                zSpace::zItMeshHalfEdge last = loop.back();
+                std::cout << " first=" << first.getStartVertex().getId() << "->" << first.getVertex().getId()
+                    << " last=" << last.getStartVertex().getId() << "->" << last.getVertex().getId();
+            }
+
+            std::cout << std::endl;
+        }
+
+        debugPrintMeshStats("top mesh after computeVLoops", m_topMesh);
+        debugPrintMeshStats("bottom mesh after computeVLoops", m_bottomMesh);
+    }
+
+    void debugPrintAfterScalarAndSections()
+    {
+        if (!m_debugComputeVLoops) return;
+
+        double minScalar = std::numeric_limits<double>::max();
+        double maxScalar = -std::numeric_limits<double>::max();
+        int validScalarCount = 0;
+        for (double s : m_scalars) {
+            if (s < 0.0) continue;
+            minScalar = std::min(minScalar, s);
+            maxScalar = std::max(maxScalar, s);
+            validScalarCount++;
+        }
+
+        std::cout << "[zSpaceBlendImport][computeVLoops] scalars total=" << m_scalars.size()
+            << " valid=" << validScalarCount;
+        if (validScalarCount > 0) std::cout << " range=[" << minScalar << "," << maxScalar << "]";
+        std::cout << std::endl;
+
+        std::cout << "[zSpaceBlendImport][computeVLoops] sectionMeshes=" << m_sectionMeshes.size()
+            << " sectionGraphs=" << m_sectionGraphs.size()
+            << " contourGraphs=" << m_contourGraphs.size()
+            << std::endl;
+
+        for (int i = 0; i < static_cast<int>(m_sectionMeshes.size()) && i < 8; i++) {
+            std::ostringstream label;
+            label << "sectionMesh[" << i << "]";
+            debugPrintMeshStats(label.str().c_str(), m_sectionMeshes[i]);
+        }
+        std::cout << "[zSpaceBlendImport][computeVLoops] ===== end call =====" << std::endl;
+    }
+
     void loadMesh()
     {
         std::string message;
@@ -143,8 +306,8 @@ private:
         zSpace::zIntArray featuredNumStrides;
         // const bool hasMedialIds = readIntArrayAttribute(m_meshPath, "MedialStartEnd", medialIds);
         // const bool hasStrides = readIntArrayAttribute(m_meshPath, "FeaturedNumStrides", featuredNumStrides);
-        const bool hasMedialIds = false;
-        const bool hasStrides = false;
+        const bool hasMedialIds = true;
+        const bool hasStrides = true;
         m_loops.clear();
         m_scalars.clear();
         m_sectionMeshes.clear();
@@ -153,12 +316,18 @@ private:
 
         bool builtSections = false;
         if (hasMedialIds && hasStrides) {
-            zSpace::zVector norm(0, 0, 1);
-            alice2::computeVLoops(m_mesh, medialIds, featuredNumStrides, norm, m_loops, m_topMesh, m_bottomMesh);
+            // zSpace::zVector norm(0, 0, 1);
+            medialIds = {43, 66};
+            debugPrintBeforeComputeVLoops(medialIds);
+            // alice2::computeVLoops(m_mesh, medialIds, featuredNumStrides, norm, m_loops, m_topMesh, m_bottomMesh);
+            alice2::computeVLoops(m_mesh, medialIds, m_loops, m_topMesh, m_bottomMesh);
+            debugPrintLoopsAfterComputeVLoops();
+
             alice2::computeGeodesicScalars(m_mesh, m_loops, m_scalars, true);
             alice2::computeGeodesicContours(m_loops, m_scalars, 0.01f, m_topMesh, m_bottomMesh, m_sectionMeshes);
             alice2::createSectionGraphs(m_sectionMeshes, m_sectionGraphs);
             alice2::computeSDF(m_sectionGraphs, m_sectionMeshes, m_contourGraphs);
+            debugPrintAfterScalarAndSections();
             builtSections = !m_sectionGraphs.empty();
         }
 

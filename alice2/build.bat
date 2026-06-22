@@ -1,6 +1,10 @@
 @echo off
 setlocal
 
+REM MSBuild can fail if the parent environment contains both PATH and Path.
+set "Path=%Path%"
+set "PATH="
+
 REM Usage:
 REM   build.bat        -> normal build in "build"
 REM   build.bat cuda   -> CUDA build in "build_cuda"

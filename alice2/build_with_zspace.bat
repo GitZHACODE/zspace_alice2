@@ -1,6 +1,10 @@
 @echo off
 setlocal
 
+REM MSBuild can fail if the parent environment contains both PATH and Path.
+set "Path=%Path%"
+set "PATH="
+
 set "CONFIG=Release"
 set "BUILD_DIR=build_zspace"
 set "ZSPACE_SDK_DIR=%~1"
