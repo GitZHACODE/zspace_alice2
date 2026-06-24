@@ -5,8 +5,10 @@
 
 #include <zspace/interface.h>
 #include <zspace/io.h>
+#include <zspace/zInterface/functionsets/zFnMeshField.h>
 #include <zspace/zInterface/objects/zObjGraph.h>
 #include <zspace/zInterface/objects/zObjMesh.h>
+#include <zspace/zInterface/objects/zObjMeshField.h>
 
 #include <string>
 #include <unordered_map>
@@ -14,6 +16,31 @@
 #include <vector>
 
 namespace alice2 {
+
+    struct SliceMetadata {
+        zSpace::zIntArray cornerVertexIds;
+        zSpace::zIntArray cornerLongitudeIds;
+        zSpace::zInt2DArray sectionVertexOriginalIds;
+        zSpace::zFloatArray layerT;
+    };
+
+    struct SDFLayerDebugData {
+        std::vector<zSpace::zScalarArray> finalFields;
+        zSpace::zObjMeshArray localFlattenedMeshes;
+        zSpace::zObjMeshScalarFieldArray fieldMeshes;
+        zSpace::zObjGraphArray flatContourGraphs;
+    };
+
+    struct SDFPostProcessResult {
+        zSpace::zObjGraphArray toolpathGraphs;
+        zSpace::zObjGraphArray flatToolpathGraphs;
+        std::vector<zSpace::zPointArray> toolpathTargetPoints;
+        std::vector<zSpace::zPointArray> flatToolpathTargetPoints;
+        std::vector<zSpace::zFloatArray> toolpathPrintHeights;
+        std::vector<zSpace::zFloatArray> toolpathPrintWidths;
+        std::vector<zSpace::zIntArray> toolpathFeatureFlags;
+        std::vector<zSpace::zVectorArray> toolpathNormals;
+    };
 
     struct zPairHash {
         template <class T1, class T2>
@@ -45,7 +72,7 @@ namespace alice2 {
     void UVParametrisation(zSpace::zObjMesh mesh, zSpace::zObjMesh& paramMesh);
     void getBaryCentricCoordinates_triangle(zSpace::zPoint& pt, zSpace::zPoint& t0, zSpace::zPoint& t1, zSpace::zPoint& t2, zSpace::zPoint& baryCoordinates);
     void getProjectionPoint_triangle(zSpace::zPoint& baryCoordinates, zSpace::zPoint& t0, zSpace::zPoint& t1, zSpace::zPoint& t2, zSpace::zPoint& projectionPt);
-    void barycentericProjection_triMesh(zSpace::zObjGraph& graph, zSpace::zObjMesh& inMesh, zSpace::zObjMesh& projectionMesh);
+    bool barycentericProjection_triMesh(zSpace::zObjGraph& graph, zSpace::zObjMesh& inMesh, zSpace::zObjMesh& projectionMesh);
     void computeDualGraph_BST(zSpace::zObjMesh& mesh, zSpace::zObjGraph& graph, zSpace::zItGraphVertexArray& bsfVertices, zSpace::zIntPairArray& bsfVertexPairs);
     zSpace::zIntPair getCommonEdge(zSpace::zItMeshFace& f1, zSpace::zItMeshFace& f2);
     void creatUnrollMesh(zSpace::zObjMesh& mesh, zSpace::zObjMesh& unrollMesh, zSpace::zObjGraph& dualGraph, zSpace::zInt2DArray& oriVertexUnrollVertexMap, std::unordered_map<zSpace::zIntPair, int, zPairHash>& oriFaceVertexUnrollVertex, zSpace::zItGraphVertexArray& bsfVertices, zSpace::zIntPairArray& bsfVertexPairs);
@@ -53,13 +80,29 @@ namespace alice2 {
     void mergeMesh(zSpace::zObjMesh& mesh);
     void createShapes(zSpace::zObjMesh& mesh, zSpace::zIntArray& medialIds, zSpace::zIntArray& featuredNumStrides, zSpace::zVector& norm, float spacing, int& numFrames, zSpace::zObjMesh& topMesh, zSpace::zObjMesh& bottomMesh);
     void blendShapes(zSpace::zObjMesh& shape0, zSpace::zObjMesh& shape1, int numFrames, zSpace::zObjMeshArray& meshes);
-    void reconstructTopBottomStrip(zSpace::zObjMesh& blockMesh, zSpace::zObjMesh& outMesh, zSpace::zItMeshHalfEdge& heStart, bool flip);
     void computeVLoops(zSpace::zObjMesh& mesh, zSpace::zIntArray& longitudeCornerVIds, std::vector<zSpace::zItMeshHalfEdgeArray>& loops, zSpace::zObjMesh& topMesh, zSpace::zObjMesh& bottomMesh);
+    void computeVLoops(zSpace::zObjMesh& mesh, zSpace::zIntArray& longitudeCornerVIds, std::vector<zSpace::zItMeshHalfEdgeArray>& loops, zSpace::zObjMesh& topMesh, zSpace::zObjMesh& bottomMesh, SliceMetadata* metadata);
     void computeGeodesicScalars(zSpace::zObjMesh& mesh, std::vector<zSpace::zItMeshHalfEdgeArray>& loops, zSpace::zScalarArray& scalars, bool normalise);
     void computeGeodesicContours(std::vector<zSpace::zItMeshHalfEdgeArray>& loops, zSpace::zScalarArray& scalars, float spacing, zSpace::zObjMesh& topMesh, zSpace::zObjMesh& bottomMesh, zSpace::zObjMeshArray& meshes);
     void computeGeodesicContours(zSpace::zObjMesh& mesh, zSpace::zFloatArray& scalars, float spacing, zSpace::zObjGraphArray& contourGraphs);
     void createSectionGraphs(zSpace::zObjMeshArray& meshes, zSpace::zObjGraphArray& sectionGraphs);
-    void computeSDF(zSpace::zObjGraphArray& sectionGraphs, zSpace::zObjMeshArray& sectionMeshes, zSpace::zObjGraphArray& contourGraphs);
+    void computeSDFLayers(zSpace::zObjGraphArray& sectionGraphs, zSpace::zObjMeshArray& sectionMeshes, int layerCount,
+        zSpace::zObjGraphArray& contourGraphs, zSpace::zObjMeshScalarFieldArray* sdfFields = nullptr,
+        zSpace::zObjGraphArray* transformedFlatGraphs = nullptr);
+    void computeSDFLayers(zSpace::zObjGraphArray& sectionGraphs, zSpace::zObjMeshArray& sectionMeshes, int layerCount,
+        zSpace::zObjGraphArray& contourGraphs, zSpace::zObjMeshScalarFieldArray* sdfFields,
+        zSpace::zObjGraphArray* transformedFlatGraphs, const zSpace::zObjGraphArray* bracingGraphs,
+        zSpace::zObjGraphArray* flatBracingGraphs, zSpace::zObjGraphArray* bracingSlotGraphs,
+        SDFLayerDebugData* debugData = nullptr);
+    void computeSDF(zSpace::zObjGraphArray& sectionGraphs, zSpace::zObjMeshArray& sectionMeshes, zSpace::zObjGraphArray& contourGraphs, zSpace::zObjMeshScalarFieldArray* sdfFields = nullptr, zSpace::zObjGraphArray* transformedFlatGraphs = nullptr);
+    void computeSDF(zSpace::zObjGraphArray& sectionGraphs, zSpace::zObjMeshArray& sectionMeshes, zSpace::zObjGraphArray& contourGraphs,
+        zSpace::zObjMeshScalarFieldArray* sdfFields, zSpace::zObjGraphArray* transformedFlatGraphs,
+        const zSpace::zObjGraphArray* bracingGraphs, zSpace::zObjGraphArray* flatBracingGraphs,
+        zSpace::zObjGraphArray* bracingSlotGraphs, SDFLayerDebugData* debugData = nullptr);
+    void computeSDFPostProcess(zSpace::zObjMeshArray& sectionMeshes, zSpace::zObjGraphArray& contourGraphs,
+        SDFLayerDebugData& debugData, SDFPostProcessResult& result, float sampleLength = 0.0285714f,
+        float featureAngleThreshold = 30.0f);
+    void populateSliceMetadata(zSpace::zObjMesh& mesh, std::vector<zSpace::zItMeshHalfEdgeArray>& loops, zSpace::zObjGraphArray& sectionGraphs, SliceMetadata& metadata);
 
 } // namespace alice2
 
