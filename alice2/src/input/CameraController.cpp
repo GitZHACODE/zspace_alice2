@@ -61,7 +61,7 @@ namespace alice2 {
     }
 
     void CameraController::setOrbitDistance(float distance) {
-        m_orbitDistance = std::max(0.1f, distance);
+        m_orbitDistance = std::max(0.001f, distance);
         updateOrbitCamera();
     }
 
@@ -95,7 +95,7 @@ namespace alice2 {
     }
 
     void CameraController::dolly(float delta) {
-        m_orbitDistance = std::max(0.1f, m_orbitDistance + delta);
+        m_orbitDistance = std::max(0.001f, m_orbitDistance + delta);
 
         // Update camera with new distance
         m_camera.orbit(m_orbitCenter, 0, 0, m_orbitDistance);
@@ -189,7 +189,7 @@ namespace alice2 {
         m_orbitCenter = Vec3(0, 0, 0);  // Default to origin
         m_orbitDistance = (currentPos - m_orbitCenter).length();
 
-        if (m_orbitDistance < 0.1f) {
+        if (m_orbitDistance < 0.001f) {
             m_orbitDistance = 15.0f;  // Default distance
         }
     }

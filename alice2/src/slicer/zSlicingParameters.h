@@ -38,6 +38,8 @@ namespace SlicingParameters {
     constexpr float trimSlotStaggerOdd = 0.6f;
     constexpr float trimSlotMinLength = 0.10f;
     constexpr float trimSlotLengthExtra = 0.002f;
+    constexpr float bracingFeatureExtensionRatio = 0.1f;
+    constexpr float bracingFeatureMinLength = 1e-5f;
 
     constexpr double contourCleanupMergeTolerance = 0.0005;
     constexpr double contourEndpointCloseMultiplier = 6.0;
@@ -45,7 +47,7 @@ namespace SlicingParameters {
 
     constexpr float postProcessSampleLength = 0.014285714f;
     constexpr float postProcessFeatureAngleThreshold = 30.0f;
-    constexpr float postProcessSdfSearchPadding = 0.006f;
+    constexpr float postProcessSdfSearchPadding = 0.000f;
 
 } // namespace SlicingParameters
 } // namespace alice2

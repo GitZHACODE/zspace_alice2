@@ -41,7 +41,7 @@ namespace alice2 {
             , orbitCenter(0, 0, 0)
             , orbitDistance(15.0f)
             , fov(45.0f)
-            , nearPlane(0.1f)
+            , nearPlane(0.001f)
             , farPlane(1000.0f)
         {}
     };

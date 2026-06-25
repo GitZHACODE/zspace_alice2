@@ -12,7 +12,7 @@ namespace alice2 {
         : m_projectionType(ProjectionType::Perspective)
         , m_fov(45.0f)
         , m_aspectRatio(16.0f / 9.0f)
-        , m_nearPlane(0.1f)
+        , m_nearPlane(0.001f)
         , m_farPlane(1000.0f)
         , m_orthoLeft(-10.0f)
         , m_orthoRight(10.0f)
@@ -140,7 +140,7 @@ namespace alice2 {
             std::cout << "[CAMERA] Dolly: delta=" << delta << ", distance before=" << m_orbitDistance << std::endl;
         }
 
-        m_orbitDistance = std::max(0.1f, m_orbitDistance + delta);
+        m_orbitDistance = std::max(0.001f, m_orbitDistance + delta);
 
         if (DEBUG_CAMERA_MATRIX_LOGGING) {
             std::cout << "[CAMERA] Distance after=" << m_orbitDistance << std::endl;

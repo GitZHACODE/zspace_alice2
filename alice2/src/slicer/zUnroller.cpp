@@ -676,6 +676,238 @@ namespace alice2 {
         if (!positions.empty()) fnOut.create(positions, edgeConnects);
     }
 
+    bool segmentIntersectionXY(const zPoint& a0, const zPoint& a1, const zPoint& b0, const zPoint& b1,
+        double& tA, double& tB, zPoint& intersection)
+    {
+        const double ax = a1.x - a0.x;
+        const double ay = a1.y - a0.y;
+        const double bx = b1.x - b0.x;
+        const double by = b1.y - b0.y;
+        const double denom = (ax * by) - (ay * bx);
+        if (std::fabs(denom) <= 1e-10) return false;
+
+        const double dx = b0.x - a0.x;
+        const double dy = b0.y - a0.y;
+        tA = ((dx * by) - (dy * bx)) / denom;
+        tB = ((dx * ay) - (dy * ax)) / denom;
+        const double tol = 1e-8;
+        if (tA < -tol || tA > 1.0 + tol || tB < -tol || tB > 1.0 + tol) return false;
+
+        tA = std::max(0.0, std::min(1.0, tA));
+        tB = std::max(0.0, std::min(1.0, tB));
+        intersection = zPoint(a0.x + (ax * tA), a0.y + (ay * tA), 0.0);
+        return true;
+    }
+
+    bool pointInsideGraphXY(zObjGraph& boundaryGraph, const zPoint& point)
+    {
+        zFnGraph fnBoundary(boundaryGraph);
+        zPointArray positions;
+        zIntArray edgeConnects;
+        fnBoundary.getVertexPositions(positions);
+        fnBoundary.getEdgeData(edgeConnects);
+        if (positions.size() < 3 || edgeConnects.size() < 6) return false;
+
+        bool inside = false;
+        for (int e = 0; e + 1 < static_cast<int>(edgeConnects.size()); e += 2) {
+            const int a = edgeConnects[e];
+            const int b = edgeConnects[e + 1];
+            if (a < 0 || b < 0 || a >= static_cast<int>(positions.size()) || b >= static_cast<int>(positions.size())) continue;
+            const zPoint& pa = positions[a];
+            const zPoint& pb = positions[b];
+            const bool crosses = ((pa.y > point.y) != (pb.y > point.y));
+            if (!crosses) continue;
+            const double xCross = pa.x + ((point.y - pa.y) * (pb.x - pa.x) / (pb.y - pa.y));
+            if (xCross > point.x) inside = !inside;
+        }
+        return inside;
+    }
+
+    double distancePointToSegmentXY(const zPoint& point, const zPoint& a, const zPoint& b)
+    {
+        const double vx = b.x - a.x;
+        const double vy = b.y - a.y;
+        const double len2 = (vx * vx) + (vy * vy);
+        if (len2 <= 1e-12) {
+            const double dx = point.x - a.x;
+            const double dy = point.y - a.y;
+            return std::sqrt((dx * dx) + (dy * dy));
+        }
+
+        const double wx = point.x - a.x;
+        const double wy = point.y - a.y;
+        const double t = std::max(0.0, std::min(1.0, ((wx * vx) + (wy * vy)) / len2));
+        const double px = a.x + (vx * t);
+        const double py = a.y + (vy * t);
+        const double dx = point.x - px;
+        const double dy = point.y - py;
+        return std::sqrt((dx * dx) + (dy * dy));
+    }
+
+    double distancePointToGraphXY(zObjGraph& graph, const zPoint& point)
+    {
+        zFnGraph fnGraph(graph);
+        zPointArray positions;
+        zIntArray edgeConnects;
+        fnGraph.getVertexPositions(positions);
+        fnGraph.getEdgeData(edgeConnects);
+        double bestDistance = std::numeric_limits<double>::max();
+        for (int e = 0; e + 1 < static_cast<int>(edgeConnects.size()); e += 2) {
+            const int a = edgeConnects[e];
+            const int b = edgeConnects[e + 1];
+            if (a < 0 || b < 0 || a >= static_cast<int>(positions.size()) || b >= static_cast<int>(positions.size())) continue;
+            bestDistance = std::min(bestDistance, distancePointToSegmentXY(point, positions[a], positions[b]));
+        }
+        return bestDistance;
+    }
+
+    void buildBracingFeatureGraph(int graphId, zObjGraph& flatBracingGraph, zObjGraph& flatBoundaryGraph, zObjGraph& outGraph)
+    {
+        zFnGraph fnOut(outGraph);
+        fnOut.clear();
+
+        zFnGraph fnBracing(flatBracingGraph);
+        zFnGraph fnBoundary(flatBoundaryGraph);
+        zPointArray bracingPositions;
+        zIntArray bracingEdges;
+        zPointArray boundaryPositions;
+        zIntArray boundaryEdges;
+        fnBracing.getVertexPositions(bracingPositions);
+        fnBracing.getEdgeData(bracingEdges);
+        fnBoundary.getVertexPositions(boundaryPositions);
+        fnBoundary.getEdgeData(boundaryEdges);
+
+        zPointArray featurePositions;
+        zIntArray featureEdges;
+        int builtSegments = 0;
+        int invalidInputEdges = 0;
+        int skippedNoIntersection = 0;
+        int skippedNoInsideSegment = 0;
+        int skippedTooShort = 0;
+
+        for (int e = 0; e + 1 < static_cast<int>(bracingEdges.size()); e += 2) {
+            const int a = bracingEdges[e];
+            const int b = bracingEdges[e + 1];
+            if (a < 0 || b < 0 || a >= static_cast<int>(bracingPositions.size()) || b >= static_cast<int>(bracingPositions.size())) {
+                invalidInputEdges++;
+                continue;
+            }
+
+            zPoint p0 = bracingPositions[a];
+            zPoint p1 = bracingPositions[b];
+            zVector dir = p1 - p0;
+            const double bracingLength = dir.length();
+            if (bracingLength <= SlicingParameters::bracingFeatureMinLength) {
+                skippedTooShort++;
+                continue;
+            }
+            dir.normalize();
+
+            const double extension = bracingLength * SlicingParameters::bracingFeatureExtensionRatio;
+            zPoint ext0 = p0 - (dir * extension);
+            zPoint ext1 = p1 + (dir * extension);
+            zVector extVec = ext1 - ext0;
+            const double extLength = extVec.length();
+            if (extLength <= SlicingParameters::bracingFeatureMinLength) {
+                skippedTooShort++;
+                continue;
+            }
+
+            zDoubleArray splitParams;
+            splitParams.push_back(0.0);
+            splitParams.push_back(1.0);
+            for (int be = 0; be + 1 < static_cast<int>(boundaryEdges.size()); be += 2) {
+                const int ba = boundaryEdges[be];
+                const int bb = boundaryEdges[be + 1];
+                if (ba < 0 || bb < 0 || ba >= static_cast<int>(boundaryPositions.size()) || bb >= static_cast<int>(boundaryPositions.size())) continue;
+                double tLine = 0.0;
+                double tBoundary = 0.0;
+                zPoint intersection;
+                if (segmentIntersectionXY(ext0, ext1, boundaryPositions[ba], boundaryPositions[bb], tLine, tBoundary, intersection)) {
+                    splitParams.push_back(tLine);
+                }
+            }
+
+            std::sort(splitParams.begin(), splitParams.end());
+            zDoubleArray uniqueParams;
+            for (double t : splitParams) {
+                if (uniqueParams.empty() || std::fabs(t - uniqueParams.back()) > 1e-6) uniqueParams.push_back(t);
+            }
+            if (uniqueParams.size() <= 2) {
+                skippedNoIntersection++;
+                continue;
+            }
+
+            double bestA = -1.0;
+            double bestB = -1.0;
+            double bestLength = -1.0;
+            for (int id = 0; id + 1 < static_cast<int>(uniqueParams.size()); id++) {
+                const double tA = uniqueParams[id];
+                const double tB = uniqueParams[id + 1];
+                if (tB - tA <= 1e-6) continue;
+                const double tMid = (tA + tB) * 0.5;
+                zPoint mid = ext0 + (extVec * tMid);
+                if (!pointInsideGraphXY(flatBoundaryGraph, mid)) continue;
+                const double segmentLength = (tB - tA) * extLength;
+                if (segmentLength > bestLength) {
+                    bestLength = segmentLength;
+                    bestA = tA;
+                    bestB = tB;
+                }
+            }
+
+            if (bestA < 0.0 || bestB < 0.0) {
+                skippedNoInsideSegment++;
+                continue;
+            }
+
+            const double endTrim = (2.0 * SlicingParameters::printBoundaryWidth) - SlicingParameters::printOverlapWidth;
+            const double trimT = endTrim / extLength;
+            const double trimmedA = bestA + trimT;
+            const double trimmedB = bestB - trimT;
+            if (trimmedB - trimmedA <= SlicingParameters::bracingFeatureMinLength) {
+                skippedTooShort++;
+                continue;
+            }
+
+            zPoint out0 = ext0 + (extVec * trimmedA);
+            zPoint out1 = ext0 + (extVec * trimmedB);
+            const int startId = static_cast<int>(featurePositions.size());
+            featurePositions.push_back(out0);
+            featurePositions.push_back(out1);
+            featureEdges.push_back(startId);
+            featureEdges.push_back(startId + 1);
+            builtSegments++;
+        }
+
+        const int rawEdgeCount = static_cast<int>(bracingEdges.size() / 2);
+        const bool failedFeatureBuild = invalidInputEdges > 0
+            || skippedNoIntersection > 0
+            || skippedNoInsideSegment > 0
+            || skippedTooShort > 0
+            || builtSegments != rawEdgeCount;
+        if (failedFeatureBuild) {
+            fnOut.clear();
+        }
+        else if (!featurePositions.empty()) {
+            fnOut.create(featurePositions, featureEdges);
+        }
+        fnOut.setEdgeColor(zColor(0, 1, 1, 1));
+        fnOut.setEdgeWeight(5);
+
+        std::cout << "[buildBracingFeatureGraph] section " << graphId
+            << " status=" << (failedFeatureBuild ? "FAILED" : "ok")
+            << " rawEdges=" << rawEdgeCount
+            << " builtSegments=" << builtSegments
+            << " invalidInputEdges=" << invalidInputEdges
+            << " skippedNoIntersection=" << skippedNoIntersection
+            << " skippedNoInsideSegment=" << skippedNoInsideSegment
+            << " skippedTooShort=" << skippedTooShort
+            << " extensionRatio=" << SlicingParameters::bracingFeatureExtensionRatio
+            << " endTrim=" << ((2.0 * SlicingParameters::printBoundaryWidth) - SlicingParameters::printOverlapWidth)
+            << std::endl;
+    }
+
     void createGraphFromOrderedVertexIds(zObjGraph& graph, const zPointArray& sourcePositions, const zIntArray& sequence, bool closeGraph)
     {
         zFnGraph fnGraph(graph);
@@ -890,6 +1122,73 @@ namespace alice2 {
         return !bestSequence.empty();
     }
 
+    bool closeSmallEndpointPairs(int graphId, zFnGraph& fnGraph, zPointArray& positions, zIntArray& edgeConnects,
+        const zIntArray& endpoints, double endpointCloseTolerance)
+    {
+        if (endpoints.size() < 2 || endpoints.size() % 2 != 0) return false;
+
+        struct EndpointPairCandidate {
+            int a = -1;
+            int b = -1;
+            double distance = 0.0;
+        };
+
+        std::vector<EndpointPairCandidate> candidates;
+        for (int i = 0; i < static_cast<int>(endpoints.size()); i++) {
+            for (int j = i + 1; j < static_cast<int>(endpoints.size()); j++) {
+                EndpointPairCandidate candidate;
+                candidate.a = endpoints[i];
+                candidate.b = endpoints[j];
+                zPoint a = positions[candidate.a];
+                zPoint b = positions[candidate.b];
+                candidate.distance = a.distanceTo(b);
+                candidates.push_back(candidate);
+            }
+        }
+        std::sort(candidates.begin(), candidates.end(), [](const EndpointPairCandidate& a, const EndpointPairCandidate& b) {
+            return a.distance < b.distance;
+        });
+
+        std::unordered_set<int> usedEndpoints;
+        std::vector<EndpointPairCandidate> selectedPairs;
+        for (const EndpointPairCandidate& candidate : candidates) {
+            if (candidate.distance > endpointCloseTolerance) break;
+            if (usedEndpoints.count(candidate.a) || usedEndpoints.count(candidate.b)) continue;
+            usedEndpoints.insert(candidate.a);
+            usedEndpoints.insert(candidate.b);
+            selectedPairs.push_back(candidate);
+            if (selectedPairs.size() * 2 == endpoints.size()) break;
+        }
+
+        if (selectedPairs.size() * 2 != endpoints.size()) {
+            std::cout << "[cleanContourGraph] graph " << graphId
+                << " not closing endpoint pairs; unpaired endpoints"
+                << " endpoints=" << endpoints.size()
+                << " selectedPairs=" << selectedPairs.size()
+                << " tolerance=" << endpointCloseTolerance
+                << std::endl;
+            return false;
+        }
+
+        for (const EndpointPairCandidate& pair : selectedPairs) {
+            edgeConnects.push_back(pair.a);
+            edgeConnects.push_back(pair.b);
+        }
+        fnGraph.create(positions, edgeConnects);
+
+        std::cout << "[cleanContourGraph] graph " << graphId
+            << " closed small endpoint pairs"
+            << " endpoints=" << endpoints.size()
+            << " pairs=" << selectedPairs.size()
+            << " tolerance=" << endpointCloseTolerance;
+        for (int i = 0; i < static_cast<int>(selectedPairs.size()); i++) {
+            std::cout << " pair" << i << "=" << selectedPairs[i].a << "-" << selectedPairs[i].b
+                << " d=" << selectedPairs[i].distance;
+        }
+        std::cout << std::endl;
+        return true;
+    }
+
     void cleanContourGraphForToolpath(int graphId, zObjGraph& graph, double mergeTolerance)
     {
         zFnGraph fnGraph(graph);
@@ -949,6 +1248,9 @@ namespace alice2 {
                 << " endpointDistance=" << endpointDistance
                 << " tolerance=" << endpointCloseTolerance
                 << std::endl;
+        }
+        else if (endpoints.size() > 2 && degreeMoreCount == 0) {
+            if (closeSmallEndpointPairs(graphId, fnGraph, positions, edgeConnects, endpoints, endpointCloseTolerance)) return;
         }
 
         if (endpoints.empty() && degreeMoreCount == 0 && zeroLengthEdges == 0 && degreeTwoCount == static_cast<int>(positions.size())) return;
@@ -1838,6 +2140,10 @@ namespace alice2 {
             debugData->fieldMeshes.assign(sectionGraphs.size(), zObjMeshScalarField());
             debugData->flatContourGraphs.clear();
             debugData->flatContourGraphs.assign(sectionGraphs.size(), zObjGraph());
+            debugData->flatBoundaryFeatureGraphs.clear();
+            debugData->flatBoundaryFeatureGraphs.assign(sectionGraphs.size(), zObjGraph());
+            debugData->flatBracingFeatureGraphs.clear();
+            debugData->flatBracingFeatureGraphs.assign(sectionGraphs.size(), zObjGraph());
         }
 
         constexpr float printBoundaryWidth = SlicingParameters::printBoundaryWidth;
@@ -1845,7 +2151,7 @@ namespace alice2 {
         constexpr float printOverlapWidth = SlicingParameters::printOverlapWidth;
          constexpr float printBracingDistanceWidth = printBracingWidth - 0.5f * printOverlapWidth;
         constexpr float offset_1st_exterior = printBoundaryWidth * 0.5f;
-        constexpr float offset_2nd_exterior = printBoundaryWidth - (2.0f * printOverlapWidth);
+        constexpr float offset_2nd_exterior = printBoundaryWidth -  printOverlapWidth;
         constexpr float trimSlotWidth = SlicingParameters::trimSlotWidth;
         constexpr float edgeTrimSlotWidth = SlicingParameters::edgeTrimSlotWidth;
         constexpr float sdfWidth = SlicingParameters::sdfWidth;
@@ -1958,6 +2264,7 @@ namespace alice2 {
             printGraphSDFDebug("flatGraph before polygon SDF", i, flatGraph, layerFieldBB);
 
             if (transformedFlatGraphs) (*transformedFlatGraphs)[i] = flatGraph;
+            if (debugData) debugData->flatBoundaryFeatureGraphs[i] = flatGraph;
 
             zObjMeshScalarField localField;
             zObjMeshScalarField& field = sdfFields ? (*sdfFields)[i] : localField;
@@ -2028,6 +2335,7 @@ namespace alice2 {
                         fnFlatBracing.setEdgeColor(zColor(0, 0.75, 1, 1));
                         fnFlatBracing.setEdgeWeight(4);
                         if (flatBracingGraphs) (*flatBracingGraphs)[i] = flatBracingGraph;
+                        if (debugData) buildBracingFeatureGraph(i, flatBracingGraph, flatGraph, debugData->flatBracingFeatureGraphs[i]);
 
                         zObjGraph trimSlotsBracingFlat;
                         zObjGraph trimSlotsBoundaryFlat;
@@ -2172,11 +2480,6 @@ namespace alice2 {
 
         constexpr float printBoundaryWidth = SlicingParameters::printBoundaryWidth;
         constexpr float printBracingWidth = SlicingParameters::printBracingWidth;
-        constexpr float boundarySdfTarget = SlicingParameters::boundarySdfTarget;
-        constexpr float bracingSdfTarget = SlicingParameters::bracingSdfTarget;
-        const float searchRadius = std::max(boundarySdfTarget, bracingSdfTarget)
-            + SlicingParameters::postProcessSdfSearchPadding;
-        const float searchRadius2 = searchRadius * searchRadius;
         const double angleThresholdRad = featureAngleThreshold * 3.14159265358979323846 / 180.0;
 
         auto buildClosedContourSequence = [](int graphId, zObjGraph& graph, zIntArray& sequence, bool& closed) {
@@ -2340,14 +2643,33 @@ namespace alice2 {
 
         zFloatArray validHeights;
         for (int graphId = 0; graphId < layerCount; graphId++) {
-            zObjGraph& sourceContourGraph = (graphId < static_cast<int>(debugData.flatContourGraphs.size()))
-                ? debugData.flatContourGraphs[graphId]
-                : contourGraphs[graphId];
+            if (graphId >= static_cast<int>(debugData.flatContourGraphs.size())) {
+                std::cout << "[computeSDFPostProcess] skipped graph " << graphId
+                    << ": missing flat contour graph" << std::endl;
+                continue;
+            }
+            zObjGraph& sourceContourGraph = debugData.flatContourGraphs[graphId];
             zFnGraph fnContour(sourceContourGraph);
             if (fnContour.numVertices() == 0 || fnContour.numEdges() == 0) continue;
-            if (graphId >= static_cast<int>(debugData.finalFields.size())) continue;
-            if (graphId >= static_cast<int>(debugData.fieldMeshes.size())) continue;
             if (graphId >= static_cast<int>(debugData.localFlattenedMeshes.size())) continue;
+            if (graphId >= static_cast<int>(debugData.flatBoundaryFeatureGraphs.size())
+                || graphId >= static_cast<int>(debugData.flatBracingFeatureGraphs.size())) {
+                std::cout << "[computeSDFPostProcess] skipped graph " << graphId
+                    << ": missing feature graph arrays" << std::endl;
+                continue;
+            }
+
+            zObjGraph& boundaryFeatureGraph = debugData.flatBoundaryFeatureGraphs[graphId];
+            zObjGraph& bracingFeatureGraph = debugData.flatBracingFeatureGraphs[graphId];
+            zFnGraph fnBoundaryFeature(boundaryFeatureGraph);
+            zFnGraph fnBracingFeature(bracingFeatureGraph);
+            if (fnBoundaryFeature.numEdges() == 0 || fnBracingFeature.numEdges() == 0) {
+                std::cout << "[computeSDFPostProcess] skipped graph " << graphId
+                    << ": empty feature graph boundaryEdges=" << fnBoundaryFeature.numEdges()
+                    << " bracingEdges=" << fnBracingFeature.numEdges()
+                    << std::endl;
+                continue;
+            }
 
             zIntArray sequence;
             bool closed = false;
@@ -2375,34 +2697,22 @@ namespace alice2 {
                 if (turnAngle >= angleThresholdRad) featureByContourVertex[curId] = 1;
             }
 
-            zPointArray fieldPositions;
-            zFnMesh fnFieldMesh(debugData.fieldMeshes[graphId]);
-            zPoint* rawFieldPositions = fnFieldMesh.getRawVertexPositions();
-            for (int i = 0; i < fnFieldMesh.numVertices(); i++) fieldPositions.push_back(rawFieldPositions[i]);
-            zScalarArray& fieldValues = debugData.finalFields[graphId];
-
             auto getPrintWidth = [&](zPoint& p) -> float {
-                float minValue = 0.0f;
-                bool foundNegative = false;
-                const int n = std::min(static_cast<int>(fieldPositions.size()), static_cast<int>(fieldValues.size()));
-                for (int i = 0; i < n; i++) {
-                    if ((fieldPositions[i] - p).length2() > searchRadius2) continue;
-                    if (fieldValues[i] < minValue) {
-                        minValue = static_cast<float>(fieldValues[i]);
-                        foundNegative = true;
-                    }
+                const double boundaryDistance = distancePointToGraphXY(boundaryFeatureGraph, p);
+                const double bracingDistance = distancePointToGraphXY(bracingFeatureGraph, p);
+                if (boundaryDistance == std::numeric_limits<double>::max()
+                    || bracingDistance == std::numeric_limits<double>::max()) {
+                    return 0.0f;
                 }
-                if (!foundNegative) return 0.0f;
-
-                const float sdfMagnitude = fabs(minValue);
-                const float dBoundary = fabs(sdfMagnitude - boundarySdfTarget);
-                const float dBracing = fabs(sdfMagnitude - bracingSdfTarget);
-                return (dBoundary <= dBracing) ? printBoundaryWidth : printBracingWidth;
+                return (bracingDistance < boundaryDistance) ? printBracingWidth : printBoundaryWidth;
             };
 
             zPointArray sampledPoints;
             zFloatArray sampledWidths;
             zIntArray sampledFeatureFlags;
+            int boundaryWidthSampleCount = 0;
+            int bracingWidthSampleCount = 0;
+            int invalidWidthSampleCount = 0;
             auto appendSample = [&](zPoint p, int featureFlag) {
                 if (!sampledPoints.empty() && sampledPoints.back().distanceTo(p) < 0.0001) {
                     sampledFeatureFlags.back() = std::max(sampledFeatureFlags.back(), featureFlag);
@@ -2410,8 +2720,13 @@ namespace alice2 {
                 }
                 const float printWidth = getPrintWidth(p);
                 if (printWidth == 0.0f) {
-                    std::cout << "[computeSDFPostProcess] graph " << graphId
-                        << " no negative SDF width sample near target" << std::endl;
+                    invalidWidthSampleCount++;
+                }
+                else if (fabs(printWidth - printBracingWidth) <= 0.0001f) {
+                    bracingWidthSampleCount++;
+                }
+                else {
+                    boundaryWidthSampleCount++;
                 }
                 sampledPoints.push_back(p);
                 sampledWidths.push_back(printWidth);
@@ -2452,6 +2767,13 @@ namespace alice2 {
                 sampledFeatureFlags.pop_back();
             }
             if (sampledPoints.size() < 2) continue;
+            if (invalidWidthSampleCount > 0) {
+                std::cout << "[computeSDFPostProcess] skipped graph " << graphId
+                    << ": invalid feature width samples=" << invalidWidthSampleCount
+                    << " totalSamples=" << sampledPoints.size()
+                    << std::endl;
+                continue;
+            }
 
             if (sampledWidths.size() > 2) {
                 for (int i = 0; i < static_cast<int>(sampledWidths.size()); i++) {
@@ -2467,6 +2789,12 @@ namespace alice2 {
                     sampledWidths[i] = prevWidth;
                 }
             }
+
+            std::cout << "[computeSDFPostProcess] graph " << graphId
+                << " feature width samples boundary=" << boundaryWidthSampleCount
+                << " bracing=" << bracingWidthSampleCount
+                << " total=" << sampledPoints.size()
+                << std::endl;
 
             zIntArray edgeConnects;
             for (int i = 0; i + 1 < static_cast<int>(sampledPoints.size()); i++) {

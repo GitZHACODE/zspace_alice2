@@ -723,6 +723,16 @@ private:
             label << "bracingSlotGraph[" << i << "]";
             debugPrintGraphStats(label.str().c_str(), m_bracingSlotGraphs[i]);
         }
+        for (int i = 0; i < static_cast<int>(m_sdfDebugData.flatBoundaryFeatureGraphs.size()); i++) {
+            std::ostringstream label;
+            label << "flatBoundaryFeatureGraph[" << i << "]";
+            debugPrintGraphStats(label.str().c_str(), m_sdfDebugData.flatBoundaryFeatureGraphs[i]);
+        }
+        for (int i = 0; i < static_cast<int>(m_sdfDebugData.flatBracingFeatureGraphs.size()); i++) {
+            std::ostringstream label;
+            label << "flatBracingFeatureGraph[" << i << "]";
+            debugPrintGraphStats(label.str().c_str(), m_sdfDebugData.flatBracingFeatureGraphs[i]);
+        }
 
         for (int i = 0; i < static_cast<int>(m_sdfFields.size()); i++) {
             std::ostringstream label;

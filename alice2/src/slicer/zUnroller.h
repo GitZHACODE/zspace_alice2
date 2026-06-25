@@ -31,6 +31,8 @@ namespace alice2 {
         zSpace::zObjMeshArray localFlattenedMeshes;
         zSpace::zObjMeshScalarFieldArray fieldMeshes;
         zSpace::zObjGraphArray flatContourGraphs;
+        zSpace::zObjGraphArray flatBoundaryFeatureGraphs;
+        zSpace::zObjGraphArray flatBracingFeatureGraphs;
     };
 
     struct SDFPostProcessResult {
