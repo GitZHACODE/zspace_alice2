@@ -36,7 +36,7 @@ namespace alice2 {
         zVector normal(0, 0, 1);
         computeVLoops(mesh, medial,  loops, topMesh, bottomMesh);
         computeGeodesicScalars(mesh, loops, scalars, true);
-        computeGeodesicContours(loops, scalars, 0.01f, topMesh, bottomMesh, sectionMeshes);
+        computeGeodesicContours(loops, scalars, SlicingParameters::longitudeLayerSpacing, topMesh, bottomMesh, sectionMeshes);
         createSectionGraphs(sectionMeshes, sectionGraphs);
         computeSDF(sectionGraphs, sectionMeshes, contourGraphs);
         return true;
@@ -624,7 +624,7 @@ namespace alice2 {
 
         zPointArray trimPositions;
         zIntArray trimEdges;
-        const float t = alternate ? 0.4f : 0.6f;
+        const float t = alternate ? SlicingParameters::trimSlotStaggerEven : SlicingParameters::trimSlotStaggerOdd;
         const int edgeLimit = (maxEdges < 0) ? (int)(sourceEdges.size() / 2) : std::min(maxEdges, (int)(sourceEdges.size() / 2));
 
         for (int i = 0; i < edgeLimit; i++) {
@@ -926,7 +926,10 @@ namespace alice2 {
             else if (adjacency[i].size() > 2) degreeMoreCount++;
         }
 
-        const double endpointCloseTolerance = std::max(mergeTolerance * 6.0, 0.03);
+        const double endpointCloseTolerance = std::max(
+            mergeTolerance * SlicingParameters::contourEndpointCloseMultiplier,
+            SlicingParameters::contourEndpointCloseMinTolerance
+        );
         if (endpoints.size() == 2 && degreeMoreCount == 0) {
             const double endpointDistance = positions[endpoints[0]].distanceTo(positions[endpoints[1]]);
             if (endpointDistance <= endpointCloseTolerance) {
@@ -1837,22 +1840,18 @@ namespace alice2 {
             debugData->flatContourGraphs.assign(sectionGraphs.size(), zObjGraph());
         }
 
-        constexpr float printBoundary = 0.014f;
-        constexpr float printBracing = 0.028f;
-        constexpr float printOverlap = 0.004f;
-        constexpr float printWidthInterior = 0.042f;
-        constexpr float printWidthExterior = 0.028f;
-        constexpr float targetExteriorGap = 0.024f;
-        constexpr float offset_1st_exterior = printBoundary * 0.5f;
-        // constexpr float offset_2nd_exterior = targetExteriorGap - offset_1st_exterior;
-        constexpr float offset_2nd_exterior =  printBoundary - 2 * printOverlap;
-        // constexpr float bracingEdgeWidth = targetExteriorGap * 0.5f;
-        constexpr float trimSlotWidth = (printWidthExterior - bracingEdgeWidth) * 0.5f;
-        // const float sdfWidth = printWidthInterior * 0.5f;//0 l indecator accroding to got
-        const float sdfWidth = 0.001f;
-        const int fieldResX = 200;
-        const int fieldResY = 200;
-        const zDomain<zPoint> layerFieldBB(zPoint(-0.5, -1.5, 0.0), zPoint(0.5,0.5, 0.0));
+        constexpr float printBoundaryWidth = SlicingParameters::printBoundaryWidth;
+        constexpr float printBracingWidth = SlicingParameters::printBracingWidth;
+        constexpr float printOverlapWidth = SlicingParameters::printOverlapWidth;
+         constexpr float printBracingDistanceWidth = printBracingWidth - 0.5f * printOverlapWidth;
+        constexpr float offset_1st_exterior = printBoundaryWidth * 0.5f;
+        constexpr float offset_2nd_exterior = printBoundaryWidth - (2.0f * printOverlapWidth);
+        constexpr float trimSlotWidth = SlicingParameters::trimSlotWidth;
+        constexpr float edgeTrimSlotWidth = SlicingParameters::edgeTrimSlotWidth;
+        constexpr float sdfWidth = SlicingParameters::sdfWidth;
+        constexpr int fieldResX = SlicingParameters::sdfFieldResolutionX;
+        constexpr int fieldResY = SlicingParameters::sdfFieldResolutionY;
+        const zDomain<zPoint>& layerFieldBB = SlicingParameters::sdfFieldBounds;
         auto flattenPlanarMeshToXY = [](zObjMesh& mesh) {
             zFnMesh fnMesh(mesh);
             zPointArray positions;
@@ -2003,7 +2002,7 @@ namespace alice2 {
             //offset
             for (int sf = 0; sf < static_cast<int>(polyField.size()); sf++) {
                 scalarOffsetOuter[sf] += offset_1st_exterior;
-                scalarOffsetInner[sf] += offset_1st_exterior + offset_1st_exterior + offset_2nd_exterior;
+                scalarOffsetInner[sf] += offset_1st_exterior + offset_2nd_exterior;
             }
 
             zScalarArray finalField = scalarOffsetOuter;
@@ -2033,7 +2032,9 @@ namespace alice2 {
                         zObjGraph trimSlotsBracingFlat;
                         zObjGraph trimSlotsBoundaryFlat;
                         zObjGraph boundaryCornerEdge;
-                        const float trimLength = std::max(0.10f, bracingEdgeWidth * 1.5f);
+                        const float trimLength = 
+                            printBracingWidth + SlicingParameters::trimSlotLengthExtra
+                        ;
                         createPerpendicularTrimSlots(flatBracingGraph, trimSlotsBracingFlat, i % 2 == 0, trimLength);
                         if (!makeFirstCornerEdgeGraph(flatGraph, boundaryCornerEdge)) {
                             std::cout << "[computeSDF] section " << i
@@ -2059,9 +2060,9 @@ namespace alice2 {
                         zScalarArray scalarBooleanBracing;
                         zScalarArray scalarOffsetOuterOpened;
                         zScalarArray booleanField;
-                        fnField.getScalarsAsEdgeDistance(scalarBracing, flatBracingGraph, bracingEdgeWidth, false);
-                        fnField.getScalarsAsEdgeDistance(scalarBracingSlots, bracingSlotsGraph, trimSlotWidth, false);
-                        fnField.getScalarsAsEdgeDistance(scalarBoundarySlots, trimSlotsBoundaryFlat, trimSlotWidth, false);
+                        fnField.getScalarsAsEdgeDistance(scalarBracing, flatBracingGraph, printBracingDistanceWidth*0.5f, false);
+                        fnField.getScalarsAsEdgeDistance(scalarBracingSlots, bracingSlotsGraph, trimSlotWidth * 0.5f, false);
+                        fnField.getScalarsAsEdgeDistance(scalarBoundarySlots, trimSlotsBoundaryFlat, edgeTrimSlotWidth * 0.5f, false);
                         if (scalarBracing.size() == polyField.size() && scalarBracingSlots.size() == polyField.size()) {
                             fnField.boolean_subtract(scalarBracing, scalarBracingSlots, scalarInteriorBracing, false);
                             fnField.boolean_subtract(scalarOffsetInner, scalarInteriorBracing, scalarBooleanBracing, false);
@@ -2104,7 +2105,7 @@ namespace alice2 {
                 debugData->fieldMeshes[i] = field;
             }
             fnField.getIsocontour(contourGraphs[i], 0.0, 3, 0.001);
-            cleanContourGraphForToolpath(i, contourGraphs[i], 0.005);
+            cleanContourGraphForToolpath(i, contourGraphs[i], SlicingParameters::contourCleanupMergeTolerance);
             if (debugData) debugData->flatContourGraphs[i] = contourGraphs[i];
             if (zFnGraph(contourGraphs[i]).numVertices() > 0) {
                 zVectorArray contourNormals;
@@ -2169,11 +2170,12 @@ namespace alice2 {
         result.toolpathFeatureFlags.assign(layerCount, zIntArray());
         result.toolpathNormals.assign(layerCount, zVectorArray());
 
-        constexpr float printWidthInterior = 0.042f;
-        constexpr float printWidthExterior = 0.028f;
-        const float interiorHalfWidth = printWidthInterior * 0.5f;
-        const float exteriorHalfWidth = printWidthExterior * 0.5f;
-        const float searchRadius = std::max(interiorHalfWidth, exteriorHalfWidth) + 0.006f;
+        constexpr float printBoundaryWidth = SlicingParameters::printBoundaryWidth;
+        constexpr float printBracingWidth = SlicingParameters::printBracingWidth;
+        constexpr float boundarySdfTarget = SlicingParameters::boundarySdfTarget;
+        constexpr float bracingSdfTarget = SlicingParameters::bracingSdfTarget;
+        const float searchRadius = std::max(boundarySdfTarget, bracingSdfTarget)
+            + SlicingParameters::postProcessSdfSearchPadding;
         const float searchRadius2 = searchRadius * searchRadius;
         const double angleThresholdRad = featureAngleThreshold * 3.14159265358979323846 / 180.0;
 
@@ -2392,10 +2394,10 @@ namespace alice2 {
                 }
                 if (!foundNegative) return 0.0f;
 
-                const float halfWidth = fabs(minValue);
-                const float dInterior = fabs(halfWidth - interiorHalfWidth);
-                const float dExterior = fabs(halfWidth - exteriorHalfWidth);
-                return (dInterior <= dExterior) ? printWidthInterior : printWidthExterior;
+                const float sdfMagnitude = fabs(minValue);
+                const float dBoundary = fabs(sdfMagnitude - boundarySdfTarget);
+                const float dBracing = fabs(sdfMagnitude - bracingSdfTarget);
+                return (dBoundary <= dBracing) ? printBoundaryWidth : printBracingWidth;
             };
 
             zPointArray sampledPoints;

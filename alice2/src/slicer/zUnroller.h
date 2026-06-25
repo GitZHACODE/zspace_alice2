@@ -10,6 +10,8 @@
 #include <zspace/zInterface/objects/zObjMesh.h>
 #include <zspace/zInterface/objects/zObjMeshField.h>
 
+#include "zSlicingParameters.h"
+
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -100,8 +102,9 @@ namespace alice2 {
         const zSpace::zObjGraphArray* bracingGraphs, zSpace::zObjGraphArray* flatBracingGraphs,
         zSpace::zObjGraphArray* bracingSlotGraphs, SDFLayerDebugData* debugData = nullptr);
     void computeSDFPostProcess(zSpace::zObjMeshArray& sectionMeshes, zSpace::zObjGraphArray& contourGraphs,
-        SDFLayerDebugData& debugData, SDFPostProcessResult& result, float sampleLength = 0.0285714f,
-        float featureAngleThreshold = 30.0f);
+        SDFLayerDebugData& debugData, SDFPostProcessResult& result,
+        float sampleLength = SlicingParameters::postProcessSampleLength,
+        float featureAngleThreshold = SlicingParameters::postProcessFeatureAngleThreshold);
     void populateSliceMetadata(zSpace::zObjMesh& mesh, std::vector<zSpace::zItMeshHalfEdgeArray>& loops, zSpace::zObjGraphArray& sectionGraphs, SliceMetadata& metadata);
 
 } // namespace alice2

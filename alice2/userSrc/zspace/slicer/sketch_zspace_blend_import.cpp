@@ -145,8 +145,8 @@ private:
     zSpace::zObjMeshArray m_printMeshes;
     alice2::SliceMetadata m_sliceMetadata;
     std::vector<BracingLineGroup> m_bracingGroups;
-    std::string m_meshPath = "data/carbcomn/carbMesh.obj";
-    std::string m_bracingGraphPath = "data/Carbcomn/graph.obj";
+    std::string m_meshPath = alice2::SlicingParameters::inputMeshPath;
+    std::string m_bracingGraphPath = alice2::SlicingParameters::bracingGraphPath;
     std::string m_status = "Waiting for mesh.";
     bool m_loaded = false;
     bool m_showBlockMesh = false;
@@ -625,7 +625,10 @@ private:
             return false;
         }
 
-        zSpace::zIntArray medialIds = {43, 66};
+        zSpace::zIntArray medialIds = {
+            alice2::SlicingParameters::longitudeCornerStartVertexId,
+            alice2::SlicingParameters::longitudeCornerEndVertexId
+        };
         m_loops.clear();
         m_scalars.clear();
         m_sectionMeshes.clear();
@@ -648,7 +651,9 @@ private:
         }
 
         alice2::computeGeodesicScalars(m_mesh, m_loops, m_scalars, true);
-        alice2::computeGeodesicContours(m_loops, m_scalars, 0.01f, m_topMesh, m_bottomMesh, m_sectionMeshes);
+        alice2::computeGeodesicContours(m_loops, m_scalars,
+            alice2::SlicingParameters::longitudeLayerSpacing,
+            m_topMesh, m_bottomMesh, m_sectionMeshes);
         alice2::populateSliceMetadata(m_mesh, m_loops, m_sectionGraphs, m_sliceMetadata);
         markSectionMeshCornerVerticesById();
         alice2::createSectionGraphs(m_sectionMeshes, m_sectionGraphs);
