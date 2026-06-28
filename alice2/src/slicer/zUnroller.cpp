@@ -1189,6 +1189,324 @@ namespace alice2 {
         return true;
     }
 
+    double contourEdgeLength(const zPointArray& positions, int a, int b)
+    {
+        zPoint pa = positions[a];
+        zPoint pb = positions[b];
+        return (pb - pa).length();
+    }
+
+    double contourPointDistance(const zPointArray& positions, int a, int b)
+    {
+        zPoint pa = positions[a];
+        zPoint pb = positions[b];
+        return pa.distanceTo(pb);
+    }
+
+    zVector contourVector(const zPointArray& positions, int from, int to)
+    {
+        zPoint p0 = positions[from];
+        zPoint p1 = positions[to];
+        return p1 - p0;
+    }
+
+    void printContourTopologyDetails(int graphId, const zPointArray& positions, const std::vector<zIntArray>& adjacency,
+        const zIntArray& endpoints, int maxPrintCount = 8)
+    {
+        int printedDegreeMore = 0;
+        for (int v = 0; v < static_cast<int>(adjacency.size()) && printedDegreeMore < maxPrintCount; v++) {
+            if (adjacency[v].size() <= 2) continue;
+            const zPoint& p = positions[v];
+            std::cout << "[cleanContourGraph] graph " << graphId
+                << " degreeMore vertex=" << v
+                << " degree=" << adjacency[v].size()
+                << " position=(" << p.x << "," << p.y << "," << p.z << ")"
+                << " incident=";
+            for (int n : adjacency[v]) {
+                const double length = contourEdgeLength(positions, v, n);
+                std::cout << n << "(d=" << length << ") ";
+            }
+            std::cout << std::endl;
+            printedDegreeMore++;
+        }
+
+        for (int i = 0; i < static_cast<int>(endpoints.size()) && i < maxPrintCount; i++) {
+            const int v = endpoints[i];
+            const zPoint& p = positions[v];
+            std::cout << "[cleanContourGraph] graph " << graphId
+                << " endpoint[" << i << "]=" << v
+                << " position=(" << p.x << "," << p.y << "," << p.z << ")";
+            if (endpoints.size() == 2) {
+                std::cout << " pairDistance=" << contourPointDistance(positions, endpoints[0], endpoints[1]);
+            }
+            std::cout << std::endl;
+        }
+    }
+
+    bool extractLongestClosedCycleFromAdjacency(const zPointArray& positions, const std::vector<zIntArray>& adjacency,
+        zIntArray& bestSequence)
+    {
+        bestSequence.clear();
+        if (positions.size() < 3 || adjacency.empty()) return false;
+
+        auto directedKey = [](int a, int b) -> unsigned long long {
+            return (static_cast<unsigned long long>(a) << 32) | static_cast<unsigned int>(b);
+        };
+
+        auto turnAngle = [&](int previous, int current, int next) -> double {
+            zVector in = contourVector(positions, previous, current);
+            zVector out = contourVector(positions, current, next);
+            if (in.length() < 1e-6 || out.length() < 1e-6) return 10.0;
+            in.normalize();
+            out.normalize();
+            const double cross = (in.x * out.y) - (in.y * out.x);
+            const double dot = (in.x * out.x) + (in.y * out.y);
+            double angle = atan2(cross, dot);
+            if (angle <= 0.0) angle += 3.14159265358979323846 * 2.0;
+            return angle;
+        };
+
+        int edgeCount = 0;
+        for (int v = 0; v < static_cast<int>(adjacency.size()); v++) edgeCount += static_cast<int>(adjacency[v].size());
+        edgeCount /= 2;
+
+        std::unordered_set<unsigned long long> visitedDirectedEdges;
+        double bestPerimeter = -1.0;
+
+        for (int start = 0; start < static_cast<int>(adjacency.size()); start++) {
+            for (int startNext : adjacency[start]) {
+                if (visitedDirectedEdges.count(directedKey(start, startNext))) continue;
+
+                zIntArray sequence;
+                std::unordered_set<int> sequenceVertices;
+                sequence.push_back(start);
+                sequenceVertices.insert(start);
+
+                int previous = start;
+                int current = startNext;
+                bool isClosed = false;
+
+                for (int safety = 0; safety < edgeCount * 2 + 4; safety++) {
+                    visitedDirectedEdges.insert(directedKey(previous, current));
+                    if (current == start) {
+                        isClosed = true;
+                        break;
+                    }
+                    if (current < 0 || current >= static_cast<int>(adjacency.size())) break;
+                    if (sequenceVertices.count(current)) break;
+
+                    sequence.push_back(current);
+                    sequenceVertices.insert(current);
+
+                    int next = -1;
+                    double bestTurn = std::numeric_limits<double>::max();
+                    for (int candidate : adjacency[current]) {
+                        if (candidate == previous && adjacency[current].size() > 1) continue;
+                        if (candidate != start && sequenceVertices.count(candidate)) continue;
+                        const double angle = turnAngle(previous, current, candidate);
+                        if (angle < bestTurn) {
+                            bestTurn = angle;
+                            next = candidate;
+                        }
+                    }
+                    if (next < 0) break;
+                    previous = current;
+                    current = next;
+                }
+
+                if (!isClosed || sequence.size() < 3) continue;
+
+                double perimeter = 0.0;
+                for (int i = 0; i < static_cast<int>(sequence.size()); i++) {
+                    const int a = sequence[i];
+                    const int b = sequence[(i + 1) % sequence.size()];
+                    perimeter += contourEdgeLength(positions, a, b);
+                }
+                if (perimeter > bestPerimeter) {
+                    bestPerimeter = perimeter;
+                    bestSequence = sequence;
+                }
+            }
+        }
+
+        return !bestSequence.empty();
+    }
+
+    bool rebuildContinuityCleanContour(int graphId, zObjGraph& graph, const zPointArray& positions,
+        const zIntArray& edgeConnects, double endpointCloseTolerance, zIntArray& rebuiltSequence)
+    {
+        rebuiltSequence.clear();
+        if (positions.size() < 3 || edgeConnects.size() < 4) return false;
+
+        struct EdgeRecord {
+            int a = -1;
+            int b = -1;
+        };
+
+        auto edgeKey = [](int a, int b) -> unsigned long long {
+            const int lo = std::min(a, b);
+            const int hi = std::max(a, b);
+            return (static_cast<unsigned long long>(lo) << 32) | static_cast<unsigned int>(hi);
+        };
+
+        std::vector<EdgeRecord> validEdges;
+        std::unordered_set<unsigned long long> uniqueEdgeKeys;
+        std::vector<zIntArray> adjacency(positions.size(), zIntArray());
+        int invalidEdgeCount = 0;
+        int zeroLengthEdgeCount = 0;
+        int duplicateEdgeCount = 0;
+
+        for (int e = 0; e + 1 < static_cast<int>(edgeConnects.size()); e += 2) {
+            const int a = edgeConnects[e];
+            const int b = edgeConnects[e + 1];
+            if (a < 0 || b < 0 || a >= static_cast<int>(positions.size()) || b >= static_cast<int>(positions.size())) {
+                invalidEdgeCount++;
+                continue;
+            }
+            if (contourEdgeLength(positions, a, b) < 1e-6) {
+                zeroLengthEdgeCount++;
+                continue;
+            }
+            if (!uniqueEdgeKeys.insert(edgeKey(a, b)).second) {
+                duplicateEdgeCount++;
+                continue;
+            }
+            validEdges.push_back({ a, b });
+            adjacency[a].push_back(b);
+            adjacency[b].push_back(a);
+        }
+
+        zIntArray endpointsBefore;
+        int degreeMoreBefore = 0;
+        int degreeTwoBefore = 0;
+        for (int v = 0; v < static_cast<int>(adjacency.size()); v++) {
+            if (adjacency[v].size() == 1) endpointsBefore.push_back(v);
+            else if (adjacency[v].size() == 2) degreeTwoBefore++;
+            else if (adjacency[v].size() > 2) degreeMoreBefore++;
+        }
+
+        if (degreeMoreBefore > 0 || !endpointsBefore.empty() || invalidEdgeCount > 0 || zeroLengthEdgeCount > 0 || duplicateEdgeCount > 0) {
+            std::cout << "[cleanContourGraph] graph " << graphId
+                << " repairing topology"
+                << " vertices=" << positions.size()
+                << " rawEdges=" << (edgeConnects.size() / 2)
+                << " validEdges=" << validEdges.size()
+                << " duplicateEdges=" << duplicateEdgeCount
+                << " zeroEdges=" << zeroLengthEdgeCount
+                << " invalidEdges=" << invalidEdgeCount
+                << " endpoints=" << endpointsBefore.size()
+                << " degreeMore=" << degreeMoreBefore
+                << std::endl;
+            printContourTopologyDetails(graphId, positions, adjacency, endpointsBefore);
+        }
+
+        std::vector<std::unordered_set<int>> allowedNeighbors(positions.size());
+        for (int v = 0; v < static_cast<int>(adjacency.size()); v++) {
+            if (adjacency[v].size() <= 2) {
+                for (int n : adjacency[v]) allowedNeighbors[v].insert(n);
+                continue;
+            }
+
+            zIntArray candidateNeighbors;
+            for (int n : adjacency[v]) {
+                if (n < 0 || n >= static_cast<int>(adjacency.size())) continue;
+                if (adjacency[n].size() > 1) candidateNeighbors.push_back(n);
+            }
+            if (candidateNeighbors.size() < 2) candidateNeighbors = adjacency[v];
+
+            int bestA = -1;
+            int bestB = -1;
+            double bestDot = std::numeric_limits<double>::max();
+            for (int i = 0; i < static_cast<int>(candidateNeighbors.size()); i++) {
+                for (int j = i + 1; j < static_cast<int>(candidateNeighbors.size()); j++) {
+                    const int a = candidateNeighbors[i];
+                    const int b = candidateNeighbors[j];
+                    zVector va = contourVector(positions, v, a);
+                    zVector vb = contourVector(positions, v, b);
+                    if (va.length() < 1e-6 || vb.length() < 1e-6) continue;
+                    va.normalize();
+                    vb.normalize();
+                    const double dot = (va.x * vb.x) + (va.y * vb.y) + (va.z * vb.z);
+                    if (dot < bestDot) {
+                        bestDot = dot;
+                        bestA = a;
+                        bestB = b;
+                    }
+                }
+            }
+
+            if (bestA >= 0 && bestB >= 0) {
+                allowedNeighbors[v].insert(bestA);
+                allowedNeighbors[v].insert(bestB);
+                std::cout << "[cleanContourGraph] graph " << graphId
+                    << " degreeMore resolved vertex=" << v
+                    << " kept=" << bestA << "," << bestB
+                    << " collinearDot=" << bestDot
+                    << " candidateNeighbors=" << candidateNeighbors.size()
+                    << " originalDegree=" << adjacency[v].size()
+                    << std::endl;
+            }
+        }
+
+        std::vector<zIntArray> repairedAdjacency(positions.size(), zIntArray());
+        std::unordered_set<unsigned long long> repairedEdgeKeys;
+        for (const EdgeRecord& edge : validEdges) {
+            if (!allowedNeighbors[edge.a].count(edge.b)) continue;
+            if (!allowedNeighbors[edge.b].count(edge.a)) continue;
+            if (!repairedEdgeKeys.insert(edgeKey(edge.a, edge.b)).second) continue;
+            repairedAdjacency[edge.a].push_back(edge.b);
+            repairedAdjacency[edge.b].push_back(edge.a);
+        }
+
+        zIntArray endpointsAfter;
+        int degreeMoreAfter = 0;
+        for (int v = 0; v < static_cast<int>(repairedAdjacency.size()); v++) {
+            if (repairedAdjacency[v].size() == 1) endpointsAfter.push_back(v);
+            else if (repairedAdjacency[v].size() > 2) degreeMoreAfter++;
+        }
+
+        if (endpointsAfter.size() == 2) {
+            const double endpointDistance = contourPointDistance(positions, endpointsAfter[0], endpointsAfter[1]);
+            if (endpointDistance <= endpointCloseTolerance) {
+                repairedAdjacency[endpointsAfter[0]].push_back(endpointsAfter[1]);
+                repairedAdjacency[endpointsAfter[1]].push_back(endpointsAfter[0]);
+                std::cout << "[cleanContourGraph] graph " << graphId
+                    << " closed repaired endpoints"
+                    << " endpointDistance=" << endpointDistance
+                    << " tolerance=" << endpointCloseTolerance
+                    << std::endl;
+            }
+            else {
+                std::cout << "[cleanContourGraph] graph " << graphId
+                    << " not closing repaired endpoints; gap too large"
+                    << " endpointDistance=" << endpointDistance
+                    << " tolerance=" << endpointCloseTolerance
+                    << std::endl;
+            }
+        }
+        else if (!endpointsAfter.empty()) {
+            std::cout << "[cleanContourGraph] graph " << graphId
+                << " repaired contour still has endpoints=" << endpointsAfter.size()
+                << " degreeMore=" << degreeMoreAfter
+                << std::endl;
+            printContourTopologyDetails(graphId, positions, repairedAdjacency, endpointsAfter);
+        }
+
+        if (!extractLongestClosedCycleFromAdjacency(positions, repairedAdjacency, rebuiltSequence)) return false;
+
+        std::cout << "[cleanContourGraph] graph " << graphId
+            << " selected continuity-clean closed cycle"
+            << " oldV=" << positions.size()
+            << " oldE=" << (edgeConnects.size() / 2)
+            << " newV=" << rebuiltSequence.size()
+            << " endpointsBefore=" << endpointsBefore.size()
+            << " degreeMoreBefore=" << degreeMoreBefore
+            << " endpointsAfter=" << endpointsAfter.size()
+            << " degreeMoreAfter=" << degreeMoreAfter
+            << std::endl;
+        return true;
+    }
+
     void cleanContourGraphForToolpath(int graphId, zObjGraph& graph, double mergeTolerance)
     {
         zFnGraph fnGraph(graph);
@@ -1257,10 +1575,26 @@ namespace alice2 {
 
         zIntArray sequence;
         bool closed = false;
-        if (buildLongestContourCycle(graph, sequence, closed, endpointCloseTolerance) && closed) {
+        if (rebuildContinuityCleanContour(graphId, graph, positions, edgeConnects, endpointCloseTolerance, sequence)) {
+            createGraphFromOrderedVertexIds(graph, positions, sequence, true);
+        }
+        else if (buildLongestContourCycle(graph, sequence, closed, endpointCloseTolerance) && closed) {
             createGraphFromOrderedVertexIds(graph, positions, sequence, true);
             std::cout << "[cleanContourGraph] graph " << graphId
                 << " rebuilt longest contour loop"
+                << " oldV=" << positions.size()
+                << " oldE=" << (edgeConnects.size() / 2)
+                << " newV=" << sequence.size()
+                << " endpoints=" << endpoints.size()
+                << " degreeMore=" << degreeMoreCount
+                << " zeroEdges=" << zeroLengthEdges
+                << std::endl;
+            return;
+        }
+
+        if (!sequence.empty()) {
+            std::cout << "[cleanContourGraph] graph " << graphId
+                << " rebuilt cleaned contour loop"
                 << " oldV=" << positions.size()
                 << " oldE=" << (edgeConnects.size() / 2)
                 << " newV=" << sequence.size()

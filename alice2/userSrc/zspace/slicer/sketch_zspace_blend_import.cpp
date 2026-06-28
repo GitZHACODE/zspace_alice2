@@ -422,12 +422,36 @@ private:
         if (!m_debugComputeVLoops) return;
 
         zSpace::zFnMesh fn(mesh);
+        zSpace::zItMeshHalfEdge he(mesh);
         std::cout << "[zSpaceBlendImport][computeVLoops] " << label
             << " vertices=" << fn.numVertices()
             << " edges=" << fn.numEdges()
-            << " halfEdges=" << fn.numHalfEdges()
+            << " halfEdges=" << he.size()
             << " faces=" << fn.numPolygons()
             << std::endl;
+    }
+
+    bool findHalfEdgeByVertices(int startVertexId, int endVertexId, zSpace::zItMeshHalfEdge& outHalfEdge)
+    {
+        if (startVertexId < 0 || endVertexId < 0) return false;
+
+        zSpace::zFnMesh fn(m_mesh);
+        if (startVertexId >= fn.numVertices() || endVertexId >= fn.numVertices()) return false;
+
+        zSpace::zItMeshVertex startVertex(m_mesh, startVertexId);
+        if (!startVertex.isActive()) return false;
+
+        zSpace::zItMeshHalfEdgeArray connected;
+        startVertex.getConnectedHalfEdges(connected);
+        for (zSpace::zItMeshHalfEdge& he : connected) {
+            if (!he.isActive()) continue;
+            if (he.getStartVertex().getId() == startVertexId && he.getVertex().getId() == endVertexId) {
+                outHalfEdge = he;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     void debugPrintGraphStats(const char* label, zSpace::zObjGraph& graph)
@@ -503,9 +527,8 @@ private:
         debugPrintVertex(medialIds[0]);
         debugPrintVertex(medialIds[1]);
 
-        zSpace::zFnMesh fn(m_mesh);
         zSpace::zItMeshHalfEdge he;
-        if (fn.halfEdgeExists(medialIds[0], medialIds[1], he)) {
+        if (findHalfEdgeByVertices(medialIds[0], medialIds[1], he)) {
             debugPrintHalfEdge("corner edge forward", he);
             debugPrintHalfEdge("  forward.next", he.getNext());
             debugPrintHalfEdge("  forward.prev.sym", he.getPrev().getSym());
@@ -515,7 +538,7 @@ private:
                 << medialIds[0] << "->" << medialIds[1] << std::endl;
         }
 
-        if (fn.halfEdgeExists(medialIds[1], medialIds[0], he)) {
+        if (findHalfEdgeByVertices(medialIds[1], medialIds[0], he)) {
             debugPrintHalfEdge("corner edge reverse", he);
             debugPrintHalfEdge("  reverse.next", he.getNext());
             debugPrintHalfEdge("  reverse.prev.sym", he.getPrev().getSym());
