@@ -33,6 +33,11 @@ namespace alice2 {
         zSpace::zObjGraphArray flatContourGraphs;
         zSpace::zObjGraphArray flatBoundaryFeatureGraphs;
         zSpace::zObjGraphArray flatBracingFeatureGraphs;
+        zSpace::zPointArray sectionFrameOrigins;
+        zSpace::zPointArray sectionFlatOrigins;
+        zSpace::zVectorArray sectionFrameXAxes;
+        zSpace::zVectorArray sectionFrameYAxes;
+        zSpace::zVectorArray sectionFrameNormals;
     };
 
     struct SDFPostProcessResult {

@@ -9,7 +9,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <nlohmann/json.hpp>
@@ -60,7 +62,7 @@ public:
         renderer.drawString(getName(), 10, 28);
         renderer.drawString("Mesh: " + m_meshPath, 10, 50);
         renderer.drawString(m_status, 10, 72);
-        renderer.drawString("'r' read mesh, 'p' slices, 'o' all SDF/post, 'i' print mesh, 'x' toggle mesh/print, 'f' focus, 'd' toggle sections, 'w/s' or '['/']' section", 10, 94);
+        renderer.drawString("'r' read mesh, 'p' slices, 'o' all SDF/post, 'i' print mesh, 'e' export USD, 'x' print vis, 'b' input vis, 'f' focus, 'd' sections, 'w/s' section", 10, 94);
     }
 
     bool onKeyPress(unsigned char key, int, int) override
@@ -85,8 +87,18 @@ public:
             return true;
         }
 
+        if (key == 'e' || key == 'E') {
+            exportPostProcessedToolpathUSD();
+            return true;
+        }
+
         if (key == 'x' || key == 'X') {
-            toggleMeshAndPrintDisplay();
+            togglePrintMeshDisplay();
+            return true;
+        }
+
+        if (key == 'b' || key == 'B') {
+            toggleInputMeshDisplay();
             return true;
         }
 
@@ -147,6 +159,7 @@ private:
     std::vector<BracingLineGroup> m_bracingGroups;
     std::string m_meshPath = alice2::SlicingParameters::inputMeshPath;
     std::string m_bracingGraphPath = alice2::SlicingParameters::bracingGraphPath;
+    std::string m_toolpathExportPath = "data/londonCreatesExhibition/postprocessed_toolpath.usda";
     std::string m_status = "Waiting for mesh.";
     bool m_loaded = false;
     bool m_showBlockMesh = false;
@@ -209,6 +222,244 @@ private:
         return true;
     }
 
+    static void writeUsdPointArray(std::ostream& out, const char* attrName, const zSpace::zPointArray& values, int indent)
+    {
+        const std::string pad(indent, ' ');
+        out << pad << "custom point3f[] " << attrName << " = [";
+        for (int i = 0; i < static_cast<int>(values.size()); i++) {
+            const zSpace::zPoint& p = values[i];
+            if (i > 0) out << ", ";
+            out << "(" << p.x << ", " << p.y << ", " << p.z << ")";
+        }
+        out << "]\n";
+    }
+
+    static void writeUsdVectorArray(std::ostream& out, const char* attrName, const zSpace::zVectorArray& values, int indent)
+    {
+        const std::string pad(indent, ' ');
+        out << pad << "custom vector3f[] " << attrName << " = [";
+        for (int i = 0; i < static_cast<int>(values.size()); i++) {
+            const zSpace::zVector& p = values[i];
+            if (i > 0) out << ", ";
+            out << "(" << p.x << ", " << p.y << ", " << p.z << ")";
+        }
+        out << "]\n";
+    }
+
+    static void writeUsdFloatArray(std::ostream& out, const char* attrName, const zSpace::zFloatArray& values, int indent)
+    {
+        const std::string pad(indent, ' ');
+        out << pad << "custom float[] " << attrName << " = [";
+        for (int i = 0; i < static_cast<int>(values.size()); i++) {
+            if (i > 0) out << ", ";
+            out << values[i];
+        }
+        out << "]\n";
+    }
+
+    static void writeUsdIntArray(std::ostream& out, const char* attrName, const zSpace::zIntArray& values, int indent)
+    {
+        const std::string pad(indent, ' ');
+        out << pad << "custom int[] " << attrName << " = [";
+        for (int i = 0; i < static_cast<int>(values.size()); i++) {
+            if (i > 0) out << ", ";
+            out << values[i];
+        }
+        out << "]\n";
+    }
+
+    static void writeUsdPointGeometry(std::ostream& out, const char* primName, const zSpace::zPointArray& values, int indent, float size)
+    {
+        if (values.empty()) return;
+
+        const std::string pad(indent, ' ');
+        out << pad << "def Points \"" << primName << "\"\n";
+        out << pad << "{\n";
+        out << pad << "    point3f[] points = [";
+        for (int i = 0; i < static_cast<int>(values.size()); i++) {
+            const zSpace::zPoint& p = values[i];
+            if (i > 0) out << ", ";
+            out << "(" << p.x << ", " << p.y << ", " << p.z << ")";
+        }
+        out << "]\n";
+        out << pad << "    float[] widths = [";
+        for (int i = 0; i < static_cast<int>(values.size()); i++) {
+            if (i > 0) out << ", ";
+            out << size;
+        }
+        out << "]\n";
+        out << pad << "}\n";
+    }
+
+    static void writeUsdGraphCurves(std::ostream& out, const char* primName, zSpace::zObjGraph& graph, int indent, float width)
+    {
+        zSpace::zFnGraph fnGraph(graph);
+        zSpace::zPointArray positions;
+        zSpace::zIntArray edgeConnects;
+        fnGraph.getVertexPositions(positions);
+        fnGraph.getEdgeData(edgeConnects);
+        if (positions.empty() || edgeConnects.size() < 2) return;
+
+        zSpace::zPointArray curvePoints;
+        zSpace::zIntArray curveCounts;
+        for (int e = 0; e + 1 < static_cast<int>(edgeConnects.size()); e += 2) {
+            const int a = edgeConnects[e];
+            const int b = edgeConnects[e + 1];
+            if (a < 0 || b < 0 || a >= static_cast<int>(positions.size()) || b >= static_cast<int>(positions.size())) continue;
+            curvePoints.push_back(positions[a]);
+            curvePoints.push_back(positions[b]);
+            curveCounts.push_back(2);
+        }
+        if (curvePoints.empty()) return;
+
+        const std::string pad(indent, ' ');
+        out << pad << "def BasisCurves \"" << primName << "\"\n";
+        out << pad << "{\n";
+        out << pad << "    uniform token type = \"linear\"\n";
+        out << pad << "    uniform token wrap = \"nonperiodic\"\n";
+        out << pad << "    int[] curveVertexCounts = [";
+        for (int i = 0; i < static_cast<int>(curveCounts.size()); i++) {
+            if (i > 0) out << ", ";
+            out << curveCounts[i];
+        }
+        out << "]\n";
+        out << pad << "    point3f[] points = [";
+        for (int i = 0; i < static_cast<int>(curvePoints.size()); i++) {
+            const zSpace::zPoint& p = curvePoints[i];
+            if (i > 0) out << ", ";
+            out << "(" << p.x << ", " << p.y << ", " << p.z << ")";
+        }
+        out << "]\n";
+        out << pad << "    float[] widths = [";
+        for (int i = 0; i < static_cast<int>(curvePoints.size()); i++) {
+            if (i > 0) out << ", ";
+            out << width;
+        }
+        out << "]\n";
+        out << pad << "}\n";
+    }
+
+    static void writeUsdMeshGeometry(std::ostream& out, const char* primName, zSpace::zObjMesh& mesh, int indent)
+    {
+        zSpace::zFnMesh fnMesh(mesh);
+        zSpace::zPointArray positions;
+        zSpace::zIntArray polyConnects;
+        zSpace::zIntArray polyCounts;
+        fnMesh.getVertexPositions(positions);
+        fnMesh.getPolygonData(polyConnects, polyCounts);
+        if (positions.empty() || polyConnects.empty() || polyCounts.empty()) return;
+
+        const std::string pad(indent, ' ');
+        out << pad << "def Mesh \"" << primName << "\"\n";
+        out << pad << "{\n";
+        out << pad << "    point3f[] points = [";
+        for (int i = 0; i < static_cast<int>(positions.size()); i++) {
+            const zSpace::zPoint& p = positions[i];
+            if (i > 0) out << ", ";
+            out << "(" << p.x << ", " << p.y << ", " << p.z << ")";
+        }
+        out << "]\n";
+        out << pad << "    int[] faceVertexCounts = [";
+        for (int i = 0; i < static_cast<int>(polyCounts.size()); i++) {
+            if (i > 0) out << ", ";
+            out << polyCounts[i];
+        }
+        out << "]\n";
+        out << pad << "    int[] faceVertexIndices = [";
+        for (int i = 0; i < static_cast<int>(polyConnects.size()); i++) {
+            if (i > 0) out << ", ";
+            out << polyConnects[i];
+        }
+        out << "]\n";
+        out << pad << "}\n";
+    }
+
+    bool exportPostProcessedToolpathUSD()
+    {
+        if (m_postProcessResult.toolpathTargetPoints.empty()) {
+            m_status = "No post-processed target points. Press 'o' before 'e'.";
+            std::cout << "[zSpaceBlendImport][export] " << m_status << std::endl;
+            return false;
+        }
+
+        const std::filesystem::path outPath(m_toolpathExportPath);
+        if (!outPath.parent_path().empty()) std::filesystem::create_directories(outPath.parent_path());
+
+        std::ofstream out(outPath, std::ios::out | std::ios::trunc);
+        if (!out.is_open()) {
+            m_status = "Could not open USD export path: " + m_toolpathExportPath;
+            std::cout << "[zSpaceBlendImport][export] " << m_status << std::endl;
+            return false;
+        }
+
+        int layerCount = static_cast<int>(m_postProcessResult.toolpathTargetPoints.size());
+        int totalSamples = 0;
+        for (const auto& layerPoints : m_postProcessResult.toolpathTargetPoints) totalSamples += static_cast<int>(layerPoints.size());
+
+        out << "#usda 1.0\n";
+        out << "(\n";
+        out << "    defaultPrim = \"PostProcessedToolpath\"\n";
+        out << ")\n\n";
+        out << "def Xform \"PostProcessedToolpath\"\n";
+        out << "{\n";
+        out << "    custom string dataSchema = \"alice2.postprocessed_toolpath.v1\"\n";
+        out << "    custom int layerCount = " << layerCount << "\n";
+        out << "    custom int totalSampleCount = " << totalSamples << "\n";
+        out << "    custom string sourceMeshPath = \"" << m_meshPath << "\"\n";
+        out << "    custom string sourceBracingGraphPath = \"" << m_bracingGraphPath << "\"\n\n";
+        writeUsdMeshGeometry(out, "inputMesh", m_mesh, 4);
+        out << "\n";
+
+        out << std::setprecision(9);
+        for (int layer = 0; layer < layerCount; layer++) {
+            const zSpace::zPointArray& points = m_postProcessResult.toolpathTargetPoints[layer];
+            const zSpace::zFloatArray emptyFloats;
+            const zSpace::zIntArray emptyInts;
+            const zSpace::zVectorArray emptyVectors;
+            const zSpace::zFloatArray& heights = (layer < static_cast<int>(m_postProcessResult.toolpathPrintHeights.size()))
+                ? m_postProcessResult.toolpathPrintHeights[layer]
+                : emptyFloats;
+            const zSpace::zFloatArray& widths = (layer < static_cast<int>(m_postProcessResult.toolpathPrintWidths.size()))
+                ? m_postProcessResult.toolpathPrintWidths[layer]
+                : emptyFloats;
+            const zSpace::zIntArray& featureFlags = (layer < static_cast<int>(m_postProcessResult.toolpathFeatureFlags.size()))
+                ? m_postProcessResult.toolpathFeatureFlags[layer]
+                : emptyInts;
+            const zSpace::zVectorArray& normals = (layer < static_cast<int>(m_postProcessResult.toolpathNormals.size()))
+                ? m_postProcessResult.toolpathNormals[layer]
+                : emptyVectors;
+
+            out << "    def Xform \"layer_" << layer << "\"\n";
+            out << "    {\n";
+            out << "        custom int layerIndex = " << layer << "\n";
+            out << "        custom int sampleCount = " << points.size() << "\n";
+            writeUsdPointArray(out, "targetPoints", points, 8);
+            writeUsdVectorArray(out, "normals", normals, 8);
+            writeUsdFloatArray(out, "printHeights", heights, 8);
+            writeUsdFloatArray(out, "printWidths", widths, 8);
+            writeUsdIntArray(out, "featureFlags", featureFlags, 8);
+            writeUsdPointGeometry(out, "targetPointViz", points, 8, 0.01f);
+            if (layer < static_cast<int>(m_contourGraphs.size())) {
+                writeUsdGraphCurves(out, "contour", m_contourGraphs[layer], 8, 0.01f);
+            }
+            if (layer < static_cast<int>(m_printMeshes.size())) {
+                writeUsdMeshGeometry(out, "printMesh", m_printMeshes[layer], 8);
+            }
+            out << "    }\n\n";
+        }
+
+        out << "}\n";
+        out.close();
+
+        std::filesystem::path absolutePath = std::filesystem::absolute(outPath);
+        m_status = "Exported post-processed toolpath USD: " + absolutePath.string();
+        std::cout << "[zSpaceBlendImport][export] " << m_status
+            << " layers=" << layerCount
+            << " samples=" << totalSamples
+            << std::endl;
+        return true;
+    }
+
     void clearSdfDebugData()
     {
         m_contourGraphs.clear();
@@ -253,13 +504,25 @@ private:
         if (m_sectionMeshes.empty()) return;
         m_layerBracingGraphs.assign(m_sectionMeshes.size(), zSpace::zObjGraph());
 
-        if (m_bracingGroups.size() < 4) {
-            std::cout << "[zSpaceBlendImport][bracing] WARNING need 4 input bracing graphs for pairs 0->2 and 1->3; got "
-                << m_bracingGroups.size() << std::endl;
+        int requiredGraphCount = 0;
+        for (int pairId = 0; pairId < alice2::SlicingParameters::bracingInputGraphPairCount; pairId++) {
+            requiredGraphCount = std::max(requiredGraphCount, alice2::SlicingParameters::bracingInputBottomGraphIds[pairId] + 1);
+            requiredGraphCount = std::max(requiredGraphCount, alice2::SlicingParameters::bracingInputTopGraphIds[pairId] + 1);
+        }
+
+        if (m_bracingGroups.size() < static_cast<std::size_t>(requiredGraphCount)) {
+            std::cout << "[zSpaceBlendImport][bracing] WARNING not enough input bracing graphs for configured pairs; got "
+                << m_bracingGroups.size()
+                << " required=" << requiredGraphCount
+                << " pairs=";
+            for (int pairId = 0; pairId < alice2::SlicingParameters::bracingInputGraphPairCount; pairId++) {
+                std::cout << alice2::SlicingParameters::bracingInputBottomGraphIds[pairId]
+                    << "->" << alice2::SlicingParameters::bracingInputTopGraphIds[pairId] << " ";
+            }
+            std::cout << std::endl;
             return;
         }
 
-        const int pairs[2][2] = { {0, 2}, {1, 3} };
         for (int layer = 0; layer < static_cast<int>(m_sectionMeshes.size()); layer++) {
             const float t = (m_sectionMeshes.size() <= 1)
                 ? 0.0f
@@ -267,9 +530,9 @@ private:
 
             zSpace::zPointArray positions;
             zSpace::zIntArray edgeConnects;
-            for (int pairId = 0; pairId < 2; pairId++) {
-                const int aId = pairs[pairId][0];
-                const int bId = pairs[pairId][1];
+            for (int pairId = 0; pairId < alice2::SlicingParameters::bracingInputGraphPairCount; pairId++) {
+                const int aId = alice2::SlicingParameters::bracingInputBottomGraphIds[pairId];
+                const int bId = alice2::SlicingParameters::bracingInputTopGraphIds[pairId];
                 zSpace::zPoint a0, a1, b0, b1;
                 if (!getSingleEdgeEndpoints(m_bracingGroups[aId].graph, a0, a1)) continue;
                 if (!getSingleEdgeEndpoints(m_bracingGroups[bId].graph, b0, b1)) continue;
@@ -289,7 +552,12 @@ private:
         }
 
         std::cout << "[zSpaceBlendImport][bracing] built layer bracing graphs=" << m_layerBracingGraphs.size()
-            << " using pairs 0->2 and 1->3" << std::endl;
+            << " using bottom->top pairs ";
+        for (int pairId = 0; pairId < alice2::SlicingParameters::bracingInputGraphPairCount; pairId++) {
+            std::cout << alice2::SlicingParameters::bracingInputBottomGraphIds[pairId]
+                << "->" << alice2::SlicingParameters::bracingInputTopGraphIds[pairId] << " ";
+        }
+        std::cout << std::endl;
     }
 
     bool loadBracingGraph()
@@ -929,13 +1197,20 @@ private:
         return meshCount > 0;
     }
 
-    void toggleMeshAndPrintDisplay()
+    void togglePrintMeshDisplay()
     {
-        m_showBlockMesh = !m_showBlockMesh;
         m_showPrintMeshes = !m_showPrintMeshes;
         std::ostringstream out;
-        out << "Display toggled: input mesh=" << (m_showBlockMesh ? "on" : "off")
-            << " print meshes=" << (m_showPrintMeshes ? "on" : "off");
+        out << "Print mesh display: " << (m_showPrintMeshes ? "on" : "off");
+        m_status = out.str();
+        std::cout << "[zSpaceBlendImport] " << m_status << std::endl;
+    }
+
+    void toggleInputMeshDisplay()
+    {
+        m_showBlockMesh = !m_showBlockMesh;
+        std::ostringstream out;
+        out << "Input mesh display: " << (m_showBlockMesh ? "on" : "off");
         m_status = out.str();
         std::cout << "[zSpaceBlendImport] " << m_status << std::endl;
     }

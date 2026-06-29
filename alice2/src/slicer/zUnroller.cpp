@@ -397,6 +397,53 @@ namespace alice2 {
         return movedCount;
     }
 
+    int projectGraphVerticesToClosestMesh(zObjGraph& graph, zObjMesh& mesh, double& maxDistance, double& averageDistance)
+    {
+        zFnGraph fnGraph(graph);
+        zPointArray positions;
+        fnGraph.getVertexPositions(positions);
+        maxDistance = 0.0;
+        averageDistance = 0.0;
+        if (positions.empty()) return 0;
+
+        int projectedCount = 0;
+        double distanceSum = 0.0;
+        for (int graphVertexId = 0; graphVertexId < static_cast<int>(positions.size()); graphVertexId++) {
+            zPoint p = positions[graphVertexId];
+            zPoint closest = p;
+            double closestDistance2 = std::numeric_limits<double>::max();
+
+            for (zItMeshFace f(mesh); !f.end(); f++) {
+                zPointArray faceVerts;
+                f.getVertexPositions(faceVerts);
+                if (faceVerts.size() < 3) continue;
+                for (int tri = 1; tri < static_cast<int>(faceVerts.size()) - 1; tri++) {
+                    zPoint candidate = closestPointOnTriangle(p, faceVerts[0], faceVerts[tri], faceVerts[tri + 1]);
+                    zVector d = candidate - p;
+                    double distance2 = d * d;
+                    if (distance2 < closestDistance2) {
+                        closestDistance2 = distance2;
+                        closest = candidate;
+                    }
+                }
+            }
+
+            if (closestDistance2 < std::numeric_limits<double>::max()) {
+                const double distance = std::sqrt(closestDistance2);
+                positions[graphVertexId] = closest;
+                maxDistance = std::max(maxDistance, distance);
+                distanceSum += distance;
+                projectedCount++;
+            }
+        }
+
+        if (projectedCount > 0) {
+            averageDistance = distanceSum / static_cast<double>(projectedCount);
+            fnGraph.setVertexPositions(positions);
+        }
+        return projectedCount;
+    }
+
     bool barycentericProjection_triMesh(zObjGraph& graph, zObjMesh& inMesh, zObjMesh& projectionMesh, zVectorArray* mappedNormals)
     {
         zFnGraph fnGraph(graph);
@@ -489,6 +536,100 @@ namespace alice2 {
     bool barycentericProjection_triMesh(zObjGraph& graph, zObjMesh& inMesh, zObjMesh& projectionMesh)
     {
         return barycentericProjection_triMesh(graph, inMesh, projectionMesh, nullptr);
+    }
+
+    bool computePlanarSectionFrame(zObjMesh& mesh, zPoint& origin, zVector& xAxis, zVector& yAxis, zVector& normal)
+    {
+        zFnMesh fnMesh(mesh);
+        zPointArray positions;
+        fnMesh.getVertexPositions(positions);
+        if (positions.size() < 3) return false;
+
+        origin = positions[0];
+        bool foundXAxis = false;
+        for (int v = 1; v < static_cast<int>(positions.size()); v++) {
+            xAxis = positions[v] - origin;
+            if (xAxis.length() > 1e-6) {
+                xAxis.normalize();
+                foundXAxis = true;
+                break;
+            }
+        }
+        if (!foundXAxis) return false;
+
+        normal = zVector(0, 0, 0);
+        for (int aId = 1; aId < static_cast<int>(positions.size()) && normal.length() <= 1e-6; aId++) {
+            for (int bId = aId + 1; bId < static_cast<int>(positions.size()); bId++) {
+                zVector a = positions[aId] - origin;
+                zVector b = positions[bId] - origin;
+                normal = a ^ b;
+                if (normal.length() > 1e-6) break;
+            }
+        }
+        if (normal.length() <= 1e-6) return false;
+        normal.normalize();
+
+        yAxis = normal ^ xAxis;
+        if (yAxis.length() <= 1e-6) return false;
+        yAxis.normalize();
+        return true;
+    }
+
+    zPoint worldToSectionLocal(const zPoint& p, const zPoint& origin, const zVector& xAxis, const zVector& yAxis, const zPoint& flatOrigin)
+    {
+        zPoint pCopy = p;
+        zPoint originCopy = origin;
+        zVector xCopy = xAxis;
+        zVector yCopy = yAxis;
+        zVector d = pCopy - originCopy;
+        return zPoint((d * xCopy) - flatOrigin.x, (d * yCopy) - flatOrigin.y, 0.0);
+    }
+
+    zPoint sectionLocalToWorld(const zPoint& p, const zPoint& origin, const zVector& xAxis, const zVector& yAxis, const zPoint& flatOrigin)
+    {
+        zVector local(p.x + flatOrigin.x, p.y + flatOrigin.y, 0.0);
+        zPoint out = origin;
+        zVector xCopy = xAxis;
+        zVector yCopy = yAxis;
+        out += xCopy * local.x;
+        out += yCopy * local.y;
+        return out;
+    }
+
+    void transformMeshToSectionLocal(zObjMesh& mesh, const zPoint& origin, const zVector& xAxis, const zVector& yAxis, const zPoint& flatOrigin)
+    {
+        zFnMesh fnMesh(mesh);
+        zPointArray positions;
+        fnMesh.getVertexPositions(positions);
+        for (auto& p : positions) p = worldToSectionLocal(p, origin, xAxis, yAxis, flatOrigin);
+        fnMesh.setVertexPositions(positions);
+    }
+
+    void transformGraphToSectionLocal(zObjGraph& graph, const zPoint& origin, const zVector& xAxis, const zVector& yAxis, const zPoint& flatOrigin)
+    {
+        zFnGraph fnGraph(graph);
+        zPointArray positions;
+        fnGraph.getVertexPositions(positions);
+        for (auto& p : positions) p = worldToSectionLocal(p, origin, xAxis, yAxis, flatOrigin);
+        fnGraph.setVertexPositions(positions);
+    }
+
+    void transformGraphFromSectionLocal(zObjGraph& graph, const zPoint& origin, const zVector& xAxis, const zVector& yAxis, const zPoint& flatOrigin)
+    {
+        zFnGraph fnGraph(graph);
+        zPointArray positions;
+        fnGraph.getVertexPositions(positions);
+        for (auto& p : positions) p = sectionLocalToWorld(p, origin, xAxis, yAxis, flatOrigin);
+        fnGraph.setVertexPositions(positions);
+    }
+
+    void offsetGraphPositions(zObjGraph& graph, const zVector& offset)
+    {
+        zFnGraph fnGraph(graph);
+        zPointArray positions;
+        fnGraph.getVertexPositions(positions);
+        for (auto& p : positions) p += offset;
+        fnGraph.setVertexPositions(positions);
     }
 
     void printGraphSDFDebug(const char* label, int sectionId, zObjGraph& graph, const zDomain<zPoint>& fieldBB)
@@ -608,7 +749,7 @@ namespace alice2 {
         return positions[edgeConnects.back()];
     }
 
-    void createPerpendicularTrimSlots(zObjGraph& sourceGraph, zObjGraph& outGraph, bool alternate, float trimLength, int maxEdges = -1)
+    void createPerpendicularTrimSlots(zObjGraph& sourceGraph, zObjGraph& outGraph, bool alternate, float trimLength, int maxEdges = -1, float fixedT = -1.0f)
     {
         zFnGraph fnSource(sourceGraph);
         if (fnSource.numVertices() == 0 || fnSource.numEdges() == 0) {
@@ -624,7 +765,9 @@ namespace alice2 {
 
         zPointArray trimPositions;
         zIntArray trimEdges;
-        const float t = alternate ? SlicingParameters::trimSlotStaggerEven : SlicingParameters::trimSlotStaggerOdd;
+        const float t = (fixedT >= 0.0f)
+            ? std::max(0.0f, std::min(1.0f, fixedT))
+            : (alternate ? SlicingParameters::trimSlotStaggerEven : SlicingParameters::trimSlotStaggerOdd);
         const int edgeLimit = (maxEdges < 0) ? (int)(sourceEdges.size() / 2) : std::min(maxEdges, (int)(sourceEdges.size() / 2));
 
         for (int i = 0; i < edgeLimit; i++) {
@@ -1634,6 +1777,232 @@ namespace alice2 {
         fnOut.create(outPositions, outEdges);
     }
 
+    void makeEdgeSubsetGraph(zObjGraph& sourceGraph, const zIntArray& edgeIds, zObjGraph& outGraph)
+    {
+        zFnGraph fnSource(sourceGraph);
+        zPointArray positions;
+        zIntArray edgeConnects;
+        fnSource.getVertexPositions(positions);
+        fnSource.getEdgeData(edgeConnects);
+
+        zPointArray outPositions;
+        zIntArray outEdges;
+        for (int edgeId : edgeIds) {
+            const int e = edgeId * 2;
+            if (e < 0 || e + 1 >= static_cast<int>(edgeConnects.size())) continue;
+            const int a = edgeConnects[e];
+            const int b = edgeConnects[e + 1];
+            if (a < 0 || b < 0 || a >= static_cast<int>(positions.size()) || b >= static_cast<int>(positions.size())) continue;
+            const int id = static_cast<int>(outPositions.size());
+            outPositions.push_back(positions[a]);
+            outPositions.push_back(positions[b]);
+            outEdges.push_back(id);
+            outEdges.push_back(id + 1);
+        }
+
+        zFnGraph fnOut(outGraph);
+        fnOut.clear();
+        if (!outPositions.empty()) fnOut.create(outPositions, outEdges);
+    }
+
+    bool makeBoundarySegmentGraph(zObjGraph& sourceGraph, int segmentId, zObjGraph& outGraph)
+    {
+        zFnGraph fnSource(sourceGraph);
+        zPointArray positions;
+        zColorArray colors;
+        zIntArray edgeConnects;
+        fnSource.getVertexPositions(positions);
+        fnSource.getVertexColors(colors);
+        fnSource.getEdgeData(edgeConnects);
+
+        zFnGraph fnOut(outGraph);
+        fnOut.clear();
+
+        if (positions.size() < 4 || edgeConnects.size() < 8) return false;
+
+        std::vector<std::vector<int>> adjacency(positions.size());
+        for (int e = 0; e + 1 < static_cast<int>(edgeConnects.size()); e += 2) {
+            const int a = edgeConnects[e];
+            const int b = edgeConnects[e + 1];
+            if (a < 0 || b < 0 || a >= static_cast<int>(positions.size()) || b >= static_cast<int>(positions.size())) continue;
+            if ((positions[b] - positions[a]).length() <= 1e-6) continue;
+            if (std::find(adjacency[a].begin(), adjacency[a].end(), b) == adjacency[a].end()) adjacency[a].push_back(b);
+            if (std::find(adjacency[b].begin(), adjacency[b].end(), a) == adjacency[b].end()) adjacency[b].push_back(a);
+        }
+
+        auto isCornerColor = [](const zColor& color) {
+            return color.r > 0.8 && color.g > 0.2 && color.g < 0.75 && color.b < 0.2;
+        };
+
+        std::unordered_set<int> splitVertexIds;
+        int valenceSplitCount = 0;
+        int colorSplitCount = 0;
+        for (int v = 0; v < static_cast<int>(positions.size()); v++) {
+            if (adjacency[v].size() != 2 && adjacency[v].size() > 0) {
+                splitVertexIds.insert(v);
+                valenceSplitCount++;
+            }
+            if (v < static_cast<int>(colors.size()) && isCornerColor(colors[v])) {
+                splitVertexIds.insert(v);
+                colorSplitCount++;
+            }
+        }
+
+        if (splitVertexIds.size() < 4) {
+            std::cout << "[makeBoundarySegmentGraph] failed: split vertices=" << splitVertexIds.size()
+                << " valenceSplits=" << valenceSplitCount
+                << " colorSplits=" << colorSplitCount
+                << " vertices=" << positions.size()
+                << " edges=" << (edgeConnects.size() / 2)
+                << std::endl;
+            return false;
+        }
+
+        zIntArray loopOrder;
+        loopOrder.reserve(positions.size());
+        int start = 0;
+        int prev = -1;
+        int current = start;
+        for (int guard = 0; guard < static_cast<int>(positions.size()) + 2; guard++) {
+            loopOrder.push_back(current);
+            int next = -1;
+            for (int neighbor : adjacency[current]) {
+                if (neighbor != prev) {
+                    next = neighbor;
+                    break;
+                }
+            }
+            if (next < 0) break;
+            if (next == start) break;
+            prev = current;
+            current = next;
+        }
+
+        if (loopOrder.size() < 4) return false;
+
+        zIntArray splitLoopPositions;
+        for (int i = 0; i < static_cast<int>(loopOrder.size()); i++) {
+            if (splitVertexIds.find(loopOrder[i]) != splitVertexIds.end()) splitLoopPositions.push_back(i);
+        }
+
+        if (splitLoopPositions.size() < 4) {
+            std::cout << "[makeBoundarySegmentGraph] failed: ordered split vertices=" << splitLoopPositions.size()
+                << " rawSplitVertices=" << splitVertexIds.size()
+                << std::endl;
+            return false;
+        }
+
+        if (splitLoopPositions.size() > 4) {
+            std::cout << "[makeBoundarySegmentGraph] WARNING using first 4 ordered split vertices out of "
+                << splitLoopPositions.size()
+                << " valenceSplits=" << valenceSplitCount
+                << " colorSplits=" << colorSplitCount
+                << std::endl;
+            splitLoopPositions.resize(4);
+        }
+
+        const int normalizedSegmentId = ((segmentId % 4) + 4) % 4;
+        const int startLoopPos = splitLoopPositions[normalizedSegmentId];
+        const int endLoopPos = splitLoopPositions[(normalizedSegmentId + 1) % 4];
+
+        zIntArray segmentVertexIds;
+        int loopPos = startLoopPos;
+        while (true) {
+            segmentVertexIds.push_back(loopOrder[loopPos]);
+            if (loopPos == endLoopPos) break;
+            loopPos = (loopPos + 1) % static_cast<int>(loopOrder.size());
+            if (loopPos == startLoopPos) break;
+        }
+
+        if (segmentVertexIds.size() < 2) return false;
+
+        zPointArray outPositions;
+        zColorArray outColors;
+        zIntArray outEdges;
+        outPositions.reserve(segmentVertexIds.size());
+        outColors.reserve(segmentVertexIds.size());
+        for (int vId : segmentVertexIds) {
+            outPositions.push_back(positions[vId]);
+            if (vId < static_cast<int>(colors.size())) outColors.push_back(colors[vId]);
+            else outColors.push_back(zColor(1, 1, 1, 1));
+        }
+        for (int i = 0; i + 1 < static_cast<int>(outPositions.size()); i++) {
+            outEdges.push_back(i);
+            outEdges.push_back(i + 1);
+        }
+
+        fnOut.create(outPositions, outEdges);
+        fnOut.setVertexColors(outColors);
+        fnOut.setEdgeColor(zColor(1, 0.55, 0, 1));
+        fnOut.setEdgeWeight(4);
+
+        std::cout << "[makeBoundarySegmentGraph] segment=" << normalizedSegmentId
+            << " vertices=" << outPositions.size()
+            << " edges=" << (outEdges.size() / 2)
+            << " splitVertices=" << splitLoopPositions.size()
+            << " valenceSplits=" << valenceSplitCount
+            << " colorSplits=" << colorSplitCount
+            << std::endl;
+
+        return true;
+    }
+
+    bool createPerpendicularTrimSlotAtPolylineRatio(zObjGraph& sourceGraph, zObjGraph& outGraph, float t, float trimLength)
+    {
+        zFnGraph fnSource(sourceGraph);
+        zPointArray positions;
+        zIntArray edgeConnects;
+        fnSource.getVertexPositions(positions);
+        fnSource.getEdgeData(edgeConnects);
+
+        zFnGraph fnOut(outGraph);
+        fnOut.clear();
+
+        if (positions.size() < 2 || edgeConnects.size() < 2) return false;
+
+        zFloatArray lengths;
+        lengths.assign(edgeConnects.size() / 2, 0.0f);
+        float totalLength = 0.0f;
+        for (int e = 0; e + 1 < static_cast<int>(edgeConnects.size()); e += 2) {
+            const int a = edgeConnects[e];
+            const int b = edgeConnects[e + 1];
+            if (a < 0 || b < 0 || a >= static_cast<int>(positions.size()) || b >= static_cast<int>(positions.size())) continue;
+            const float length = (positions[b] - positions[a]).length();
+            lengths[e / 2] = length;
+            totalLength += length;
+        }
+        if (totalLength <= 1e-6f) return false;
+
+        const float target = std::max(0.0f, std::min(1.0f, t)) * totalLength;
+        float accumulated = 0.0f;
+        for (int e = 0; e + 1 < static_cast<int>(edgeConnects.size()); e += 2) {
+            const float length = lengths[e / 2];
+            if (length <= 1e-6f) continue;
+            const int a = edgeConnects[e];
+            const int b = edgeConnects[e + 1];
+            if (a < 0 || b < 0 || a >= static_cast<int>(positions.size()) || b >= static_cast<int>(positions.size())) continue;
+            if (accumulated + length >= target || e + 2 >= static_cast<int>(edgeConnects.size())) {
+                const float localT = (target - accumulated) / length;
+                zVector dir = positions[b] - positions[a];
+                dir.normalize();
+                zVector perp(-dir.y, dir.x, 0.0f);
+                if (perp.length() <= 1e-6f) return false;
+                perp.normalize();
+
+                zPoint mid = positions[a] + ((positions[b] - positions[a]) * std::max(0.0f, std::min(1.0f, localT)));
+                zPointArray trimPositions = { mid + (perp * trimLength), mid - (perp * trimLength) };
+                zIntArray trimEdges = { 0, 1 };
+                fnOut.create(trimPositions, trimEdges);
+                fnOut.setEdgeColor(zBLUE);
+                fnOut.setEdgeWeight(3);
+                return true;
+            }
+            accumulated += length;
+        }
+
+        return false;
+    }
+
     bool makeFirstCornerEdgeGraph(zObjGraph& sourceGraph, zObjGraph& outGraph)
     {
         zFnGraph fnSource(sourceGraph);
@@ -1930,14 +2299,8 @@ namespace alice2 {
             zItMeshVertex vEnd(mesh, endVID);
             zVector dir = vEnd.getPosition() - vStart.getPosition();
 
-            std::cout << "[walkTopBottomStrips] longitude pair " << startVID << " -> " << endVID
-                << " val(" << vStart.getValence() << "," << vEnd.getValence() << ")"
-                << " dir length " << dir.length() << std::endl;
-
             zItMeshHalfEdgeArray hEdgesStart;
             vStart.getConnectedHalfEdges(hEdgesStart);
-            std::cout << "[walkTopBottomStrips] connected halfedges at longitude start: "
-                << hEdgesStart.size() << std::endl;
 
             if (hEdgesStart.empty()) {
                 std::cout << "[walkTopBottomStrips] FAIL longitude start vertex has no connected halfedges." << std::endl;
@@ -1947,28 +2310,20 @@ namespace alice2 {
             float minAngle = std::numeric_limits<float>::max();
             zItMeshHalfEdge heStart = hEdgesStart[0];
 
-            printHalfEdge("longitude initial candidate", heStart);
             for (auto& he : hEdgesStart) {
                 const float angle = he.getVector().angle(dir);
-                printHalfEdge("longitude checking candidate", he);
-                std::cout << "[walkTopBottomStrips]   angle to longitude dir: " << angle << std::endl;
                 if (angle < minAngle) {
                     minAngle = angle;
                     heStart = he;
-                    std::cout << "[walkTopBottomStrips]   new longitude heStart, minAngle: " << minAngle << std::endl;
                 }
             }
-
-            printHalfEdge("longitude selected heStart", heStart);
 
             zItMeshHalfEdge heWalk = heStart;
             bool reachedEnd = false;
             for (int safety = 0; safety < fn.numPolygons() + 10; safety++) {
                 longitudeEdges.push_back(heWalk);
-                printHalfEdge("longitude walk edge", heWalk);
 
                 if (heWalk.getVertex().getId() == endVID) {
-                    std::cout << "[walkTopBottomStrips] longitude reached end vertex " << endVID << std::endl;
                     reachedEnd = true;
                     break;
                 }
@@ -2002,21 +2357,20 @@ namespace alice2 {
 
             loops.push_back(longitudeEdges);
 
-            std::cout << "[walkTopBottomStrips] longitude loop added from "
+            zItMeshVertex vStart(mesh, startVID);
+            zItMeshVertex vEnd(mesh, endVID);
+            zVector selectedDir = vEnd.getPosition() - vStart.getPosition();
+            const float selectedAngle = longitudeEdges.front().getVector().angle(selectedDir);
+            std::cout << "[walkTopBottomStrips] selected longitude "
                 << startVID << " -> " << endVID
-                << " edge count=" << longitudeEdges.size() << std::endl;
+                << " heStart=" << longitudeEdges.front().getId()
+                << " edgeCount=" << longitudeEdges.size()
+                << " angle=" << selectedAngle
+                << std::endl;
             return true;
         };
 
         auto appendLongitudePairsForStation = [&](const zIntArray& topFaceVerts, const zIntArray& bottomFaceVerts) {
-            std::cout << "[walkTopBottomStrips] station top input vertex ids:";
-            for (int id : topFaceVerts) std::cout << " " << id;
-            std::cout << std::endl;
-
-            std::cout << "[walkTopBottomStrips] station bottom input vertex ids:";
-            for (int id : bottomFaceVerts) std::cout << " " << id;
-            std::cout << std::endl;
-
             if (topFaceVerts.size() != bottomFaceVerts.size()) {
                 std::cout << "[walkTopBottomStrips] FAIL top/bottom face vertex counts differ "
                     << topFaceVerts.size() << " vs " << bottomFaceVerts.size() << std::endl;
@@ -2026,8 +2380,6 @@ namespace alice2 {
             for (int i = 0; i < static_cast<int>(topFaceVerts.size()); i++) {
                 const int topVID = topFaceVerts[i];
                 const int bottomVID = bottomFaceVerts[i];
-                std::cout << "[walkTopBottomStrips] station longitude vertex pair "
-                    << "index " << i << ": " << topVID << " -> " << bottomVID << std::endl;
 
                 if (!appendLongitudePair(topVID, bottomVID)) return false;
             }
@@ -2041,10 +2393,6 @@ namespace alice2 {
         int safety = 0;
 
         do {
-            std::cout << "[walkTopBottomStrips] station " << station << std::endl;
-            printHalfEdge("top", heTopWalk);
-            printHalfEdge("bottom", heBottomWalk);
-
             zIntArray topFaceVerts = appendFace(heTopWalk, true, topPositions, topVertexMap, topOriginalVertexIds, topCounts, topConnects);
             zIntArray bottomFaceVerts = appendFace(heBottomWalk, false, bottomPositions, bottomVertexMap, bottomOriginalVertexIds, bottomCounts, bottomConnects);
 
@@ -2079,22 +2427,6 @@ namespace alice2 {
             std::cout << "[walkTopBottomStrips] FAIL stop reason: safety limit" << std::endl;
             loops.clear();
             return false;
-        }
-
-        std::cout << "[walkTopBottomStrips] top mesh positions=" << topPositions.size()
-            << ", faces=" << topCounts.size()
-            << ", connects=" << topConnects.size() << std::endl;
-        std::cout << "[walkTopBottomStrips] top result vertex map (resultVID -> inputVID):" << std::endl;
-        for (int i = 0; i < static_cast<int>(topOriginalVertexIds.size()); i++) {
-            std::cout << "[walkTopBottomStrips]   top " << i << " -> input " << topOriginalVertexIds[i] << std::endl;
-        }
-
-        std::cout << "[walkTopBottomStrips] bottom mesh positions=" << bottomPositions.size()
-            << ", faces=" << bottomCounts.size()
-            << ", connects=" << bottomConnects.size() << std::endl;
-        std::cout << "[walkTopBottomStrips] bottom result vertex map (resultVID -> inputVID):" << std::endl;
-        for (int i = 0; i < static_cast<int>(bottomOriginalVertexIds.size()); i++) {
-            std::cout << "[walkTopBottomStrips]   bottom " << i << " -> input " << bottomOriginalVertexIds[i] << std::endl;
         }
 
         std::cout << "[walkTopBottomStrips] longitude loop rows=" << loops.size() << std::endl;
@@ -2159,15 +2491,11 @@ namespace alice2 {
 
         float minAngle = std::numeric_limits<float>::max();
         zItMeshHalfEdge heStart = hEdgesStart[0];
-        printHalfEdge("initial heStart candidate", heStart);
         for (auto& he : hEdgesStart) {
             const float angle = he.getVector().angle(dir);
-            printHalfEdge("checking start candidate", he);
-            std::cout << "[computeVLoops]   angle to input dir: " << angle << std::endl;
             if (angle < minAngle) {
                 minAngle = angle;
                 heStart = he;
-                std::cout << "[computeVLoops]   new heStart, minAngle: " << minAngle << std::endl;
             }
         }
         printHalfEdge("selected heStart", heStart);
@@ -2182,9 +2510,6 @@ namespace alice2 {
         int tempCounter = 0;
         std::cout << "[computeVLoops] searching heTop / heBottom " << std::endl;
         for (auto& he : hEdgesStart) {
-            printHalfEdge("top/bottom candidate root", he);
-            std::cout << "[computeVLoops]   next vertex valence: "
-                << he.getVertex().getValence() << std::endl;
             if(he.getVertex().getValence() != 3 && he!=heStart) 
             {
                 heTop = he.getSym();
@@ -2192,15 +2517,10 @@ namespace alice2 {
                 printHalfEdge("  assigned heTop", heTop);
             }
             else if(he == heStart){
-                std::cout << "[computeVLoops]   walking to find heBottom." << std::endl;
                 while(he.getVertex().getValence() != 3 && tempCounter < fnMesh.numPolygons() + 10)
                 {
                     he = he.getNext().getSym().getNext();
                     tempCounter++;
-                    printHalfEdge("    heBottom walk step", he);
-                    std::cout << "[computeVLoops]     tempCounter: " << tempCounter
-                        << ", next vertex valence: " << he.getNext().getVertex().getValence()
-                        << std::endl;
                 }
 
                 if (he.getVertex().getValence() != 3) {
@@ -2291,13 +2611,17 @@ namespace alice2 {
         for (int l = 0; l < static_cast<int>(loops.size()); l++) {
             float length = 0.0f;
             for (int j = 0; j < static_cast<int>(loops[l].size()); j++) {
+                const int startId = loops[l][j].getStartVertex().getId();
+                const int endId = loops[l][j].getVertex().getId();
+                if (startId < 0 || endId < 0 || startId >= fnMesh.numVertices() || endId >= fnMesh.numVertices()) continue;
+
                 if (j == 0) {
-                    scalars[loops[l][j].getVertex().getId()] = length;
+                    scalars[startId] = length;
                     loopDomains[l].min = length;
                 }
 
                 length += loops[l][j].getLength();
-                scalars[loops[l][j].getStartVertex().getId()] = length;
+                scalars[endId] = length;
 
                 if (j == static_cast<int>(loops[l].size()) - 1 && length < minMaxDist) minMaxDist = length;
                 if (length > loopDomains[l].max) loopDomains[l].max = length;
@@ -2309,7 +2633,13 @@ namespace alice2 {
             for (int l = 0; l < static_cast<int>(loops.size()); l++) {
                 for (int j = 0; j < static_cast<int>(loops[l].size()); j++) {
                     const int id = loops[l][j].getStartVertex().getId();
-                    scalars[id] = coreUtils().ofMap(scalars[id], loopDomains[l], outDomain);
+                    const int nextId = loops[l][j].getVertex().getId();
+                    if (id >= 0 && id < static_cast<int>(scalars.size()) && scalars[id] >= 0.0f) {
+                        scalars[id] = coreUtils().ofMap(scalars[id], loopDomains[l], outDomain);
+                    }
+                    if (nextId >= 0 && nextId < static_cast<int>(scalars.size()) && scalars[nextId] >= 0.0f) {
+                        scalars[nextId] = coreUtils().ofMap(scalars[nextId], loopDomains[l], outDomain);
+                    }
                 }
             }
         }
@@ -2320,44 +2650,68 @@ namespace alice2 {
 
     void computeGeodesicContours(std::vector<zItMeshHalfEdgeArray>& loops, zScalarArray& scalars, float spacing, zObjMesh& topMeshObj, zObjMesh& bottomMeshObj, zObjMeshArray& meshes)
     {
-        if (loops.empty() || scalars.empty() || spacing <= 0.0f) {
+        if (loops.empty() || spacing <= 0.0f) {
             meshes.clear();
             return;
         }
 
-        const zScalar minScalar = coreUtils().zMin(scalars);
-        const zScalar maxScalar = coreUtils().zMax(scalars);
-        const int totalContours = std::max(1, static_cast<int>(std::ceil((maxScalar - minScalar) / spacing)));
-        const float increment = (maxScalar - minScalar) / static_cast<float>(totalContours);
+        zFloatArray loopLengths;
+        loopLengths.assign(loops.size(), 0.0f);
+        float minLoopLength = std::numeric_limits<float>::max();
+        float maxLoopLength = 0.0f;
+        for (int i = 0; i < static_cast<int>(loops.size()); i++) {
+            float loopLength = 0.0f;
+            for (int j = 0; j < static_cast<int>(loops[i].size()); j++) {
+                loopLength += loops[i][j].getLength();
+            }
+            loopLengths[i] = loopLength;
+            if (loopLength > 1e-6f) {
+                minLoopLength = std::min(minLoopLength, loopLength);
+                maxLoopLength = std::max(maxLoopLength, loopLength);
+            }
+        }
+        if (minLoopLength == std::numeric_limits<float>::max()) {
+            meshes.clear();
+            return;
+        }
+
+        const int totalContours = std::max(1, static_cast<int>(std::ceil(minLoopLength / spacing)));
 
         meshes.clear();
         meshes.assign(totalContours, bottomMeshObj);
 
         for (int l = 0; l < totalContours; l++) {
-            const float threshold = l * increment;
+            const float ratio = 1.0f - (static_cast<float>(l) / static_cast<float>(totalContours));
             zFnMesh fnMesh(meshes[l]);
             zPoint* points = fnMesh.getRawVertexPositions();
             if (!points) continue;
 
             for (int i = 0; i < static_cast<int>(loops.size()); i++) {
+                if (loops[i].empty() || loopLengths[i] <= 1e-6f) continue;
+                const float targetLength = ratio * loopLengths[i];
+                float accumulatedLength = 0.0f;
                 for (int j = 0; j < static_cast<int>(loops[i].size()); j++) {
-                    const int startId = loops[i][j].getStartVertex().getId();
-                    const int endId = loops[i][j].getVertex().getId();
-                    if (startId < 0 || startId >= static_cast<int>(scalars.size())) continue;
-                    if (endId < 0 || endId >= static_cast<int>(scalars.size())) continue;
-
-                    const float s0 = scalars[startId];
-                    const float s1 = scalars[endId];
-                    if ((s0 <= threshold && s1 >= threshold) || (s0 >= threshold && s1 <= threshold)) {
+                    const float edgeLength = loops[i][j].getLength();
+                    if (edgeLength <= 1e-6f) continue;
+                    const float nextLength = accumulatedLength + edgeLength;
+                    if (targetLength <= nextLength || j == static_cast<int>(loops[i].size()) - 1) {
                         zPoint v0 = loops[i][j].getStartVertex().getPosition();
                         zPoint v1 = loops[i][j].getVertex().getPosition();
-                        points[i] = getContourPosition(threshold, v1, v0, s1, s0);
+                        points[i] = getContourPosition(targetLength, v0, v1, accumulatedLength, nextLength);
+                        break;
                     }
+                    accumulatedLength = nextLength;
                 }
             }
         }
 
         meshes.push_back(topMeshObj);
+        std::cout << "[computeRatioContours] loops=" << loops.size()
+            << " contours=" << totalContours
+            << " spacing=" << spacing
+            << " minLoopLength=" << minLoopLength
+            << " maxLoopLength=" << maxLoopLength
+            << std::endl;
     }
 
     void computeGeodesicContours(zObjMesh& mesh, zFloatArray& scalars, float spacing, zObjGraphArray& contourGraphs)
@@ -2478,6 +2832,16 @@ namespace alice2 {
             debugData->flatBoundaryFeatureGraphs.assign(sectionGraphs.size(), zObjGraph());
             debugData->flatBracingFeatureGraphs.clear();
             debugData->flatBracingFeatureGraphs.assign(sectionGraphs.size(), zObjGraph());
+            debugData->sectionFrameOrigins.clear();
+            debugData->sectionFrameOrigins.assign(sectionGraphs.size(), zPoint());
+            debugData->sectionFlatOrigins.clear();
+            debugData->sectionFlatOrigins.assign(sectionGraphs.size(), zPoint());
+            debugData->sectionFrameXAxes.clear();
+            debugData->sectionFrameXAxes.assign(sectionGraphs.size(), zVector(1, 0, 0));
+            debugData->sectionFrameYAxes.clear();
+            debugData->sectionFrameYAxes.assign(sectionGraphs.size(), zVector(0, 1, 0));
+            debugData->sectionFrameNormals.clear();
+            debugData->sectionFrameNormals.assign(sectionGraphs.size(), zVector(0, 0, 1));
         }
 
         constexpr float printBoundaryWidth = SlicingParameters::printBoundaryWidth;
@@ -2555,24 +2919,22 @@ namespace alice2 {
         };
 
         for (int i = 0; i < static_cast<int>(sectionGraphs.size()) && i < static_cast<int>(sectionMeshes.size()); i++) {
-            zObjMesh flattenedMesh;
-            zInt2DArray oriVertexUnrollVertexMap;
-            std::unordered_map<zIntPair, int, zPairHash> oriFaceVertexUnrollVertex;
-            zItGraphVertexArray bsfVertices;
-             zIntPairArray bsfVertexPairs;
-            zObjGraph dualGraph;
-
-            creatUnrollMesh(sectionMeshes[i], flattenedMesh, dualGraph, oriVertexUnrollVertexMap, oriFaceVertexUnrollVertex, bsfVertices, bsfVertexPairs);
-            flattenPlanarMeshToXY(flattenedMesh);
-            mergeMesh(flattenedMesh);
-
-            zObjGraph flatGraph = sectionGraphs[i];
-            if (!barycentericProjection_triMesh(flatGraph, sectionMeshes[i], flattenedMesh)) {
+            zPoint sectionOrigin;
+            zVector sectionXAxis;
+            zVector sectionYAxis;
+            zVector sectionNormal;
+            if (!computePlanarSectionFrame(sectionMeshes[i], sectionOrigin, sectionXAxis, sectionYAxis, sectionNormal)) {
                 std::cout << "[computeSDF] section " << i
-                    << " WARNING skipping SDF: flat graph projection failed"
+                    << " WARNING skipping SDF: failed to compute section frame"
                     << std::endl;
                 continue;
             }
+
+            zObjMesh flattenedMesh = sectionMeshes[i];
+            zPoint zeroFlatOrigin(0, 0, 0);
+
+            zObjGraph flatGraph = sectionGraphs[i];
+            transformGraphToSectionLocal(flatGraph, sectionOrigin, sectionXAxis, sectionYAxis, zeroFlatOrigin);
             zFnGraph fnFlatGraph(flatGraph);
 
             if (fnFlatGraph.numVertices() == 0) {
@@ -2584,16 +2946,17 @@ namespace alice2 {
             fnFlatGraph.getVertexPositions(flatGraphPositions);
             const zPoint origin = flatGraphPositions[0];
 
-            zFnMesh fnFlattenedMesh(flattenedMesh);
-            zPoint* flattenedPositions = fnFlattenedMesh.getRawVertexPositions();
-            for (int v = 0; v < fnFlattenedMesh.numVertices(); v++) {
-                flattenedPositions[v] -= origin;
+            transformMeshToSectionLocal(flattenedMesh, sectionOrigin, sectionXAxis, sectionYAxis, origin);
+            offsetGraphPositions(flatGraph, zVector(-origin.x, -origin.y, -origin.z));
+            if (debugData) {
+                debugData->sectionFrameOrigins[i] = sectionOrigin;
+                debugData->sectionFlatOrigins[i] = origin;
+                debugData->sectionFrameXAxes[i] = sectionXAxis;
+                debugData->sectionFrameYAxes[i] = sectionYAxis;
+                debugData->sectionFrameNormals[i] = sectionNormal;
             }
 
-            zPoint* flatGraphRawPositions = fnFlatGraph.getRawVertexPositions();
-            for (int v = 0; v < fnFlatGraph.numVertices(); v++) {
-                flatGraphRawPositions[v] -= origin;
-            }
+            zFnMesh fnFlattenedMesh(flattenedMesh);
 
             printGraphSDFDebug("flatGraph before polygon SDF", i, flatGraph, layerFieldBB);
 
@@ -2655,14 +3018,22 @@ namespace alice2 {
                 flatBracingGraph = (*bracingGraphs)[i];
                 zFnGraph fnInputBracing(flatBracingGraph);
                 if (fnInputBracing.numVertices() > 0 && fnInputBracing.numEdges() > 0) {
-                    const int snappedBracingVertices = snapGraphVerticesToClosestMesh(flatBracingGraph, sectionMeshes[i], 1e-5);
-                    if (snappedBracingVertices > 0) {
-                        std::cout << "[computeSDF] section " << i
-                            << " snapped " << snappedBracingVertices
-                            << " interpolated bracing vertices to current section mesh before flatten projection"
-                            << std::endl;
-                    }
-                    if (barycentericProjection_triMesh(flatBracingGraph, sectionMeshes[i], flattenedMesh)) {
+                    double maxBracingProjectionDistance = 0.0;
+                    double averageBracingProjectionDistance = 0.0;
+                    const int projectedBracingVertices = projectGraphVerticesToClosestMesh(
+                        flatBracingGraph,
+                        sectionMeshes[i],
+                        maxBracingProjectionDistance,
+                        averageBracingProjectionDistance
+                    );
+                    std::cout << "[computeSDF] section " << i
+                        << " projected bracing vertices to section mesh before XY transform"
+                        << " count=" << projectedBracingVertices
+                        << " maxDistance=" << maxBracingProjectionDistance
+                        << " averageDistance=" << averageBracingProjectionDistance
+                        << std::endl;
+                    transformGraphToSectionLocal(flatBracingGraph, sectionOrigin, sectionXAxis, sectionYAxis, origin);
+                    {
                         zFnGraph fnFlatBracing(flatBracingGraph);
                         // flattenedMesh has already been shifted to the same local origin as flatGraph.
                         // Projected bracing vertices are therefore already in SDF-local XY space.
@@ -2673,18 +3044,33 @@ namespace alice2 {
 
                         zObjGraph trimSlotsBracingFlat;
                         zObjGraph trimSlotsBoundaryFlat;
-                        zObjGraph boundaryCornerEdge;
+                        zObjGraph boundarySegmentGraph;
                         const float trimLength = 
                             printBracingWidth + SlicingParameters::trimSlotLengthExtra
                         ;
                         createPerpendicularTrimSlots(flatBracingGraph, trimSlotsBracingFlat, i % 2 == 0, trimLength);
-                        if (!makeFirstCornerEdgeGraph(flatGraph, boundaryCornerEdge)) {
+                        const int boundaryTrimSegmentId = SlicingParameters::boundaryTrimSegmentId;
+                        const float boundaryTrimRatio = (i % 2 == 0)
+                            ? SlicingParameters::boundaryTrimSlotRatioEven
+                            : SlicingParameters::boundaryTrimSlotRatioOdd;
+                        if (!makeBoundarySegmentGraph(flatGraph, boundaryTrimSegmentId, boundarySegmentGraph)) {
                             std::cout << "[computeSDF] section " << i
-                                << " WARNING no corner-color boundary edge found; using edge 0 for boundary trim debug"
+                                << " WARNING boundary segment " << boundaryTrimSegmentId
+                                << " not available; boundary trim slot disabled"
                                 << std::endl;
-                            makeSingleEdgeGraph(flatGraph, 0, boundaryCornerEdge);
                         }
-                        createPerpendicularTrimSlots(boundaryCornerEdge, trimSlotsBoundaryFlat, i % 2 == 0, trimLength);
+                        else if (!createPerpendicularTrimSlotAtPolylineRatio(boundarySegmentGraph, trimSlotsBoundaryFlat, boundaryTrimRatio, trimLength)) {
+                            std::cout << "[computeSDF] section " << i
+                                << " WARNING failed to create boundary trim slot on segment "
+                                << boundaryTrimSegmentId
+                                << std::endl;
+                        }
+                        else {
+                            std::cout << "[computeSDF] section " << i
+                                << " boundary trim segment=" << boundaryTrimSegmentId
+                                << " ratio=" << boundaryTrimRatio
+                                << std::endl;
+                        }
 
                         zObjGraphArray trimSlotSources;
                         trimSlotSources.push_back(trimSlotsBracingFlat);
@@ -2715,11 +3101,6 @@ namespace alice2 {
                                 hasBracingField = true;
                             }
                         }
-                    }
-                    else {
-                        std::cout << "[computeSDF] section " << i
-                            << " WARNING bracing projection failed; using outer-offset field"
-                            << std::endl;
                     }
                 }
             }
@@ -2753,7 +3134,7 @@ namespace alice2 {
                 zVectorArray contourNormals;
                 if (!barycentericProjection_triMesh(contourGraphs[i], flattenedMesh, sectionMeshes[i], &contourNormals)) {
                     std::cout << "[computeSDF] section " << i
-                        << " WARNING contour projection to section mesh failed; keeping flat contour"
+                        << " WARNING contour projection to nonplanar section mesh failed; keeping flat contour"
                         << std::endl;
                     if (debugData) contourGraphs[i] = debugData->flatContourGraphs[i];
                 }
@@ -3149,8 +3530,13 @@ namespace alice2 {
             result.flatToolpathTargetPoints[graphId] = sampledPoints;
 
             zVectorArray mappedNormals;
-            if (graphId < static_cast<int>(sectionMeshes.size())) {
-                barycentericProjection_triMesh(result.toolpathGraphs[graphId], debugData.localFlattenedMeshes[graphId], sectionMeshes[graphId], &mappedNormals);
+            if (graphId < static_cast<int>(sectionMeshes.size())
+                && graphId < static_cast<int>(debugData.localFlattenedMeshes.size())) {
+                if (!barycentericProjection_triMesh(result.toolpathGraphs[graphId], debugData.localFlattenedMeshes[graphId], sectionMeshes[graphId], &mappedNormals)) {
+                    std::cout << "[computeSDFPostProcess] graph " << graphId
+                        << " WARNING toolpath projection to nonplanar section mesh failed"
+                        << std::endl;
+                }
                 zFnGraph fnMappedToolpath(result.toolpathGraphs[graphId]);
                 fnMappedToolpath.getVertexPositions(sampledPoints);
             }
