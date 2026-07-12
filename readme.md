@@ -16,22 +16,44 @@ Optionally the library may also be pre-compiled into a statically  or dynamicall
 
 1. Install [Git](https://git-scm.com/downloads)
 2. Install Git LFS by running: `git lfs install`
-3. Install [CMake](https://cmake.org/download/)
-4. Clone this repository:
+3. Install [CMake](https://cmake.org/download/) 3.21 or newer
+4. For the recommended Windows build without Visual Studio, install MSYS2 clang64 packages:
+   ```sh
+   pacman -S --needed mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-cmake mingw-w64-clang-x86_64-ninja mingw-w64-clang-x86_64-glfw mingw-w64-clang-x86_64-glew mingw-w64-clang-x86_64-eigen3 mingw-w64-clang-x86_64-nlohmann-json mingw-w64-clang-x86_64-stb
+   ```
+5. Clone this repository:
    ```sh
    git clone <repo-url>
    ```
 
 # Launching
 
-1. Go to the `/alice2` directory, double-click `build.bat` or run it in PowerShell. After building, run `alice2.exe`.
-2. Alternatively, you can build using CMake:
+1. Linux/macOS recommended:
    ```sh
    cd alice2
-   cmake . -B build
-   cmake --build build --config Release
+   ./build.sh
+   ./run.sh
    ```
-3. Third option, in powershell:
+   Useful modes:
+   ```sh
+   ./build.sh debug
+   ./run.sh debug
+   ./build.sh test
+   ./run.sh test
+   ```
+2. Windows PowerShell:
+    ```sh
+    cd alice2
+    ./build.bat clang
+    ./run.bat clang
+    ```
+3. Alternatively, build using CMake directly:
+   ```sh
+   cd alice2
+   cmake --preset clang-release
+   cmake --build --preset clang-release
+   ```
+4. Legacy Windows build:
     ```sh
     cd alice2
     ./build.bat
@@ -44,6 +66,8 @@ Optionally the library may also be pre-compiled into a statically  or dynamicall
     ./build.bat cuda
     ./run.bat cuda
     ```
+
+clangd uses `alice2/build/clang-debug/compile_commands.json`; configure once with `./build.sh debug` for editor indexing.
 
 # Citing
 If you use Alice2 in a project, please refer to the GitHub repository.

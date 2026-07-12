@@ -4,7 +4,10 @@
         {
             "label": "Build Alice2",
             "type": "shell",
-            "command": "${workspaceFolder}/alice2/build.bat",
+            "command": "${workspaceFolder}/alice2/build.sh",
+            "args": [
+                "release"
+            ],
             "group": {
                 "kind": "build",
                 "isDefault": true
@@ -12,35 +15,22 @@
             "options": {
                 "cwd": "${workspaceFolder}/alice2"
             },
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared",
-                "showReuseMessage": true,
-                "clear": false
-            },
             "problemMatcher": [
-                "$msCompile"
+                "$gcc"
             ]
         },
         {
             "label": "Run Alice2",
             "type": "shell",
-            "command": "${workspaceFolder}/alice2/run.bat",
-            "group": "test",
+            "command": "${workspaceFolder}/alice2/run.sh",
+            "args": [
+                "release"
+            ],
             "dependsOn": "Build Alice2",
             "options": {
                 "cwd": "${workspaceFolder}/alice2"
             },
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared",
-                "showReuseMessage": true,
-                "clear": false
-            }
+            "problemMatcher": []
         },
         {
             "label": "Build and Run Alice2",

@@ -2,27 +2,16 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Launch Alice2",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/alice2/build/bin/Release/alice2.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/alice2/build/bin/Release",
-            "environment": [],
-            "console": "externalTerminal",
-            "preLaunchTask": "Build Alice2"
-        },
-        {
             "name": "Debug Alice2",
-            "type": "cppvsdbg",
+            "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/alice2/build/bin/Debug/alice2.exe",
+            "program": "${workspaceFolder}/alice2/build/clang-release/bin/alice2",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/alice2/build/bin/Debug",
+            "cwd": "${workspaceFolder}/alice2",
             "environment": [],
-            "console": "externalTerminal",
+            "externalConsole": false,
+            "MIMode": "gdb",
             "preLaunchTask": "Build Alice2"
         }
     ]
