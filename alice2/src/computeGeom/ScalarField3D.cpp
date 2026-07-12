@@ -1,4 +1,4 @@
-#include "scalarField3D.h"
+#include "ScalarField3D.h"
 #include "../objects/MeshObject.h"
 #include "../core/Renderer.h"
 #include <algorithm>
@@ -1206,5 +1206,4 @@ int ScalarField3D::polygonize_cell_tetra(const GridCell& cell,
 
 
 } // namespace alice2
-
 

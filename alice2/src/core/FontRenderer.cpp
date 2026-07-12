@@ -7,7 +7,7 @@
 
 // STB TrueType implementation
 #define STB_TRUETYPE_IMPLEMENTATION
-#include "../../depends/stb/stb_truetype.h"
+#include <stb_truetype.h>
 
 namespace alice2 {
 
@@ -57,9 +57,19 @@ namespace alice2 {
     bool FontRenderer::loadDefaultFont(float fontSize) {
         // Try to load system fonts in order of preference
         std::vector<std::string> systemFontPaths = {
+#ifdef _WIN32
             "C:/Windows/Fonts/consola.ttf",  // Consolas (monospace)
             "C:/Windows/Fonts/arial.ttf",    // Arial (fallback)
             "C:/Windows/Fonts/calibri.ttf"   // Calibri (fallback)
+#elif defined(__APPLE__)
+            "/System/Library/Fonts/Menlo.ttc",
+            "/System/Library/Fonts/Supplemental/Arial.ttf"
+#else
+            "/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf",
+            "/usr/share/fonts/noto/NotoSans-Regular.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+#endif
         };
 
         for (const auto& path : systemFontPaths) {

@@ -3,6 +3,7 @@ setlocal
 
 REM Usage:
 REM   build.bat        -> normal build in "build"
+REM   build.bat clang  -> Clang/Ninja build in "build/clang-release"
 REM   build.bat cuda   -> CUDA build in "build_cuda"
 REM   build.bat test   -> test build in "build_tests"
 
@@ -10,6 +11,13 @@ set "CONFIG=Release"
 set "BUILD_DIR=build"
 set "EXTRA_FLAGS="
 
+if /I "%~1"=="clang" (
+    cmake --preset clang-release
+    if errorlevel 1 goto :fail
+    cmake --build --preset clang-release
+    if errorlevel 1 goto :fail
+    goto :success
+)
 if /I "%~1"=="cuda" (
     set BUILD_DIR=build_cuda
     set EXTRA_FLAGS=-DALICE2_ENABLE_CUDA=ON
@@ -29,9 +37,10 @@ if errorlevel 1 goto :fail
 
 echo.
 echo [alice2] Building...
-cmake --build "%BUILD_DIR%" --config %CONFIG% -- /m
+cmake --build "%BUILD_DIR%" --config %CONFIG% --parallel
 if errorlevel 1 goto :fail
 
+:success
 echo.
 echo [alice2] Build finished successfully.
 goto :eof

@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.16)
 project(alice2 VERSION 1.0.0 LANGUAGES C CXX)
 
 option(ALICE2_ENABLE_CUDA "Enable CUDA build of alice2" OFF)
+option(ALICE2_USE_SYSTEM_DEPS "Prefer system-installed CMake packages for third-party dependencies" ON)
 set(ALICE2_BUILD_MODE "default" CACHE STRING "Select alice2 build mode (default or test)")
 set_property(CACHE ALICE2_BUILD_MODE PROPERTY STRINGS default test)
 set(ALICE2_USING_TEST_MODE OFF)
@@ -33,108 +34,150 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_deps/lib)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "_deps/CMakeTargets")
 
+set(ALICE2_DEPENDS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/depends")
+set(GL2PS_URL "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/gl2ps-1.4.2.zip")
+
+function(alice2_download_dependency url)
+    get_filename_component(name "${url}" NAME)
+    message(STATUS "Downloading ${name} from ${url}...")
+    file(DOWNLOAD "${url}" "${ALICE2_DEPENDS_DIR}/${name}" SHOW_PROGRESS STATUS dl_status)
+    list(GET dl_status 0 dl_code)
+    if(NOT dl_code EQUAL 0)
+        message(FATAL_ERROR "Failed to download ${name}: ${dl_status}")
+    endif()
+
+    execute_process(
+        COMMAND ${CMAKE_COMMAND} -E tar xzf "${ALICE2_DEPENDS_DIR}/${name}"
+        WORKING_DIRECTORY "${ALICE2_DEPENDS_DIR}"
+        RESULT_VARIABLE unpack_ret
+    )
+    if(NOT unpack_ret EQUAL 0)
+        message(FATAL_ERROR "Failed to unpack ${name}")
+    endif()
+
+    file(REMOVE "${ALICE2_DEPENDS_DIR}/${name}")
+    message(STATUS "Extracted and removed ${name}")
+endfunction()
+
 find_package(OpenGL REQUIRED)
 if(ALICE2_ENABLE_CUDA)
     find_package(CUDAToolkit REQUIRED)
 endif()
 
-set(ALICE2_DEPENDS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/depends")
-file(GLOB DEP_FILES "${ALICE2_DEPENDS_DIR}/*")
-if(NOT DEP_FILES)
-    file(MAKE_DIRECTORY "${ALICE2_DEPENDS_DIR}")
-
-    set(ASSET_URLS
-        "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/eigen.zip"
-        "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/glew.zip"
-        "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/glfw.zip"
-        "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/gl2ps-1.4.2.zip"
-        "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/nlohmann.zip"
-        "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/stb.zip"
+set(ALICE2_HAS_SYSTEM_DEPS OFF)
+if(ALICE2_USE_SYSTEM_DEPS)
+    find_package(glfw3 CONFIG QUIET)
+    find_package(GLEW QUIET)
+    find_package(Eigen3 CONFIG QUIET)
+    find_package(nlohmann_json CONFIG QUIET)
+    find_path(STB_INCLUDE_DIR
+        NAMES stb_image_write.h stb_truetype.h
+        PATH_SUFFIXES stb
     )
 
-    foreach(url IN LISTS ASSET_URLS)
-        get_filename_component(name "${url}" NAME)
-        message(STATUS "Downloading ${name} from ${url}…")
-        file(DOWNLOAD "${url}" "${ALICE2_DEPENDS_DIR}/${name}" SHOW_PROGRESS STATUS dl_status)
-        list(GET dl_status 0 dl_code)
-        if(NOT dl_code EQUAL 0)
-            message(FATAL_ERROR "Failed to download ${name}: ${dl_status}")
+    if(TARGET glfw AND TARGET GLEW::GLEW AND TARGET Eigen3::Eigen AND TARGET nlohmann_json::nlohmann_json AND STB_INCLUDE_DIR)
+        set(ALICE2_HAS_SYSTEM_DEPS ON)
+    else()
+        if(MSVC)
+            message(STATUS "System dependencies incomplete; falling back to alice2/depends")
+        else()
+            message(STATUS "System dependencies incomplete")
         endif()
+    endif()
+endif()
 
-        execute_process(
-            COMMAND ${CMAKE_COMMAND} -E tar xzf "${ALICE2_DEPENDS_DIR}/${name}"
-            WORKING_DIRECTORY "${ALICE2_DEPENDS_DIR}"
-            RESULT_VARIABLE unpack_ret
+if(NOT ALICE2_HAS_SYSTEM_DEPS AND ALICE2_USE_SYSTEM_DEPS AND NOT MSVC)
+    message(FATAL_ERROR
+        "System dependencies are required for non-MSVC builds. "
+        "Install glfw, GLEW, Eigen3, nlohmann_json, and STB for your toolchain "
+        "(for Windows/MSYS2 clang64: pacman -S --needed "
+        "mingw-w64-clang-x86_64-glfw mingw-w64-clang-x86_64-glew "
+        "mingw-w64-clang-x86_64-eigen3 mingw-w64-clang-x86_64-nlohmann-json "
+        "mingw-w64-clang-x86_64-stb)."
+    )
+endif()
+
+if(NOT ALICE2_HAS_SYSTEM_DEPS)
+    file(GLOB DEP_FILES "${ALICE2_DEPENDS_DIR}/*")
+    if(NOT DEP_FILES)
+        file(MAKE_DIRECTORY "${ALICE2_DEPENDS_DIR}")
+
+        set(ASSET_URLS
+            "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/eigen.zip"
+            "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/glew.zip"
+            "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/glfw.zip"
+            "${GL2PS_URL}"
+            "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/nlohmann.zip"
+            "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/stb.zip"
         )
-        if(NOT unpack_ret EQUAL 0)
-            message(FATAL_ERROR "Failed to unpack ${name}")
-        endif()
 
-        file(REMOVE "${ALICE2_DEPENDS_DIR}/${name}")
-        message(STATUS "Extracted and removed ${name}")
-    endforeach()
-endif()
-
-set(GLEW_DIR "${ALICE2_DEPENDS_DIR}/glew")
-set(GLEW_INCLUDE_DIRS "${GLEW_DIR}/include")
-set(GLEW_LIBRARIES "${GLEW_DIR}/lib/glew32.lib")
-if(NOT EXISTS ${GLEW_INCLUDE_DIRS}/GL/glew.h)
-    message(FATAL_ERROR "GLEW headers not found at ${GLEW_INCLUDE_DIRS}")
-endif()
-if(NOT EXISTS ${GLEW_LIBRARIES})
-    message(FATAL_ERROR "GLEW library not found at ${GLEW_LIBRARIES}")
-endif()
-
-set(GLFW_DIR "${ALICE2_DEPENDS_DIR}/glfw")
-set(GLFW_INCLUDE_DIRS "${GLFW_DIR}/include")
-if(BUILD_SHARED_LIBS)
-    set(GLFW_LIBRARIES "${GLFW_DIR}/lib/glfw3dll.lib")
+        foreach(url IN LISTS ASSET_URLS)
+            alice2_download_dependency("${url}")
+        endforeach()
+    endif()
 else()
-    set(GLFW_LIBRARIES "${GLFW_DIR}/lib/glfw3.lib")
-endif()
-if(NOT EXISTS ${GLFW_INCLUDE_DIRS}/GLFW/glfw3.h)
-    message(FATAL_ERROR "GLFW headers not found at ${GLFW_INCLUDE_DIRS}")
-endif()
-if(NOT EXISTS ${GLFW_LIBRARIES})
-    message(FATAL_ERROR "GLFW library not found at ${GLFW_LIBRARIES}")
+    file(MAKE_DIRECTORY "${ALICE2_DEPENDS_DIR}")
 endif()
 
-set(EIGEN_DIR "${ALICE2_DEPENDS_DIR}/eigen")
-if(NOT EXISTS ${EIGEN_DIR}/eigen)
-    message(FATAL_ERROR "Eigen headers not found at ${EIGEN_DIR}")
+if(ALICE2_HAS_SYSTEM_DEPS)
+    set(ALICE2_DEPENDENCY_MODE "system")
+    set(GLEW_INCLUDE_DIRS "")
+    set(GLFW_INCLUDE_DIRS "")
+    set(EIGEN_DIR "")
+    set(NLOHMANN_JSON_INCLUDE_DIRS "")
+    set(STB_INCLUDE_DIRS "${STB_INCLUDE_DIR}")
+    set(ALICE2_DEPENDENCY_TARGETS ${OPENGL_LIBRARIES} glfw GLEW::GLEW Eigen3::Eigen nlohmann_json::nlohmann_json)
+else()
+    set(GLEW_DIR "${ALICE2_DEPENDS_DIR}/glew")
+    set(GLEW_INCLUDE_DIRS "${GLEW_DIR}/include")
+    set(GLEW_LIBRARIES "${GLEW_DIR}/lib/glew32.lib")
+    if(NOT EXISTS ${GLEW_INCLUDE_DIRS}/GL/glew.h)
+        message(FATAL_ERROR "GLEW headers not found at ${GLEW_INCLUDE_DIRS}")
+    endif()
+    if(NOT EXISTS ${GLEW_LIBRARIES})
+        message(FATAL_ERROR "GLEW library not found at ${GLEW_LIBRARIES}")
+    endif()
+
+    set(GLFW_DIR "${ALICE2_DEPENDS_DIR}/glfw")
+    set(GLFW_INCLUDE_DIRS "${GLFW_DIR}/include")
+    if(BUILD_SHARED_LIBS)
+        set(GLFW_LIBRARIES "${GLFW_DIR}/lib/glfw3dll.lib")
+    else()
+        set(GLFW_LIBRARIES "${GLFW_DIR}/lib/glfw3.lib")
+    endif()
+    if(NOT EXISTS ${GLFW_INCLUDE_DIRS}/GLFW/glfw3.h)
+        message(FATAL_ERROR "GLFW headers not found at ${GLFW_INCLUDE_DIRS}")
+    endif()
+    if(NOT EXISTS ${GLFW_LIBRARIES})
+        message(FATAL_ERROR "GLFW library not found at ${GLFW_LIBRARIES}")
+    endif()
+
+    set(EIGEN_DIR "${ALICE2_DEPENDS_DIR}/eigen")
+    if(NOT EXISTS ${EIGEN_DIR}/eigen)
+        message(FATAL_ERROR "Eigen headers not found at ${EIGEN_DIR}")
+    endif()
+
+    set(NLOHMANN_JSON_DIR "${ALICE2_DEPENDS_DIR}/nlohmann")
+    set(NLOHMANN_JSON_INCLUDE_DIRS "${NLOHMANN_JSON_DIR}/include")
+    if(NOT EXISTS ${NLOHMANN_JSON_INCLUDE_DIRS}/nlohmann/json.hpp)
+        message(FATAL_ERROR "nlohmann/json headers not found at ${NLOHMANN_JSON_INCLUDE_DIRS}")
+    endif()
+
+    set(STB_INCLUDE_DIRS "${ALICE2_DEPENDS_DIR}/stb")
+    if(NOT EXISTS ${STB_INCLUDE_DIRS}/stb_image_write.h OR NOT EXISTS ${STB_INCLUDE_DIRS}/stb_truetype.h)
+        message(FATAL_ERROR "STB headers not found at ${STB_INCLUDE_DIRS}")
+    endif()
+
+    set(ALICE2_DEPENDENCY_TARGETS ${OPENGL_LIBRARIES} ${GLEW_LIBRARIES} ${GLFW_LIBRARIES})
+    set(ALICE2_DEPENDENCY_MODE "alice2/depends")
 endif()
 
-set(NLOHMANN_JSON_DIR "${ALICE2_DEPENDS_DIR}/nlohmann")
-set(NLOHMANN_JSON_INCLUDE_DIRS "${NLOHMANN_JSON_DIR}/include")
-if(NOT EXISTS ${NLOHMANN_JSON_INCLUDE_DIRS}/nlohmann/json.hpp)
-    message(FATAL_ERROR "nlohmann/json headers not found at ${NLOHMANN_JSON_INCLUDE_DIRS}")
-endif()
-
-set(GL2PS_URL "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/gl2ps-1.4.2.zip")
 set(GL2PS_DIR "${ALICE2_DEPENDS_DIR}/gl2ps-1.4.2")
 if(NOT EXISTS "${GL2PS_DIR}/gl2ps.h")
     set(GL2PS_DIR "${ALICE2_DEPENDS_DIR}/gl2ps")
 endif()
 if(NOT EXISTS "${GL2PS_DIR}/gl2ps.h")
-    get_filename_component(GL2PS_ARCHIVE_NAME "${GL2PS_URL}" NAME)
-    message(STATUS "Downloading ${GL2PS_ARCHIVE_NAME} from ${GL2PS_URL}...")
-    file(DOWNLOAD "${GL2PS_URL}" "${ALICE2_DEPENDS_DIR}/${GL2PS_ARCHIVE_NAME}" SHOW_PROGRESS STATUS gl2ps_dl_status)
-    list(GET gl2ps_dl_status 0 gl2ps_dl_code)
-    if(NOT gl2ps_dl_code EQUAL 0)
-        message(FATAL_ERROR "Failed to download ${GL2PS_ARCHIVE_NAME}: ${gl2ps_dl_status}")
-    endif()
-
-    execute_process(
-        COMMAND ${CMAKE_COMMAND} -E tar xzf "${ALICE2_DEPENDS_DIR}/${GL2PS_ARCHIVE_NAME}"
-        WORKING_DIRECTORY "${ALICE2_DEPENDS_DIR}"
-        RESULT_VARIABLE gl2ps_unpack_ret
-    )
-    if(NOT gl2ps_unpack_ret EQUAL 0)
-        message(FATAL_ERROR "Failed to unpack ${GL2PS_ARCHIVE_NAME}")
-    endif()
-
-    file(REMOVE "${ALICE2_DEPENDS_DIR}/${GL2PS_ARCHIVE_NAME}")
-    message(STATUS "Extracted and removed ${GL2PS_ARCHIVE_NAME}")
+    alice2_download_dependency("${GL2PS_URL}")
 
     set(GL2PS_DIR "${ALICE2_DEPENDS_DIR}/gl2ps-1.4.2")
     if(NOT EXISTS "${GL2PS_DIR}/gl2ps.h")
@@ -159,6 +202,7 @@ include_directories(
     ${EIGEN_DIR}
     ${NLOHMANN_JSON_INCLUDE_DIRS}
     ${GL2PS_INCLUDE_DIRS}
+    ${STB_INCLUDE_DIRS}
 )
 if(ALICE2_USING_TEST_MODE)
     include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tests)
@@ -242,9 +286,7 @@ else()
 endif()
 
 target_link_libraries(alice2
-    ${OPENGL_LIBRARIES}
-    ${GLEW_LIBRARIES}
-    ${GLFW_LIBRARIES}
+    ${ALICE2_DEPENDENCY_TARGETS}
 )
 if(ALICE2_ENABLE_CUDA)
     target_link_libraries(alice2 CUDA::cublas CUDA::cudart)
@@ -318,14 +360,16 @@ install(DIRECTORY include/
     DESTINATION include/alice2
     FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp"
 )
-install(DIRECTORY ${GLFW_INCLUDE_DIRS}/
-    DESTINATION include/dependencies/GLFW
-    FILES_MATCHING PATTERN "*.h"
-)
-install(DIRECTORY ${GLEW_INCLUDE_DIRS}/
-    DESTINATION include/dependencies
-    FILES_MATCHING PATTERN "*.h"
-)
+if(NOT ALICE2_HAS_SYSTEM_DEPS)
+    install(DIRECTORY ${GLFW_INCLUDE_DIRS}/
+        DESTINATION include/dependencies/GLFW
+        FILES_MATCHING PATTERN "*.h"
+    )
+    install(DIRECTORY ${GLEW_INCLUDE_DIRS}/
+        DESTINATION include/dependencies
+        FILES_MATCHING PATTERN "*.h"
+    )
+endif()
 install(DIRECTORY ${GL2PS_INCLUDE_DIRS}/
     DESTINATION include/dependencies/gl2ps
     FILES_MATCHING PATTERN "*.h"
@@ -354,8 +398,10 @@ if(ALICE2_ENABLE_CUDA)
     message(STATUS "  CUDA archs: ${CMAKE_CUDA_ARCHITECTURES}")
 endif()
 message(STATUS "  OpenGL: ${OPENGL_LIBRARIES}")
+message(STATUS "  Dependency mode: ${ALICE2_DEPENDENCY_MODE}")
 message(STATUS "  GLEW: ${GLEW_LIBRARIES}")
-message(STATUS "  GLFW: ${GLFW_LIBRARIES} (precompiled)")
-message(STATUS "  Eigen: ${EIGEN_DIR} (header-only)")
-message(STATUS "  nlohmann/json: ${NLOHMANN_JSON_INCLUDE_DIRS} (header-only)")
+message(STATUS "  GLFW: ${GLFW_LIBRARIES}")
+message(STATUS "  Eigen: ${EIGEN_DIR}")
+message(STATUS "  nlohmann/json: ${NLOHMANN_JSON_INCLUDE_DIRS}")
+message(STATUS "  STB: ${STB_INCLUDE_DIRS}")
 message(STATUS "  gl2ps: ${GL2PS_INCLUDE_DIRS} (SVG export)")

@@ -12,7 +12,7 @@
 #include <objects/GraphObject.h>
 
 #include <computeGeom/scalarField.h>
-#include <computeGeom/scalarField3D.h>
+#include <computeGeom/ScalarField3D.h>
 
 namespace alice2 {
 

@@ -8,10 +8,11 @@
 #include <vector>
 #include <thread>
 #include <cstdio>
+#include <cstdlib>
 
 // STB image write for screenshots
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "../../depends/stb/stb_image_write.h"
+#include <stb_image_write.h>
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable:4005)
@@ -156,6 +157,12 @@ namespace alice2 {
     bool Application::initializeWindow(int argc, char** argv) {
         // Initialize GLFW
         glfwSetErrorCallback(errorCallback);
+
+#if defined(__linux__) && defined(GLFW_PLATFORM) && defined(GLFW_PLATFORM_X11)
+        if (std::getenv("WAYLAND_DISPLAY") && std::getenv("DISPLAY") && !std::getenv("GLFW_PLATFORM")) {
+            glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
+        }
+#endif
 
         if (!glfwInit()) {
             std::cerr << "Failed to initialize GLFW" << std::endl;
