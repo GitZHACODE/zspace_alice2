@@ -18,7 +18,9 @@ Optionally the library may also be pre-compiled into a statically  or dynamicall
 2. Install Git LFS by running: `git lfs install`
 3. Install [CMake](https://cmake.org/download/) 3.21 or newer
 4. For Linux/macOS, install `clang++` and Ninja (for example, on Ubuntu/Debian: `sudo apt install clang ninja-build`; on Arch Linux: `sudo pacman -S clang ninja`).
-5. For the recommended Windows build without Visual Studio, install MSYS2 clang64 packages:
+5. For the recommended Windows build without Visual Studio:
+   - Install [MSYS2](https://www.msys2.org/) and open the **MSYS2 CLANG64** shell.
+   - In that shell, install the required packages:
    ```sh
    pacman -S --needed mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-cmake mingw-w64-clang-x86_64-ninja mingw-w64-clang-x86_64-glfw mingw-w64-clang-x86_64-glew mingw-w64-clang-x86_64-eigen3 mingw-w64-clang-x86_64-nlohmann-json mingw-w64-clang-x86_64-stb
    ```
