@@ -1,7 +1,7 @@
 # ZSPACE
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/gitzhcode/zspace_core/LICENSE.MIT) [![Documentation](https://img.shields.io/badge/docs-doxygen-blue.svg)](https://github.com/gitzhcode/zspace_core/doxyoutput/) [![GitHub Releases](https://img.shields.io/github/release/gitzhcode/zspace_core.svg)](https://github.com/gitzhcode/zspace_core/releases) [![GitHub Issues](https://img.shields.io/github/issues/gitzhcode/zspace_core.svg)](http://github.com/gitzhcode/zspace_core/issues)
 
-**ZSPACE** is a C++  library collection of geometry data-structures and algorithms framework. It is implemented as a header-only C++ library, whose dependencies, are header-only or static libraries. Hence **ZSPACE** can be easily embedded in C++ projects. 
+**ZSPACE** is as a C++  library collection of geometry data-structures and algorithms framework. It is implemented as a header-only C++ library, whose dependencies, are header-only or static libraries. Hence **ZSPACE** can be easily embedded in C++ projects. 
 
 Optionally the library may also be pre-compiled into a statically  or dynamically linked library, for faster compile times.
 
@@ -16,22 +16,45 @@ Optionally the library may also be pre-compiled into a statically  or dynamicall
 
 1. Install [Git](https://git-scm.com/downloads)
 2. Install Git LFS by running: `git lfs install`
-3. Install [CMake](https://cmake.org/download/)
-4. Clone this repository:
+3. Install [CMake](https://cmake.org/download/) 3.21 or newer
+4. For Linux/macOS, install `clang++` and Ninja (for example, on Ubuntu/Debian: `sudo apt install clang ninja-build`; on Arch Linux: `sudo pacman -S clang ninja`).
+5. For the recommended Windows build without Visual Studio, install MSYS2 clang64 packages:
+   ```sh
+   pacman -S --needed mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-cmake mingw-w64-clang-x86_64-ninja mingw-w64-clang-x86_64-glfw mingw-w64-clang-x86_64-glew mingw-w64-clang-x86_64-eigen3 mingw-w64-clang-x86_64-nlohmann-json mingw-w64-clang-x86_64-stb
+   ```
+6. Clone this repository:
    ```sh
    git clone <repo-url>
    ```
 
 # Launching
 
-1. Go to the `/alice2` directory, double-click `build.bat` or run it in PowerShell. After building, run `alice2.exe`.
-2. Alternatively, you can build using CMake:
+1. Linux/macOS recommended:
    ```sh
    cd alice2
-   cmake . -B build
-   cmake --build build --config Release
+   ./build.sh
+   ./run.sh
    ```
-3. Third option, in powershell:
+   Useful modes:
+   ```sh
+   ./build.sh debug
+   ./run.sh debug
+   ./build.sh test
+   ./run.sh test
+   ```
+2. Windows PowerShell:
+    ```sh
+    cd alice2
+    ./build.bat clang
+    ./run.bat clang
+    ```
+3. Alternatively, build using CMake directly:
+   ```sh
+   cd alice2
+   cmake --preset clang-release
+   cmake --build --preset clang-release
+   ```
+4. Legacy Windows build:
     ```sh
     cd alice2
     ./build.bat
@@ -44,6 +67,8 @@ Optionally the library may also be pre-compiled into a statically  or dynamicall
     ./build.bat cuda
     ./run.bat cuda
     ```
+
+clangd uses `alice2/build/clang-debug/compile_commands.json`; configure once with `./build.sh debug` for editor indexing.
 
 # Citing
 If you use Alice2 in a project, please refer to the GitHub repository.

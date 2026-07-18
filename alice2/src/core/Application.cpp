@@ -5,13 +5,15 @@
 #include <iomanip>
 #include <sstream>
 #include <fstream>
+#include <filesystem>
 #include <vector>
 #include <thread>
 #include <cstdio>
+#include <cstdlib>
 
 // STB image write for screenshots
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "../../depends/stb/stb_image_write.h"
+#include <stb_image_write.h>
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable:4005)
@@ -27,11 +29,27 @@
 
 namespace alice2 {
 
+    namespace {
+        constexpr const char* kUserDataDirectory = ".user";
+
+        bool ensureUserDataDirectory() {
+            std::error_code error;
+            std::filesystem::create_directories(kUserDataDirectory, error);
+            if (error) {
+                std::cerr << "[alice2] Failed to create " << kUserDataDirectory
+                          << ": " << error.message() << std::endl;
+                return false;
+            }
+            return true;
+        }
+    }
+
     Application* Application::s_instance = nullptr;
 
     Application::Application()
         : m_running(false)
         , m_initialized(false)
+        , m_screenshotRequested(false)
         , m_window(nullptr)
         , m_windowTitle("alice2 - 3D Scene Viewer")
         , m_windowWidth(1200)
@@ -41,7 +59,7 @@ namespace alice2 {
         , m_multisampleSamples(4)
         , m_deltaTime(0.0f)
         , m_totalTime(0.0f)
-        , m_lastFrameTime(0.0f)
+        , m_lastFrameTime{}
         , m_frameCount(0)
         , m_fps(0.0f)
         , m_fpsUpdateTime(0.0f)
@@ -110,9 +128,7 @@ namespace alice2 {
         m_running = true;
         std::cout << "Starting alice2 main loop..." << std::endl;
 
-        // Initialize timing
-        auto startTime = std::chrono::high_resolution_clock::now();
-        m_lastFrameTime = 0.0f;
+        m_lastFrameTime = std::chrono::steady_clock::now();
 
         // Main loop
         while (!glfwWindowShouldClose(m_window) && m_running) {
@@ -156,6 +172,12 @@ namespace alice2 {
     bool Application::initializeWindow(int argc, char** argv) {
         // Initialize GLFW
         glfwSetErrorCallback(errorCallback);
+
+#if defined(__linux__) && defined(GLFW_PLATFORM) && defined(GLFW_PLATFORM_X11)
+        if (std::getenv("WAYLAND_DISPLAY") && std::getenv("DISPLAY") && !std::getenv("GLFW_PLATFORM")) {
+            glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
+        }
+#endif
 
         if (!glfwInit()) {
             std::cerr << "Failed to initialize GLFW" << std::endl;
@@ -285,18 +307,20 @@ namespace alice2 {
 
         m_renderer->endFrame();
 
+        if (m_screenshotRequested) {
+            m_screenshotRequested = false;
+            saveScreenshot();
+        }
+
         if (DEBUG_APPLICATION_LOGGING) {
             std::cout << "[APP] ===== Frame " << m_frameCount << " Render End =====" << std::endl;
         }
     }
 
     void Application::updateTiming() {
-        auto currentTime = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(currentTime.time_since_epoch());
-        float currentTimeSeconds = duration.count() / 1000000.0f;
-        
-        m_deltaTime = currentTimeSeconds - m_lastFrameTime;
-        m_lastFrameTime = currentTimeSeconds;
+        const auto currentTime = std::chrono::steady_clock::now();
+        m_deltaTime = std::chrono::duration<float>(currentTime - m_lastFrameTime).count();
+        m_lastFrameTime = currentTime;
         m_totalTime += m_deltaTime;
         m_frameCount++;
     }
@@ -542,12 +566,15 @@ namespace alice2 {
             return;
         }
 
-        // Create screenshots directory if it doesn't exist
-        #ifdef _WIN32
-            system("mkdir \"src\\screenshots\" 2>nul");
-        #else
-            system("mkdir -p \"src/screenshots\"");
-        #endif
+        // GLFW delivers F9 while polling events, after the prior back buffer
+        // has been swapped. Capture after render() completes the next frame.
+        m_screenshotRequested = true;
+    }
+
+    void Application::saveScreenshot() {
+        if (!m_initialized || !m_window) return;
+
+        if (!ensureUserDataDirectory()) return;
 
         // Generate timestamp for filename
         auto now = std::chrono::system_clock::now();
@@ -556,7 +583,7 @@ namespace alice2 {
             now.time_since_epoch()) % 1000;
 
         std::stringstream ss;
-        ss << "src/screenshots/screenshot_"
+        ss << kUserDataDirectory << "/screenshot_"
            << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S")
            << "_" << std::setfill('0') << std::setw(3) << ms.count()
            << ".png";
@@ -568,7 +595,11 @@ namespace alice2 {
         glfwGetFramebufferSize(m_window, &width, &height);
 
         std::vector<unsigned char> pixels(width * height * 3);
+        GLint previousPackAlignment = 0;
+        glGetIntegerv(GL_PACK_ALIGNMENT, &previousPackAlignment);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
         glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+        glPixelStorei(GL_PACK_ALIGNMENT, previousPackAlignment);
 
         // Flip image vertically (OpenGL has origin at bottom-left, PNG at top-left)
         std::vector<unsigned char> flipped(width * height * 3);
@@ -665,12 +696,7 @@ namespace alice2 {
             return;
         }
 
-        // Create screenshots directory if it doesn't exist
-        #ifdef _WIN32
-            system("mkdir \"src\\screenshots\" 2>nul");
-        #else
-            system("mkdir -p \"src/screenshots\"");
-        #endif
+        if (!ensureUserDataDirectory()) return;
 
         // Generate timestamp using the same base naming as screenshots
         auto now = std::chrono::system_clock::now();
@@ -679,7 +705,7 @@ namespace alice2 {
             now.time_since_epoch()) % 1000;
 
         std::stringstream ss;
-        ss << "src/screenshots/screenshot_"
+        ss << kUserDataDirectory << "/screenshot_"
            << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S")
            << "_" << std::setfill('0') << std::setw(3) << ms.count()
            << ".svg";
@@ -696,12 +722,7 @@ namespace alice2 {
             return;
         }
 
-        // Create screenshots directory if it doesn't exist
-        #ifdef _WIN32
-            system("mkdir \"src\\screenshots\" 2>nul");
-        #else
-            system("mkdir -p \"src/screenshots\"");
-        #endif
+        if (!ensureUserDataDirectory()) return;
 
         // Generate base timestamp using the same naming as camera screenshots
         auto now = std::chrono::system_clock::now();
@@ -710,7 +731,7 @@ namespace alice2 {
             now.time_since_epoch()) % 1000;
 
         std::stringstream base_ss;
-        base_ss << "src/screenshots/camera_"
+        base_ss << kUserDataDirectory << "/camera_"
                 << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S")
                 << "_" << std::setfill('0') << std::setw(3) << ms.count();
 
@@ -748,12 +769,7 @@ namespace alice2 {
             return;
         }
 
-        // Create screenshots directory if it doesn't exist
-        #ifdef _WIN32
-            system("mkdir \"src\\screenshots\" 2>nul");
-        #else
-            system("mkdir -p \"src/screenshots\"");
-        #endif
+        if (!ensureUserDataDirectory()) return;
 
         // Generate base timestamp for filenames
         auto now = std::chrono::system_clock::now();
@@ -762,7 +778,7 @@ namespace alice2 {
             now.time_since_epoch()) % 1000;
 
         std::stringstream base_ss;
-        base_ss << "src/screenshots/camera_"
+        base_ss << kUserDataDirectory << "/camera_"
                 << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S")
                 << "_" << std::setfill('0') << std::setw(3) << ms.count();
 
@@ -792,7 +808,11 @@ namespace alice2 {
                 glfwGetFramebufferSize(m_window, &width, &height);
 
                 std::vector<unsigned char> pixels(width * height * 3);
+                GLint previousPackAlignment = 0;
+                glGetIntegerv(GL_PACK_ALIGNMENT, &previousPackAlignment);
+                glPixelStorei(GL_PACK_ALIGNMENT, 1);
                 glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+                glPixelStorei(GL_PACK_ALIGNMENT, previousPackAlignment);
 
                 // Flip image vertically
                 std::vector<unsigned char> flipped(width * height * 3);

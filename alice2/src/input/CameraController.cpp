@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <iostream>
 #include <fstream>
+#include <filesystem>
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
@@ -26,7 +27,7 @@ namespace alice2 {
         , m_invertY(false)
         , m_isDragging(false)
         , m_lastMousePos(0, 0, 0)
-        , m_cameraFilePath("src/cameras/camera_saves.json")
+        , m_cameraFilePath(".user/camera_saves.json")
     {
         // Initialize camera slot tracking
         for (int i = 0; i < 8; ++i) {
@@ -286,17 +287,14 @@ namespace alice2 {
 
     void CameraController::saveCamerasToFile() {
         try {
-            // Create directory if it doesn't exist
-            std::string directory = m_cameraFilePath.substr(0, m_cameraFilePath.find_last_of("/\\"));
-
-            // Create directory using system call (cross-platform)
-            #ifdef _WIN32
-                std::string createDirCmd = "mkdir \"" + directory + "\" 2>nul";
-                system(createDirCmd.c_str());
-            #else
-                std::string createDirCmd = "mkdir -p \"" + directory + "\"";
-                system(createDirCmd.c_str());
-            #endif
+            const std::filesystem::path cameraFilePath(m_cameraFilePath);
+            std::error_code error;
+            std::filesystem::create_directories(cameraFilePath.parent_path(), error);
+            if (error) {
+                std::cerr << "[CAMERA] Failed to create camera directory: "
+                          << error.message() << std::endl;
+                return;
+            }
 
             json j;
             j["cameras"] = json::array();

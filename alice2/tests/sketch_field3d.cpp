@@ -6,7 +6,7 @@
 
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
-#include <computeGeom/scalarField3D.h>
+#include <computeGeom/ScalarField3D.h>
 #include <objects/MeshObject.h>
 #include <memory>
 #include <iostream>

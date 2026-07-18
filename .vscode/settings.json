@@ -105,6 +105,15 @@
         "dense": "cpp"
     },
     "C_Cpp.default.cppStandard": "c++20",
-    "C_Cpp.default.compilerPath": "cl.exe",
-    "C_Cpp.default.intelliSenseMode": "windows-msvc-x64"
+    "C_Cpp.default.compilerPath": "/usr/bin/clang++",
+    "C_Cpp.default.intelliSenseMode": "linux-clang-x64",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/alice2/build/clang-release/compile_commands.json",
+    "C_Cpp.enhancedColorization": "enabled",
+    "clangd.arguments": [
+        "--compile-commands-dir=${workspaceFolder}/alice2/build/clang-release"
+    ],
+    "cmake.sourceDirectory": "${workspaceFolder}/alice2",
+    "cmake.configurePreset": "clang-release",
+    "cmake.buildPreset": "clang-release",
+    "editor.semanticHighlighting.enabled": true
 }

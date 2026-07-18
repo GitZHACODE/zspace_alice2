@@ -1,4 +1,4 @@
-#include <computeGeom/ScalarField.h>
+#include <computeGeom/scalarField.h>
 #include "../objects/GraphObject.h"
 #include <unordered_map>
 #include <cmath>
@@ -645,7 +645,6 @@ void ScalarField2D::boolean_difference(const ScalarField2D& other) {
     // Difference is A - B = A ∩ ¬B = max(A, -B)
     boolean_subtract(other);
 }
-
 
 
 

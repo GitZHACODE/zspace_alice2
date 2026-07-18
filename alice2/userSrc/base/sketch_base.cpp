@@ -1,7 +1,7 @@
 // alice2 Base Sketch Template
 // This is a template for creating user sketches in alice2
 
-// #define __MAIN__
+#define __MAIN__
 #ifdef __MAIN__
 
 
@@ -167,7 +167,6 @@ private:
 };
 
 // Register the sketch with alice2 (both old and new systems)
-// ALICE2_REGISTER_SKETCH_AUTO(BaseSketch)
+ALICE2_REGISTER_SKETCH_AUTO(BaseSketch)
 
 #endif // __MAIN__
-

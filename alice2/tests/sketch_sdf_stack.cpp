@@ -5,7 +5,7 @@
 #include <sketches/SketchRegistry.h>
 #include <computeGeom/scalarField.h>
 #include <objects/GraphObject.h>
-#include <computeGeom/scalarField3D.h>
+#include <computeGeom/ScalarField3D.h>
 #include <objects/MeshObject.h>
 
 #include <nlohmann/json.hpp>
@@ -739,7 +739,6 @@ private:
 ALICE2_REGISTER_SKETCH_AUTO(FieldStackFromJson)
 
 #endif // __MAIN__
-
 
 
 
