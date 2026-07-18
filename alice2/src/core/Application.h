@@ -10,6 +10,7 @@
 #include "../input/InputManager.h"
 #include "../input/CameraController.h"
 #include "../sketches/SketchManager.h"
+#include <chrono>
 #include <string>
 #include <memory>
 
@@ -87,6 +88,7 @@ namespace alice2 {
         // Application state
         bool m_running;
         bool m_initialized;
+        bool m_screenshotRequested;
 
         // Window properties
         GLFWwindow* m_window;
@@ -100,7 +102,9 @@ namespace alice2 {
         // Timing
         float m_deltaTime;
         float m_totalTime;
-        float m_lastFrameTime;
+        // A monotonic clock avoids wall-clock adjustments. Keep the absolute
+        // timestamp as a time_point and convert only the frame duration.
+        std::chrono::steady_clock::time_point m_lastFrameTime;
         int m_frameCount;
         float m_fps;
         float m_fpsUpdateTime;
@@ -114,6 +118,7 @@ namespace alice2 {
         bool initializeWindow(int argc, char** argv);
         bool initializeOpenGL();
         void setupCallbacks();
+        void saveScreenshot();
         bool writeCurrentViewSvg(const std::string& filename);
     };
 

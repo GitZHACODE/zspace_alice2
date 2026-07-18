@@ -1,7 +1,7 @@
 # ZSPACE
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/gitzhcode/zspace_core/LICENSE.MIT) [![Documentation](https://img.shields.io/badge/docs-doxygen-blue.svg)](https://github.com/gitzhcode/zspace_core/doxyoutput/) [![GitHub Releases](https://img.shields.io/github/release/gitzhcode/zspace_core.svg)](https://github.com/gitzhcode/zspace_core/releases) [![GitHub Issues](https://img.shields.io/github/issues/gitzhcode/zspace_core.svg)](http://github.com/gitzhcode/zspace_core/issues)
 
-**ZSPACE** is a C++  library collection of geometry data-structures and algorithms framework. It is implemented as a header-only C++ library, whose dependencies, are header-only or static libraries. Hence **ZSPACE** can be easily embedded in C++ projects. 
+**ZSPACE** is as a C++  library collection of geometry data-structures and algorithms framework. It is implemented as a header-only C++ library, whose dependencies, are header-only or static libraries. Hence **ZSPACE** can be easily embedded in C++ projects. 
 
 Optionally the library may also be pre-compiled into a statically  or dynamically linked library, for faster compile times.
 
@@ -17,11 +17,12 @@ Optionally the library may also be pre-compiled into a statically  or dynamicall
 1. Install [Git](https://git-scm.com/downloads)
 2. Install Git LFS by running: `git lfs install`
 3. Install [CMake](https://cmake.org/download/) 3.21 or newer
-4. For the recommended Windows build without Visual Studio, install MSYS2 clang64 packages:
+4. For Linux/macOS, install `clang++` and Ninja (for example, on Ubuntu/Debian: `sudo apt install clang ninja-build`; on Arch Linux: `sudo pacman -S clang ninja`).
+5. For the recommended Windows build without Visual Studio, install MSYS2 clang64 packages:
    ```sh
    pacman -S --needed mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-cmake mingw-w64-clang-x86_64-ninja mingw-w64-clang-x86_64-glfw mingw-w64-clang-x86_64-glew mingw-w64-clang-x86_64-eigen3 mingw-w64-clang-x86_64-nlohmann-json mingw-w64-clang-x86_64-stb
    ```
-5. Clone this repository:
+6. Clone this repository:
    ```sh
    git clone <repo-url>
    ```

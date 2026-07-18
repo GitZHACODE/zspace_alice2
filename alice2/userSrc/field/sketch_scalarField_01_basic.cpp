@@ -1,7 +1,7 @@
 // alice2 Scalar Field Educational Sketch 1: Basic Field Construction
 // Demonstrates basic circle and rectangle scalar field generation with animations
 
-// #define __MAIN__
+#define __MAIN__
 #ifdef __MAIN__
 
 #include <alice2.h>
@@ -32,9 +32,6 @@ private:
     float m_circleRadius;
     Vec3 m_rectSize;
     
-    // Contour animation
-    float m_contourOffset;
-
 public:
     ScalarField01BasicSketch() 
         : m_scalarField(Vec3(-50, -50, 0), Vec3(50, 50, 0), 100, 100)
@@ -46,7 +43,6 @@ public:
         , d_drawContours(true)
         , m_circleRadius(15.0f)
         , m_rectSize(20.0f, 15.0f, 0.0f)
-        , m_contourOffset(0.0f)
     {}
     
     ~ScalarField01BasicSketch() = default;
@@ -89,9 +85,6 @@ public:
         // Animate rectangle dimensions using sin/cos for smooth looping
         m_rectSize.x = 20.0f + std::cos(m_time * 0.6f) * 10.0f;
         m_rectSize.y = 15.0f + std::sin(m_time * 0.4f) * 8.0f;
-        
-        // Animate contour offset for dynamic contour extraction
-        m_contourOffset = std::sin(m_time * 1.2f) * 5.0f;
         
         // Regenerate field based on current mode
         generateField();
@@ -141,8 +134,7 @@ private:
         // Draw single contour line
         renderer.setColor(Color(1.0f, 1.0f, 1.0f)); // White contours
 
-        float threshold = 0.0f + m_contourOffset;
-        m_scalarField.drawIsocontours(renderer, threshold);
+        m_scalarField.drawIsocontours(renderer, 0.0f);
     }
     
     void drawGeometricCenters(Renderer& renderer) {
@@ -243,6 +235,6 @@ public:
 };
 
 // Register the sketch with alice2
-//ALICE2_REGISTER_SKETCH_AUTO(ScalarField01BasicSketch)
+ALICE2_REGISTER_SKETCH_AUTO(ScalarField01BasicSketch)
 
 #endif // __MAIN__
