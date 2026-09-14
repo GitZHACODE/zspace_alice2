@@ -245,7 +245,7 @@ private:
         }
         settings.unloadedFaces = m_result.exteriorFormFaces;
 
-        if (!m_solver.solveVerticalEquilibrium(settings)) {
+        if (!m_solver.solveVerticalEquilibrium(settings) || !m_solver.verticalEquilibrium().converged) {
             m_status = m_solver.verticalEquilibrium().diagnostic;
             return;
         }
@@ -390,7 +390,8 @@ private:
 
     const std::vector<float>& forceAngles() const {
         const TnaHorizontalEquilibrium& horizontal = m_solver.horizontalEquilibrium();
-        return horizontal.success ? horizontal.edgeAnglesDegrees : m_forceResult.edgeAnglesDegrees;
+        return horizontal.success ? horizontal.edgeDirectionDeviationsDegrees
+                                  : m_forceResult.edgeDirectionDeviationsDegrees;
     }
 
     void drawForceDiagram(Renderer& renderer) const {
@@ -403,7 +404,7 @@ private:
                 edge.vertexA >= static_cast<int>(m_forceMesh->vertices.size()) ||
                 edge.vertexB >= static_cast<int>(m_forceMesh->vertices.size())) continue;
             const Color color = edgeIndex < static_cast<int>(angles.size())
-                                    ? forceAngleColor(std::abs(90.0f - angles[edgeIndex]))
+                                    ? forceAngleColor(angles[edgeIndex])
                                     : Color(0.40f, 0.40f, 0.40f, 1.0f);
             renderer.drawLine(m_forceMesh->vertices[edge.vertexA].position + offset,
                               m_forceMesh->vertices[edge.vertexB].position + offset,
@@ -420,8 +421,9 @@ private:
             const Vec3 midpoint = (m_forceMesh->vertices[edge.vertexA].position +
                                    m_forceMesh->vertices[edge.vertexB].position) * 0.5f + offset;
             std::ostringstream angle;
-            const float deviation = std::abs(90.0f - angles[edgeIndex]);
-            angle << std::fixed << std::setprecision(1) << deviation;
+            const float deviation = angles[edgeIndex];
+            if (std::isfinite(deviation)) angle << std::fixed << std::setprecision(1) << deviation;
+            else angle << "invalid";
             renderer.setColor(forceAngleColor(deviation));
             renderer.drawText(angle.str(), midpoint + Vec3(0.0f, 0.0f, 0.001f), 1.00f);
         }

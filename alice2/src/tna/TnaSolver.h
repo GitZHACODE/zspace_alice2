@@ -59,6 +59,9 @@ struct TnaForceDiagram {
     // Undirected angle between each force edge and its corresponding form
     // edge, in degrees. Displayed reciprocal diagrams target 90 degrees.
     std::vector<float> edgeAnglesDegrees;
+    // Signed reciprocal-direction error, 0 = correct, 180 = reversed.
+    // Infinity denotes a degenerate or invalid reciprocal pair.
+    std::vector<float> edgeDirectionDeviationsDegrees;
 };
 
 struct TnaHorizontalSettings {
@@ -97,7 +100,8 @@ struct TnaHorizontalEquilibrium {
     bool success{false};
     // The configured form/force passes have completed.
     bool converged{false};
-    // The completed reciprocal pair meets angleToleranceDegrees.
+    // Every nondegenerate reciprocal pair meets angleToleranceDegrees with
+    // the correct compression/tension direction.
     bool satisfiesAngleTarget{false};
     std::string diagnostic;
 
@@ -107,6 +111,7 @@ struct TnaHorizontalEquilibrium {
     std::vector<int> fixedFormVertices;
     std::vector<int> fixedForceVertices;
     std::vector<float> edgeAnglesDegrees;
+    std::vector<float> edgeDirectionDeviationsDegrees;
     std::vector<float> forceDensities;
     // The COMPAS horizontal solver forms these weighted directions once,
     // then parallelises both diagrams towards the same targets.
@@ -122,6 +127,7 @@ struct TnaHorizontalEquilibrium {
     // COMPAS completes the form pass before starting the force pass.
     bool solvingForceDiagram{false};
     float maximumAngleDeviation{0.0f};
+    float maximumDirectionDeviation{0.0f};
 };
 
 struct TnaVerticalSettings {
@@ -147,6 +153,7 @@ struct TnaVerticalSettings {
 };
 
 struct TnaVerticalEquilibrium {
+    // True only when equilibrium converges with finite results.
     bool success{false};
     bool converged{false};
     std::string diagnostic;
