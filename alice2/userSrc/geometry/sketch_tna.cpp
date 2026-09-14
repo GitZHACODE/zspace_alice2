@@ -1,4 +1,4 @@
-// #define __MAIN__
+#define __MAIN__
 #ifdef __MAIN__
 
 #include <alice2.h>
@@ -30,11 +30,11 @@ public:
         scene().setAxesLength(1.2f);
         m_ui = std::make_unique<SimpleUI>(input());
         m_ui->setTheme(SimpleUI::UITheme::Dark);
-        m_ui->addSlider("Form weight", Vec2{10.0f, 92.0f}, 190.0f, 0.0f, 1.0f, m_formWeight);
-        m_ui->addSlider("H max iterations", Vec2{10.0f, 120.0f}, 190.0f, 1.0f, 500.0f, m_horizontalMaximumIterations);
-        m_ui->addSlider("H target angle", Vec2{10.0f, 148.0f}, 190.0f, 0.0f, 10.0f, m_horizontalTargetAngle);
-        m_ui->addSlider("V nodal load", Vec2{10.0f, 176.0f}, 190.0f, -0.01f, 0.01f, m_verticalLoad);
-        m_ui->addSlider("V self-weight density", Vec2{10.0f, 204.0f}, 190.0f, 0.0f, 10.0f, m_selfWeightDensity);
+        m_ui->addSlider("Form weight", Vec2{10.0f, 140.0f}, 190.0f, 0.0f, 1.0f, m_formWeight);
+        m_ui->addSlider("H max iterations", Vec2{10.0f, 168.0f}, 190.0f, 1.0f, 500.0f, m_horizontalMaximumIterations);
+        m_ui->addSlider("H target angle", Vec2{10.0f, 196.0f}, 190.0f, 0.0f, 10.0f, m_horizontalTargetAngle);
+        m_ui->addSlider("V nodal load", Vec2{10.0f, 224.0f}, 190.0f, -0.01f, 0.01f, m_verticalLoad);
+        m_ui->addSlider("V self-weight density", Vec2{10.0f, 252.0f}, 190.0f, 0.0f, 10.0f, m_selfWeightDensity);
         reload();
     }
 
@@ -61,6 +61,12 @@ public:
         renderer.setColor(Color(0.06f, 0.06f, 0.06f, 1.0f));
         renderer.drawString("r reload OBJ | h horizontal | v vertical | e export OBJ | i toggle original | a toggle angles", 10.0f, 30.0f);
         renderer.drawString(m_status, 10.0f, 52.0f);
+        renderer.setColor(Color(0.85f, 0.08f, 0.35f, 1.0f));
+        renderer.drawString("Form: pink = tension | blue = compression | black points = supports", 10.0f, 74.0f);
+        renderer.setColor(Color(0.06f, 0.06f, 0.06f, 1.0f));
+        renderer.drawString(std::string("t toggle outer-ring tension: ") +
+                                (m_tensionEnabled ? "ON" : "OFF") + " (reloads form)",
+                            10.0f, 96.0f);
         if (m_ui) m_ui->draw(renderer);
     }
 
@@ -72,6 +78,7 @@ public:
             case 'e': case 'E': exportFormFoundMesh(); return true;
             case 'i': case 'I': m_showInput = !m_showInput; return true;
             case 'a': case 'A': m_showForceAngles = !m_showForceAngles; return true;
+            case 't': case 'T': m_tensionEnabled = !m_tensionEnabled; reload(); return true;
             default: return false;
         }
     }
@@ -114,7 +121,10 @@ private:
             // Black vertex colours are explicit support tags. An ordinary OBJ
             // has no such tags, so the builder falls back to all boundaries.
             m_result = m_solver.makeFormDiagram(planarInput, blackVertexSupports(*m_inputMesh));
-            if (m_result.success) {
+            // The first support seeds the outer-ring halfedge walk; openings
+            // remain compression members.
+            if (m_result.success &&
+                (!m_tensionEnabled || m_solver.setOuterBoundaryEdgesTension(m_result))) {
                 m_formMesh = std::make_shared<MeshData>(m_result.mesh);
                 m_forceResult = m_solver.makeForceDiagram(m_result);
                 if (m_forceResult.success) {
@@ -309,16 +319,22 @@ private:
         // reciprocal force edge, so do not render them as form members.
         std::vector<Vec3> segments;
         segments.reserve(m_result.activeFormEdges.size() * 2);
+        std::vector<Vec3> tensionSegments;
         for (const TnaEdge& edge : m_result.activeFormEdges) {
             if (edge.vertexA < 0 || edge.vertexB < 0 ||
                 edge.vertexA >= static_cast<int>(m_formMesh->vertices.size()) ||
                 edge.vertexB >= static_cast<int>(m_formMesh->vertices.size())) continue;
-            segments.push_back(m_formMesh->vertices[edge.vertexA].position);
-            segments.push_back(m_formMesh->vertices[edge.vertexB].position);
+            auto& selectedSegments = edge.isTension ? tensionSegments : segments;
+            selectedSegments.push_back(m_formMesh->vertices[edge.vertexA].position);
+            selectedSegments.push_back(m_formMesh->vertices[edge.vertexB].position);
         }
         if (!segments.empty()) {
             renderer.drawLines(segments.data(), static_cast<int>(segments.size()),
                                Color(0.05f, 0.32f, 0.82f, 1.0f), 1.8f);
+        }
+        if (!tensionSegments.empty()) {
+            renderer.drawLines(tensionSegments.data(), static_cast<int>(tensionSegments.size()),
+                               Color(0.85f, 0.08f, 0.35f, 1.0f), 3.0f);
         }
     }
 
@@ -448,6 +464,7 @@ private:
     float m_verticalMaximumIterations{100.0f};
     int m_horizontalStepsPerFrame{2};
     bool m_horizontalRunning{false};
+    bool m_tensionEnabled{true};
     bool m_showInput{true};
     bool m_showForceAngles{true};
 };

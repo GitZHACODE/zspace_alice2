@@ -316,6 +316,9 @@ TnaFormDiagram TnaSolver::makeFormDiagram(const MeshData& input,
 
         boundaryStarts.push_back(halfedge);
         boundaryVertexIds.insert(loop.begin(), loop.end());
+        for (int i = 0; i < static_cast<int>(loop.size()); ++i) {
+            result.boundaryEdges.push_back({loop[i], loop[(i + 1) % loop.size()]});
+        }
     }
 
     if (boundaryStarts.empty()) {
@@ -426,6 +429,105 @@ TnaFormDiagram TnaSolver::makeFormDiagram(const MeshData& input,
     result.diagnostic = status.str();
     result.success = true;
     return result;
+}
+
+bool TnaSolver::setTensionEdges(TnaFormDiagram& form,
+                               const std::vector<TnaEdge>& edges,
+                               bool isTension) const {
+    if (!form.success) {
+        form.diagnostic = "Tension marking needs a valid form diagram";
+        return false;
+    }
+
+    std::map<std::pair<int, int>, std::size_t> activeEdges;
+    for (std::size_t i = 0; i < form.activeFormEdges.size(); ++i) {
+        const TnaEdge& edge = form.activeFormEdges[i];
+        activeEdges.emplace(undirectedEdgeKey(edge.vertexA, edge.vertexB), i);
+    }
+    std::set<std::size_t> selected;
+    for (const TnaEdge& edge : edges) {
+        const auto found = activeEdges.find(undirectedEdgeKey(edge.vertexA, edge.vertexB));
+        if (!validVertex(form.mesh, edge.vertexA) || !validVertex(form.mesh, edge.vertexB) ||
+            edge.vertexA == edge.vertexB || found == activeEdges.end()) {
+            std::ostringstream status;
+            status << "Cannot mark inactive or invalid form edge (" << edge.vertexA
+                   << ", " << edge.vertexB << ")";
+            form.diagnostic = status.str();
+            return false;
+        }
+        selected.insert(found->second);
+    }
+    for (const std::size_t index : selected) form.activeFormEdges[index].isTension = isTension;
+    std::ostringstream status;
+    status << "Marked " << selected.size() << " active form edges as "
+           << (isTension ? "tension" : "compression");
+    form.diagnostic = status.str();
+    return true;
+}
+
+bool TnaSolver::setBoundaryEdgesTension(TnaFormDiagram& form, bool isTension) const {
+    std::set<std::pair<int, int>> boundaryKeys;
+    for (const TnaEdge& edge : form.boundaryEdges) {
+        boundaryKeys.insert(undirectedEdgeKey(edge.vertexA, edge.vertexB));
+    }
+    std::vector<TnaEdge> selected;
+    for (const TnaEdge& edge : form.activeFormEdges) {
+        if (boundaryKeys.contains(undirectedEdgeKey(edge.vertexA, edge.vertexB))) {
+            selected.push_back(edge);
+        }
+    }
+    return setTensionEdges(form, selected, isTension);
+}
+
+bool TnaSolver::setOuterBoundaryEdgesTension(TnaFormDiagram& form,
+                                            int supportVertex,
+                                            bool isTension) const {
+    if (!form.success || form.supportVertices.empty()) {
+        form.diagnostic = "Outer boundary tension marking needs a valid form diagram with supports";
+        return false;
+    }
+    if (supportVertex == -1) supportVertex = form.supportVertices.front();
+    if (!validVertex(form.mesh, supportVertex) ||
+        std::find(form.supportVertices.begin(), form.supportVertices.end(), supportVertex) ==
+            form.supportVertices.end()) {
+        form.diagnostic = "Outer boundary tension marking needs a support vertex on the requested ring";
+        return false;
+    }
+
+    // Exterior faces close the original boundaries. Remove them from a copy
+    // before walking halfedges, retaining the original vertex IDs.
+    MeshData original = form.mesh;
+    original.faces.clear();
+    original.edges.clear();
+    const std::unordered_set<int> exteriorFaces(form.exteriorFormFaces.begin(),
+                                                form.exteriorFormFaces.end());
+    for (int i = 0; i < static_cast<int>(form.mesh.faces.size()); ++i) {
+        if (!exteriorFaces.contains(i)) original.faces.push_back(form.mesh.faces[i]);
+    }
+    ComputeMesh topology("tna_outer_boundary", original, true);
+    for (const auto& halfedge : topology.getHalfedges()) {
+        if (!halfedge || !halfedge->onBoundary()) continue;
+        const auto start = halfedge->getStartVertex();
+        if (!start || start->getId() != supportVertex) continue;
+        const std::vector<int> loop = walkBoundaryLoop(halfedge);
+        if (loop.empty()) {
+            form.diagnostic = "Could not walk a closed boundary loop from the support vertex";
+            return false;
+        }
+        std::set<std::pair<int, int>> ringKeys;
+        for (std::size_t i = 0; i < loop.size(); ++i) {
+            ringKeys.insert(undirectedEdgeKey(loop[i], loop[(i + 1) % loop.size()]));
+        }
+        std::vector<TnaEdge> selected;
+        for (const TnaEdge& edge : form.activeFormEdges) {
+            if (ringKeys.contains(undirectedEdgeKey(edge.vertexA, edge.vertexB))) {
+                selected.push_back(edge);
+            }
+        }
+        return setTensionEdges(form, selected, isTension);
+    }
+    form.diagnostic = "The selected support vertex is not on an original mesh boundary";
+    return false;
 }
 
 TnaForceDiagram TnaSolver::makeForceDiagram(const TnaFormDiagram& form) const {
@@ -951,6 +1053,10 @@ void TnaSolver::stepHorizontalEquilibrium(const TnaHorizontalSettings& settings)
         state.edgeConstraints = settings.edgeConstraints;
         if (state.edgeConstraints.empty()) {
             state.edgeConstraints.resize(state.forceDiagram.edges.size());
+        }
+        for (std::size_t i = 0; i < state.edgeConstraints.size(); ++i) {
+            state.edgeConstraints[i].isTension = state.edgeConstraints[i].isTension ||
+                                                state.reciprocalFormEdges[i].isTension;
         }
         state.forceScale = std::max(settings.forceScale, 1e-6f);
         state.horizontalTargets = makeHorizontalTargets(state, alpha);

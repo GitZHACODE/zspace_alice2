@@ -13,6 +13,8 @@ namespace alice2 {
 struct TnaEdge {
     int vertexA{-1};
     int vertexB{-1};
+    // COMPAS FormDiagram edge attribute _is_tension.
+    bool isTension{false};
 };
 
 // Stage 1 of TNA: the planar input mesh with one exterior polygon appended
@@ -29,6 +31,9 @@ struct TnaFormDiagram {
     // One chain per support-to-support boundary walk, inclusive of both
     // support endpoints. A boundary loop without supports is one group.
     std::vector<std::vector<int>> boundaryGroups;
+    // Original boundary edges, including hole loops and their closing edges,
+    // recorded before exterior faces change the boundary topology.
+    std::vector<TnaEdge> boundaryEdges;
     // Original form edges participating in equilibrium. The closing chord of
     // every appended outside face is intentionally excluded.
     std::vector<TnaEdge> activeFormEdges;
@@ -83,7 +88,8 @@ struct TnaHorizontalSettings {
         bool isTension{false};
     };
     // One item per ordered reciprocal pair. Empty means the COMPAS defaults
-    // above are applied to every pair.
+    // above are applied to every pair. Tension is enabled when either the
+    // form edge or this explicit constraint marks the pair as tension.
     std::vector<EdgeConstraint> edgeConstraints;
 };
 
@@ -159,6 +165,23 @@ public:
                                    const std::vector<int>& supportVertices = {}) const;
 
     TnaForceDiagram makeForceDiagram(const TnaFormDiagram& formDiagram) const;
+
+    // Call after makeFormDiagram and before makeForceDiagram. Match active
+    // edges by unordered endpoints; reject invalid selections atomically.
+    // Rebuild the force diagram and reset equilibrium after changing marks.
+    bool setTensionEdges(TnaFormDiagram& form,
+                         const std::vector<TnaEdge>& edges,
+                         bool isTension = true) const;
+    // Mark active original boundary edges on every loop, including holes.
+    // Inactive support-to-support edges and appended chords are excluded.
+    bool setBoundaryEdgesTension(TnaFormDiagram& form,
+                                 bool isTension = true) const;
+    // Walk the original boundary loop containing an outer-ring support.
+    // -1 uses the first support; the caller must choose an outer-ring support
+    // if supports also lie on holes. Other loops and interior marks are kept.
+    bool setOuterBoundaryEdgesTension(TnaFormDiagram& form,
+                                      int supportVertex = -1,
+                                      bool isTension = true) const;
 
     bool resetHorizontalEquilibrium(const MeshData& formDiagram,
                                     const TnaForceDiagram& forceDiagram,
