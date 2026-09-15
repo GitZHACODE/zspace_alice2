@@ -887,8 +887,8 @@ bool TnaSolver::solveVerticalEquilibrium(const TnaVerticalSettings& settings) {
     m_vertical = {};
     TnaVerticalEquilibrium& result = m_vertical;
     const TnaHorizontalEquilibrium& horizontal = m_horizontal;
-    if (!horizontal.success || !horizontal.converged || !horizontal.satisfiesAngleTarget) {
-        result.diagnostic = "Horizontal equilibrium must meet the target angle before vertical equilibrium";
+    if (!horizontal.success || !horizontal.converged) {
+        result.diagnostic = "Horizontal equilibrium must finish before vertical equilibrium";
         return false;
     }
     if (horizontal.formDiagram.vertices.empty() || horizontal.reciprocalFormEdges.empty() ||
@@ -920,6 +920,13 @@ bool TnaSolver::solveVerticalEquilibrium(const TnaVerticalSettings& settings) {
     std::vector<bool> fixed(vertexCount, false);
     for (const int vertex : horizontal.fixedFormVertices) {
         if (validVertex(result.formDiagram, vertex)) fixed[vertex] = true;
+    }
+    for (const int vertex : settings.additionalFixedVertices) {
+        if (!validVertex(result.formDiagram, vertex)) {
+            result.diagnostic = "Vertical equilibrium contains an invalid additional fixed vertex";
+            return false;
+        }
+        fixed[vertex] = true;
     }
     const int fixedCount = static_cast<int>(std::count(fixed.begin(), fixed.end(), true));
     if (fixedCount == 0) {

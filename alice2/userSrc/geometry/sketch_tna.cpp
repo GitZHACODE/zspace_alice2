@@ -55,18 +55,22 @@ public:
     void draw(Renderer& renderer, Camera&) override {
         if (m_showInput) drawMesh(renderer, m_inputMesh, Color(0.72f, 0.72f, 0.72f, 1.0f), 0.8f);
         drawFormDiagram(renderer);
+        drawForceDensities(renderer);
         drawForceDiagram(renderer);
         drawSupports(renderer);
 
         renderer.setColor(Color(0.06f, 0.06f, 0.06f, 1.0f));
-        renderer.drawString("r reload OBJ | h horizontal | v vertical | e export OBJ | i toggle original | a toggle angles", 10.0f, 30.0f);
+        renderer.drawString("r reload OBJ | h horizontal | v vertical | e export OBJ | i toggle original | a toggle angles | d toggle densities", 10.0f, 30.0f);
         renderer.drawString(m_status, 10.0f, 52.0f);
         renderer.setColor(Color(0.85f, 0.08f, 0.35f, 1.0f));
-        renderer.drawString("Form: pink = tension | blue = compression | black points = supports", 10.0f, 74.0f);
+        renderer.drawString("Form: pink = tension | blue = compression | black = fixed XY/Z | red = fixed Z only", 10.0f, 74.0f);
         renderer.setColor(Color(0.06f, 0.06f, 0.06f, 1.0f));
-        renderer.drawString(std::string("t toggle outer-ring tension: ") +
+        renderer.drawString(std::string("t toggle boundary tension: ") +
                                 (m_tensionEnabled ? "ON" : "OFF") + " (reloads form)",
                             10.0f, 96.0f);
+        renderer.drawString(std::string("b tension boundary scope: ") +
+                                (m_allBoundaryTension ? "ALL" : "OUTER") + " (reloads form)",
+                            10.0f, 118.0f);
         if (m_ui) m_ui->draw(renderer);
     }
 
@@ -78,6 +82,8 @@ public:
             case 'e': case 'E': exportFormFoundMesh(); return true;
             case 'i': case 'I': m_showInput = !m_showInput; return true;
             case 'a': case 'A': m_showForceAngles = !m_showForceAngles; return true;
+            case 'd': case 'D': m_showForceDensities = !m_showForceDensities; return true;
+            case 'b': case 'B': m_allBoundaryTension = !m_allBoundaryTension; reload(); return true;
             case 't': case 'T': m_tensionEnabled = !m_tensionEnabled; reload(); return true;
             default: return false;
         }
@@ -110,6 +116,7 @@ private:
             // Welding restores the shared topology required for boundary walks.
             m_inputObject->weld(1e-3f);
             m_inputMesh = m_inputObject->getMeshData();
+            m_verticalOnlySupports = redVertexSupports(*m_inputMesh);
 
             // The form diagram works in plan. Keep m_inputMesh untouched as
             // a grey reference and flatten only its duplicate used by TNA.
@@ -121,10 +128,13 @@ private:
             // Black vertex colours are explicit support tags. An ordinary OBJ
             // has no such tags, so the builder falls back to all boundaries.
             m_result = m_solver.makeFormDiagram(planarInput, blackVertexSupports(*m_inputMesh));
-            // The first support seeds the outer-ring halfedge walk; openings
-            // remain compression members.
+            // Boundary tension can be limited to the outer support loop or
+            // applied to every boundary loop, including openings.
             if (m_result.success &&
-                (!m_tensionEnabled || m_solver.setOuterBoundaryEdgesTension(m_result))) {
+                (!m_tensionEnabled ||
+                 (m_allBoundaryTension
+                      ? m_solver.setBoundaryEdgesTension(m_result)
+                      : m_solver.setOuterBoundaryEdgesTension(m_result)))) {
                 m_formMesh = std::make_shared<MeshData>(m_result.mesh);
                 m_forceResult = m_solver.makeForceDiagram(m_result);
                 if (m_forceResult.success) {
@@ -147,6 +157,7 @@ private:
             m_formMesh.reset();
             m_forceMesh.reset();
             m_initialFormMesh.reset();
+            m_verticalOnlySupports.clear();
             m_status = std::string("Failed to load ") + m_objPath + ": " + error.what();
         }
     }
@@ -243,6 +254,7 @@ private:
         for (const MeshVertex& vertex : m_inputMesh->vertices) {
             settings.supportHeights.push_back(vertex.position.z);
         }
+        settings.additionalFixedVertices = m_verticalOnlySupports;
         settings.unloadedFaces = m_result.exteriorFormFaces;
 
         if (!m_solver.solveVerticalEquilibrium(settings) || !m_solver.verticalEquilibrium().converged) {
@@ -297,6 +309,19 @@ private:
         return supports;
     }
 
+    static std::vector<int> redVertexSupports(const MeshData& mesh) {
+        constexpr float redMinimum = 0.8f;
+        constexpr float otherMaximum = 0.2f;
+        std::vector<int> supports;
+        for (int vertex = 0; vertex < static_cast<int>(mesh.vertices.size()); ++vertex) {
+            const Color& color = mesh.vertices[vertex].color;
+            if (color.r >= redMinimum && color.g <= otherMaximum && color.b <= otherMaximum) {
+                supports.push_back(vertex);
+            }
+        }
+        return supports;
+    }
+
     static void drawMesh(Renderer& renderer, const std::shared_ptr<MeshData>& mesh,
                          const Color& color, float width) {
         if (!mesh) return;
@@ -343,6 +368,33 @@ private:
         for (const int vertex : m_result.supportVertices) {
             if (vertex < 0 || vertex >= static_cast<int>(m_formMesh->vertices.size())) continue;
             renderer.drawPoint(m_formMesh->vertices[vertex].position, Color(0.0f, 0.0f, 0.0f, 1.0f), 8.0f);
+        }
+        for (const int vertex : m_verticalOnlySupports) {
+            if (vertex < 0 || vertex >= static_cast<int>(m_formMesh->vertices.size())) continue;
+            renderer.drawPoint(m_formMesh->vertices[vertex].position, Color(0.9f, 0.05f, 0.05f, 1.0f), 8.0f);
+        }
+    }
+
+    void drawForceDensities(Renderer& renderer) const {
+        if (!m_showForceDensities || !m_formMesh) return;
+        const TnaHorizontalEquilibrium& horizontal = m_solver.horizontalEquilibrium();
+        for (int edgeIndex = 0;
+             edgeIndex < static_cast<int>(horizontal.reciprocalFormEdges.size()) &&
+             edgeIndex < static_cast<int>(horizontal.forceDensities.size()); ++edgeIndex) {
+            const TnaEdge& edge = horizontal.reciprocalFormEdges[edgeIndex];
+            if (edge.vertexA < 0 || edge.vertexB < 0 ||
+                edge.vertexA >= static_cast<int>(m_formMesh->vertices.size()) ||
+                edge.vertexB >= static_cast<int>(m_formMesh->vertices.size())) continue;
+            const float density = horizontal.forceDensities[edgeIndex];
+            if (!std::isfinite(density)) continue;
+            const Vec3 midpoint = (m_formMesh->vertices[edge.vertexA].position +
+                                   m_formMesh->vertices[edge.vertexB].position) * 0.5f;
+            std::ostringstream label;
+            label << std::fixed << std::setprecision(3) << density;
+            renderer.setColor(density < 0.0f
+                                  ? Color(0.85f, 0.08f, 0.35f, 1.0f)
+                                  : Color(0.05f, 0.32f, 0.82f, 1.0f));
+            renderer.drawText(label.str(), midpoint + Vec3(0.0f, 0.0f, 0.001f), 1.00f);
         }
     }
 
@@ -439,6 +491,7 @@ private:
     TnaSolver m_solver;
     TnaFormDiagram m_result;
     TnaForceDiagram m_forceResult;
+    std::vector<int> m_verticalOnlySupports;
     std::string m_status{"Loading TNA mesh"};
     float m_formWeight{0.5f};
     float m_horizontalTargetAngle{3.0f};
@@ -467,8 +520,10 @@ private:
     int m_horizontalStepsPerFrame{2};
     bool m_horizontalRunning{false};
     bool m_tensionEnabled{true};
+    bool m_allBoundaryTension{false};
     bool m_showInput{true};
     bool m_showForceAngles{true};
+    bool m_showForceDensities{false};
 };
 
 ALICE2_REGISTER_SKETCH_AUTO(TnaSketch)
