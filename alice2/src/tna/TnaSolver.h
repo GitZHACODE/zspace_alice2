@@ -25,8 +25,8 @@ struct TnaFormDiagram {
     std::string diagnostic;
 
     MeshData mesh;
-    // Source vertex IDs accepted as supports. If the caller supplies none,
-    // all topological boundary vertices are used.
+    // Source vertex IDs accepted as supports. An empty list deliberately
+    // means no supports unless fallbackToAllBoundarySupports is requested.
     std::vector<int> supportVertices;
     // One chain per support-to-support boundary walk, inclusive of both
     // support endpoints. A boundary loop without supports is one group.
@@ -171,8 +171,12 @@ struct TnaVerticalEquilibrium {
 
 class TnaSolver {
 public:
+    // With no supportVertices, the form has no fixed vertices. Set
+    // fallbackToAllBoundarySupports only when every boundary vertex is meant
+    // to be a support (for example, an untagged legacy OBJ).
     TnaFormDiagram makeFormDiagram(const MeshData& input,
-                                   const std::vector<int>& supportVertices = {}) const;
+                                   const std::vector<int>& supportVertices = {},
+                                   bool fallbackToAllBoundarySupports = false) const;
 
     TnaForceDiagram makeForceDiagram(const TnaFormDiagram& formDiagram) const;
 
@@ -187,8 +191,9 @@ public:
     bool setBoundaryEdgesTension(TnaFormDiagram& form,
                                  bool isTension = true) const;
     // Walk the original boundary loop containing an outer-ring support.
-    // -1 uses the first support; the caller must choose an outer-ring support
-    // if supports also lie on holes. Other loops and interior marks are kept.
+    // -1 uses the first original boundary loop, so a tension ring can also
+    // be marked on a form with no supports. Other loops and interior marks
+    // are kept.
     bool setOuterBoundaryEdgesTension(TnaFormDiagram& form,
                                       int supportVertex = -1,
                                       bool isTension = true) const;

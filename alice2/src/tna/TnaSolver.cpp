@@ -319,7 +319,8 @@ std::vector<float> tributaryAreas(const MeshData& mesh,
 } // namespace
 
 TnaFormDiagram TnaSolver::makeFormDiagram(const MeshData& input,
-                                          const std::vector<int>& requestedSupports) const {
+                                          const std::vector<int>& requestedSupports,
+                                          bool fallbackToAllBoundarySupports) const {
     TnaFormDiagram result;
     if (input.vertices.empty() || input.faces.empty()) {
         result.diagnostic = "TNA form diagram needs a mesh with vertices and faces";
@@ -359,10 +360,11 @@ TnaFormDiagram TnaSolver::makeFormDiagram(const MeshData& input,
     }
 
     std::unordered_set<int> supportSet;
-    if (requestedSupports.empty()) {
-        // Ordinary OBJ files have no vertex-colour support tags.
+    if (requestedSupports.empty() && fallbackToAllBoundarySupports) {
+        // Explicit compatibility option for ordinary OBJ files with no
+        // support tags: treat every boundary vertex as a support.
         supportSet = boundaryVertexIds;
-    } else {
+    } else if (!requestedSupports.empty()) {
         for (const int vertex : requestedSupports) {
             if (vertex >= 0 && vertex < static_cast<int>(input.vertices.size()) &&
                 boundaryVertexIds.contains(vertex)) {
@@ -514,14 +516,14 @@ bool TnaSolver::setBoundaryEdgesTension(TnaFormDiagram& form, bool isTension) co
 bool TnaSolver::setOuterBoundaryEdgesTension(TnaFormDiagram& form,
                                             int supportVertex,
                                             bool isTension) const {
-    if (!form.success || form.supportVertices.empty()) {
-        form.diagnostic = "Outer boundary tension marking needs a valid form diagram with supports";
+    if (!form.success) {
+        form.diagnostic = "Outer boundary tension marking needs a valid form diagram";
         return false;
     }
-    if (supportVertex == -1) supportVertex = form.supportVertices.front();
-    if (!validVertex(form.mesh, supportVertex) ||
-        std::find(form.supportVertices.begin(), form.supportVertices.end(), supportVertex) ==
-            form.supportVertices.end()) {
+    if (supportVertex != -1 &&
+        (!validVertex(form.mesh, supportVertex) ||
+         std::find(form.supportVertices.begin(), form.supportVertices.end(), supportVertex) ==
+             form.supportVertices.end())) {
         form.diagnostic = "Outer boundary tension marking needs a support vertex on the requested ring";
         return false;
     }
@@ -540,7 +542,7 @@ bool TnaSolver::setOuterBoundaryEdgesTension(TnaFormDiagram& form,
     for (const auto& halfedge : topology.getHalfedges()) {
         if (!halfedge || !halfedge->onBoundary()) continue;
         const auto start = halfedge->getStartVertex();
-        if (!start || start->getId() != supportVertex) continue;
+        if (!start || (supportVertex != -1 && start->getId() != supportVertex)) continue;
         const std::vector<int> loop = walkBoundaryLoop(halfedge);
         if (loop.empty()) {
             form.diagnostic = "Could not walk a closed boundary loop from the support vertex";

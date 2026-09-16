@@ -30,11 +30,11 @@ public:
         scene().setAxesLength(1.2f);
         m_ui = std::make_unique<SimpleUI>(input());
         m_ui->setTheme(SimpleUI::UITheme::Dark);
-        m_ui->addSlider("Form weight", Vec2{10.0f, 140.0f}, 190.0f, 0.0f, 1.0f, m_formWeight);
-        m_ui->addSlider("H max iterations", Vec2{10.0f, 168.0f}, 190.0f, 1.0f, 500.0f, m_horizontalMaximumIterations);
-        m_ui->addSlider("H target angle", Vec2{10.0f, 196.0f}, 190.0f, 0.0f, 10.0f, m_horizontalTargetAngle);
-        m_ui->addSlider("V nodal load", Vec2{10.0f, 224.0f}, 190.0f, -0.01f, 0.01f, m_verticalLoad);
-        m_ui->addSlider("V self-weight density", Vec2{10.0f, 252.0f}, 190.0f, 0.0f, 10.0f, m_selfWeightDensity);
+        m_ui->addSlider("Form weight", Vec2{10.0f, 168.0f}, 190.0f, 0.0f, 1.0f, m_formWeight);
+        m_ui->addSlider("H max iterations", Vec2{10.0f, 196.0f}, 190.0f, 1.0f, 500.0f, m_horizontalMaximumIterations);
+        m_ui->addSlider("H target angle", Vec2{10.0f, 224.0f}, 190.0f, 0.0f, 10.0f, m_horizontalTargetAngle);
+        m_ui->addSlider("V nodal load", Vec2{10.0f, 252.0f}, 190.0f, -0.01f, 0.01f, m_verticalLoad);
+        m_ui->addSlider("V self-weight density", Vec2{10.0f, 280.0f}, 190.0f, 0.0f, 10.0f, m_selfWeightDensity);
         reload();
     }
 
@@ -60,7 +60,7 @@ public:
         drawSupports(renderer);
 
         renderer.setColor(Color(0.06f, 0.06f, 0.06f, 1.0f));
-        renderer.drawString("r reload OBJ | h horizontal | v vertical | e export OBJ | i toggle original | a toggle angles | d toggle densities", 10.0f, 30.0f);
+        renderer.drawString("r reload OBJ | h horizontal | v vertical | e export OBJ | i toggle original | a toggle angles | d toggle densities | g grow tension", 10.0f, 30.0f);
         renderer.drawString(m_status, 10.0f, 52.0f);
         renderer.setColor(Color(0.85f, 0.08f, 0.35f, 1.0f));
         renderer.drawString("Form: pink = tension | blue = compression | black = fixed XY/Z | red = fixed Z only", 10.0f, 74.0f);
@@ -71,6 +71,9 @@ public:
         renderer.drawString(std::string("b tension boundary scope: ") +
                                 (m_allBoundaryTension ? "ALL" : "OUTER") + " (reloads form)",
                             10.0f, 118.0f);
+        renderer.drawString(std::string("g grow tension from boundary: ") +
+                                (m_growBoundaryTension ? "ON" : "OFF") + " (reloads form)",
+                            10.0f, 136.0f);
         if (m_ui) m_ui->draw(renderer);
     }
 
@@ -84,6 +87,7 @@ public:
             case 'a': case 'A': m_showForceAngles = !m_showForceAngles; return true;
             case 'd': case 'D': m_showForceDensities = !m_showForceDensities; return true;
             case 'b': case 'B': m_allBoundaryTension = !m_allBoundaryTension; reload(); return true;
+            case 'g': case 'G': m_growBoundaryTension = !m_growBoundaryTension; reload(); return true;
             case 't': case 'T': m_tensionEnabled = !m_tensionEnabled; reload(); return true;
             default: return false;
         }
@@ -125,16 +129,19 @@ private:
             planarInput.calculateNormals();
             planarInput.triangulationDirty = true;
 
-            // Black vertex colours are explicit support tags. An ordinary OBJ
-            // has no such tags, so the builder falls back to all boundaries.
-            m_result = m_solver.makeFormDiagram(planarInput, blackVertexSupports(*m_inputMesh));
+            // Black vertex colours are explicit support tags. An untagged OBJ
+            // deliberately has no supports unless this compatibility option
+            // is explicitly enabled below.
+            m_result = m_solver.makeFormDiagram(planarInput, blackVertexSupports(*m_inputMesh),
+                                                 m_fallbackToAllBoundarySupports);
             // Boundary tension can be limited to the outer support loop or
             // applied to every boundary loop, including openings.
             if (m_result.success &&
                 (!m_tensionEnabled ||
                  (m_allBoundaryTension
                       ? m_solver.setBoundaryEdgesTension(m_result)
-                      : m_solver.setOuterBoundaryEdgesTension(m_result)))) {
+                      : m_solver.setOuterBoundaryEdgesTension(m_result))) &&
+                (!m_tensionEnabled || !m_growBoundaryTension || growBoundaryTensionMark())) {
                 m_formMesh = std::make_shared<MeshData>(m_result.mesh);
                 m_forceResult = m_solver.makeForceDiagram(m_result);
                 if (m_forceResult.success) {
@@ -184,6 +191,38 @@ private:
         m_forceMesh = std::make_shared<MeshData>(horizontal.forceDiagram);
         m_horizontalRunning = true;
         m_status = horizontal.diagnostic;
+    }
+
+    // Expand the currently marked boundary tension by exactly one topological
+    // edge ring. Existing tension edges seed the band; any candidate touching
+    // a black support is omitted so supports stay at the tension boundary.
+    bool growBoundaryTensionMark() {
+        std::vector<bool> tensionVertices(m_result.mesh.vertices.size(), false);
+        std::vector<bool> supports(m_result.mesh.vertices.size(), false);
+        for (const int vertex : m_result.supportVertices) {
+            if (vertex >= 0 && vertex < static_cast<int>(supports.size())) supports[vertex] = true;
+        }
+        for (const TnaEdge& edge : m_result.activeFormEdges) {
+            if (!edge.isTension) continue;
+            if (edge.vertexA >= 0 && edge.vertexA < static_cast<int>(tensionVertices.size())) {
+                tensionVertices[edge.vertexA] = true;
+            }
+            if (edge.vertexB >= 0 && edge.vertexB < static_cast<int>(tensionVertices.size())) {
+                tensionVertices[edge.vertexB] = true;
+            }
+        }
+
+        std::vector<TnaEdge> growthEdges;
+        for (const TnaEdge& edge : m_result.activeFormEdges) {
+            if (edge.isTension || edge.vertexA < 0 || edge.vertexB < 0 ||
+                edge.vertexA >= static_cast<int>(tensionVertices.size()) ||
+                edge.vertexB >= static_cast<int>(tensionVertices.size())) continue;
+            if (supports[edge.vertexA] || supports[edge.vertexB]) continue;
+            if (tensionVertices[edge.vertexA] || tensionVertices[edge.vertexB]) {
+                growthEdges.push_back(edge);
+            }
+        }
+        return m_solver.setTensionEdges(m_result, growthEdges);
     }
 
     TnaHorizontalSettings horizontalSettings() const {
@@ -519,8 +558,12 @@ private:
     float m_verticalMaximumIterations{100.0f};
     int m_horizontalStepsPerFrame{2};
     bool m_horizontalRunning{false};
+    // Set true only for legacy untagged OBJs whose full boundary is intended
+    // to be fixed. The default leaves an untagged form support-free.
+    bool m_fallbackToAllBoundarySupports{false};
     bool m_tensionEnabled{true};
     bool m_allBoundaryTension{false};
+    bool m_growBoundaryTension{false};
     bool m_showInput{true};
     bool m_showForceAngles{true};
     bool m_showForceDensities{false};
