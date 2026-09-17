@@ -22,7 +22,9 @@ struct TnaEquilibriumReport {
 TnaEquilibriumReport measureTnaEquilibrium(
     const MeshData& mesh, const MeshData& reference, const std::vector<TnaEdge>& edges,
     const std::vector<float>& densities, const std::vector<int>& fixedXYZ,
-    const TnaVerticalSettings& loads);
+    const TnaVerticalSettings& loads,
+    bool allowSlidingTensionSupports = true,
+    double slidingSupportPenalty = 100.0);
 
 struct BestFitForceDensitySettings {
     TnaVerticalSettings loads;
@@ -30,6 +32,9 @@ struct BestFitForceDensitySettings {
     double designAttraction{1.0};
     double minimumDensityMagnitude{1e-4};
     double displacementTolerance{1e-5};
+    std::vector<int> nearZeroEdges;
+    bool allowSlidingTensionSupports{true};
+    double slidingSupportPenalty{100.0};
 };
 
 enum class BestFitStatus { Idle, Running, Converged, Stagnated, IterationLimit, Failed };

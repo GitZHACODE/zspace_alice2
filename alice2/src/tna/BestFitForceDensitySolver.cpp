@@ -22,11 +22,37 @@ void coordinate(Vec3& p, int axis, double value) {
 bool finite(const Vec3& p) {
     return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
 }
+std::vector<int> slidingSupports(const std::vector<int>& supports,
+                                 const std::vector<TnaEdge>& edges,
+                                 int count,
+                                 bool enabled) {
+    if (!enabled) return {};
+    std::vector<bool> hasTension(count, false);
+    for (const auto& e : edges) {
+        if (e.isTension) {
+            if (e.vertexA >= 0 && e.vertexA < count) hasTension[e.vertexA] = true;
+            if (e.vertexB >= 0 && e.vertexB < count) hasTension[e.vertexB] = true;
+        }
+    }
+    std::vector<int> sliding;
+    for (int v : supports) {
+        if (v >= 0 && v < count && hasTension[v]) {
+            sliding.push_back(v);
+        }
+    }
+    return sliding;
+}
 std::vector<std::array<bool, 3>> constraints(int count, const std::vector<int>& xyz,
-                                          const std::vector<int>& z) {
+                                              const std::vector<int>& z,
+                                              const std::vector<int>& sliding = {}) {
     std::vector<std::array<bool, 3>> fixed(count, {false, false, false});
     for (int v : xyz) if (v >= 0 && v < count) fixed[v] = {true, true, true};
     for (int v : z) if (v >= 0 && v < count) fixed[v][2] = true;
+    for (int v : sliding) if (v >= 0 && v < count) {
+        fixed[v][0] = false;
+        fixed[v][1] = false;
+        fixed[v][2] = true;
+    }
     return fixed;
 }
 std::vector<float> verticalLoads(const MeshData& mesh, const TnaVerticalSettings& settings) {
@@ -44,9 +70,10 @@ struct Equations {
     std::vector<std::pair<int, int>> rows;
 };
 Equations equations(const MeshData& mesh, const std::vector<TnaEdge>& edges,
-                    const std::vector<int>& xyz, const TnaVerticalSettings& settings) {
+                    const std::vector<int>& xyz, const TnaVerticalSettings& settings,
+                    const std::vector<int>& sliding = {}) {
     const int n = static_cast<int>(mesh.vertices.size());
-    const auto fixed = constraints(n, xyz, settings.additionalFixedVertices);
+    const auto fixed = constraints(n, xyz, settings.additionalFixedVertices, sliding);
     std::vector<std::array<int, 3>> row(n, {-1, -1, -1});
     Equations e;
     for (int axis = 0; axis < 3; ++axis) for (int v = 0; v < n; ++v) {
@@ -75,7 +102,7 @@ Equations equations(const MeshData& mesh, const std::vector<TnaEdge>& edges,
 // Lawson-Hanson active-set NNLS on signed columns, shifted by the lower
 // magnitude bound. COD handles dependent columns without inverting A^T A.
 bool boundedFit(const Matrix& A, const Vector& b, const std::vector<TnaEdge>& edges,
-                double lower, Vector& q) {
+                double lower, Vector& q, const std::vector<bool>& nearZero = {}) {
     const int n = static_cast<int>(edges.size());
     Matrix B = A;
     Vector sign(n);
@@ -89,8 +116,10 @@ bool boundedFit(const Matrix& A, const Vector& b, const std::vector<TnaEdge>& ed
         Vector gradient = B.transpose() * (rhs - B * x);
         int entering = -1;
         double maximum = tolerance;
-        for (int i = 0; i < n; ++i)
+        for (int i = 0; i < n; ++i) {
+            if (!nearZero.empty() && nearZero[i]) continue;
             if (!passive[i] && gradient[i] > maximum) { maximum = gradient[i]; entering = i; }
+        }
         if (entering < 0) {
             q = sign.cwiseProduct(x.array().max(0.0).matrix() + Vector::Constant(n, lower));
             return q.allFinite();
@@ -131,12 +160,16 @@ Vector vector(const std::vector<float>& q) {
     return result;
 }
 
-// Full XYZ FDM with separate free-coordinate sets, including red Z supports.
+// Full XYZ FDM with separate free-coordinate sets, including red Z supports and sliding tension supports.
 bool equilibriumShape(const TnaFormDiagram& design, const MeshData& start,
                       const Vector& q, const BestFitForceDensitySettings& settings,
-                      MeshData& candidate, TnaEquilibriumReport& report, std::string& failure) {
+                      MeshData& candidate, TnaEquilibriumReport& report, std::string& failure,
+                      const std::vector<int>& sliding = {}) {
     const int n = static_cast<int>(start.vertices.size());
-    const auto fixed = constraints(n, design.supportVertices, settings.loads.additionalFixedVertices);
+    const auto fixed = constraints(n, design.supportVertices, settings.loads.additionalFixedVertices, sliding);
+    std::vector<bool> isSliding(n, false);
+    for (int v : sliding) if (v >= 0 && v < n) isSliding[v] = true;
+
     Matrix D = Matrix::Zero(n, n);
     for (int i = 0; i < q.size(); ++i) {
         const auto& e = design.activeFormEdges[i];
@@ -146,6 +179,7 @@ bool equilibriumShape(const TnaFormDiagram& design, const MeshData& start,
     std::array<std::vector<int>, 3> free;
     std::array<Eigen::FullPivLU<Matrix>, 3> factors;
     std::array<Vector, 3> supportRhs;
+    const double penalty = settings.slidingSupportPenalty;
     for (int axis = 0; axis < 3; ++axis) {
         for (int v = 0; v < n; ++v) if (!fixed[v][axis]) free[axis].push_back(v);
         const int count = static_cast<int>(free[axis].size());
@@ -153,9 +187,15 @@ bool equilibriumShape(const TnaFormDiagram& design, const MeshData& start,
         Matrix reduced(count, count);
         supportRhs[axis] = Vector::Zero(count);
         for (int r = 0; r < count; ++r) {
-            for (int c = 0; c < count; ++c) reduced(r, c) = D(free[axis][r], free[axis][c]);
+            const int vr = free[axis][r];
+            for (int c = 0; c < count; ++c) reduced(r, c) = D(vr, free[axis][c]);
             for (int v = 0; v < n; ++v) if (fixed[v][axis])
-                supportRhs[axis][r] -= D(free[axis][r], v) * coordinate(design.mesh.vertices[v].position, axis);
+                supportRhs[axis][r] -= D(vr, v) * coordinate(design.mesh.vertices[v].position, axis);
+
+            if (axis < 2 && isSliding[vr] && penalty > 0.0) {
+                reduced(r, r) += penalty;
+                supportRhs[axis][r] += penalty * coordinate(design.mesh.vertices[vr].position, axis);
+            }
         }
         factors[axis].compute(reduced);
         if (!factors[axis].isInvertible()) { failure = "singular signed stiffness"; return false; }
@@ -184,7 +224,8 @@ bool equilibriumShape(const TnaFormDiagram& design, const MeshData& start,
             }
         }
         report = measureTnaEquilibrium(candidate, design.mesh, design.activeFormEdges,
-                                      densities, design.supportVertices, settings.loads);
+                                      densities, design.supportVertices, settings.loads,
+                                      settings.allowSlidingTensionSupports, settings.slidingSupportPenalty);
         if (!report.finite) { failure = "nonfinite equilibrium residual"; return false; }
         if (report.residual <= settings.loads.residualTolerance) {
             candidate.calculateNormals(); candidate.triangulationDirty = true;
@@ -199,7 +240,9 @@ bool equilibriumShape(const TnaFormDiagram& design, const MeshData& start,
 TnaEquilibriumReport measureTnaEquilibrium(
     const MeshData& mesh, const MeshData& reference, const std::vector<TnaEdge>& edges,
     const std::vector<float>& densities, const std::vector<int>& fixedXYZ,
-    const TnaVerticalSettings& settings) {
+    const TnaVerticalSettings& settings,
+    bool allowSlidingTensionSupports,
+    double slidingSupportPenalty) {
     TnaEquilibriumReport result;
     const int n = static_cast<int>(mesh.vertices.size());
     if (n == 0 || mesh.vertices.size() != reference.vertices.size() || edges.size() != densities.size() ||
@@ -215,15 +258,32 @@ TnaEquilibriumReport measureTnaEquilibrium(
         const auto force = (mesh.vertices[e.vertexA].position - mesh.vertices[e.vertexB].position) * densities[i];
         result.residuals[e.vertexA] -= force; result.residuals[e.vertexB] += force;
     }
-    auto fixed = constraints(n, fixedXYZ, settings.additionalFixedVertices);
+    const auto sliding = slidingSupports(fixedXYZ, edges, n, allowSlidingTensionSupports);
+    auto fixed = constraints(n, fixedXYZ, settings.additionalFixedVertices, sliding);
+    std::vector<bool> isSliding(n, false);
+    for (int v : sliding) if (v >= 0 && v < n) isSliding[v] = true;
+
     double distanceSquared = 0.0, horizontalSquared = 0.0, verticalSquared = 0.0;
     for (int v = 0; v < n; ++v) {
         if (!finite(result.residuals[v])) return result;
         for (int axis = 0; axis < 3; ++axis) {
             const double r = coordinate(result.residuals[v], axis);
-            if (fixed[v][axis]) coordinate(result.reactions[v], axis, -r);
-            else if (axis == 2) verticalSquared += r * r;
-            else horizontalSquared += r * r;
+            if (fixed[v][axis]) {
+                coordinate(result.reactions[v], axis, -r);
+            } else if (isSliding[v] && axis < 2) {
+                // Sliding support in XY: the ground reaction is vertical only (reactions[v].x = 0, reactions[v].y = 0).
+                // During equilibriumShape with penalty spring, r = penalty * (x - x0).
+                // Net unbalanced force including penalty constraint reaction:
+                const double d = coordinate(mesh.vertices[v].position, axis) -
+                                 coordinate(reference.vertices[v].position, axis);
+                const double rPenalty = -slidingSupportPenalty * d;
+                const double netUnbalanced = r + rPenalty;
+                horizontalSquared += netUnbalanced * netUnbalanced;
+            } else if (axis == 2) {
+                verticalSquared += r * r;
+            } else {
+                horizontalSquared += r * r;
+            }
         }
         const double d = (mesh.vertices[v].position - reference.vertices[v].position).length();
         if (!std::isfinite(d)) return result;
@@ -245,6 +305,7 @@ bool BestFitForceDensitySolver::reset(const TnaFormDiagram& design, const BestFi
     if (settings.maximumIterations < 1 || !std::isfinite(settings.designAttraction) || settings.designAttraction < 0 ||
         !std::isfinite(settings.minimumDensityMagnitude) || settings.minimumDensityMagnitude <= 0 ||
         !std::isfinite(settings.displacementTolerance) || settings.displacementTolerance <= 0 ||
+        !std::isfinite(settings.slidingSupportPenalty) || settings.slidingSupportPenalty < 0 ||
         !std::isfinite(settings.loads.residualTolerance) || settings.loads.residualTolerance <= 0 ||
         settings.loads.maximumIterations < 1 || !std::isfinite(settings.loads.nodalLoad) ||
         !std::isfinite(settings.loads.density) || settings.loads.density < 0 ||
@@ -259,6 +320,8 @@ bool BestFitForceDensitySolver::reset(const TnaFormDiagram& design, const BestFi
         if (face < 0 || face >= static_cast<int>(design.mesh.faces.size())) return fail("Invalid unloaded face index");
     for (int v : design.supportVertices) if (v < 0 || v >= n) return fail("Invalid black support index");
     for (int v : settings.loads.additionalFixedVertices) if (v < 0 || v >= n) return fail("Invalid red support index");
+    for (int e : settings.nearZeroEdges)
+        if (e < 0 || e >= static_cast<int>(design.activeFormEdges.size())) return fail("Invalid near-zero edge index");
     for (const auto& v : design.mesh.vertices) if (!finite(v.position)) return fail("Nonfinite input coordinates");
     for (const auto& face : design.mesh.faces) for (int v : face.vertices)
         if (v < 0 || v >= n) return fail("Invalid face vertex index");
@@ -286,11 +349,18 @@ void BestFitForceDensitySolver::step() {
     if (m_result.status != BestFitStatus::Running) return;
     const auto& edges = m_design.activeFormEdges;
     ++m_result.iteration;
-    const auto e = equations(m_result.mesh, edges, m_design.supportVertices, m_settings.loads);
+    std::vector<bool> nearZeroMask(edges.size(), false);
+    for (int idx : m_settings.nearZeroEdges) {
+        if (idx >= 0 && idx < static_cast<int>(edges.size())) nearZeroMask[idx] = true;
+    }
+    const auto sliding = slidingSupports(m_design.supportVertices, edges,
+                                         static_cast<int>(m_design.mesh.vertices.size()),
+                                         m_settings.allowSlidingTensionSupports);
+    const auto e = equations(m_result.mesh, edges, m_design.supportVertices, m_settings.loads, sliding);
     Vector q;
     if (!m_result.success) {
         // Bhooshan et al., IASS 2015, section 3.2 step 1, extended to signed bounds.
-        if (!boundedFit(e.A, e.p, edges, m_settings.minimumDensityMagnitude, q)) {
+        if (!boundedFit(e.A, e.p, edges, m_settings.minimumDensityMagnitude, q, nearZeroMask)) {
             m_result.status = BestFitStatus::Failed; m_result.diagnostic = "Initial bounded density fit did not converge"; return;
         }
     } else {
@@ -298,12 +368,12 @@ void BestFitForceDensitySolver::step() {
         // Paper steps 3-7: A*dq = residual + target force. Convert attraction
         // displacement to force with the current stiffness, using the sign
         // D*dx + A*dq = p - A*q. No CCF distance-from-plane projection.
-        const auto target = equations(m_design.mesh, edges, m_design.supportVertices, m_settings.loads);
+        const auto target = equations(m_design.mesh, edges, m_design.supportVertices, m_settings.loads, sliding);
         const Vector residual = e.p - e.A * q;
         const Vector targetForce = -m_settings.designAttraction * (target.A - e.A) * q;
         Vector proposed;
         if (!boundedFit(e.A, e.A * q + residual + targetForce, edges,
-                        m_settings.minimumDensityMagnitude, proposed)) {
+                        m_settings.minimumDensityMagnitude, proposed, nearZeroMask)) {
             m_result.status = BestFitStatus::Stagnated;
             m_result.diagnostic = "Step 1 stopped: bounded update stalled; retained best equilibrium shape"; return;
         }
@@ -319,7 +389,10 @@ void BestFitForceDensitySolver::step() {
     const Vector previous = initial ? q : vector(m_result.forceDensities);
     const double commonMagnitude = std::max(m_settings.minimumDensityMagnitude, q.cwiseAbs().mean());
     Vector common(q.size());
-    for (int i = 0; i < q.size(); ++i) common[i] = edges[i].isTension ? -commonMagnitude : commonMagnitude;
+    for (int i = 0; i < q.size(); ++i) {
+        if (nearZeroMask[i]) common[i] = (edges[i].isTension ? -1.0 : 1.0) * m_settings.minimumDensityMagnitude;
+        else common[i] = edges[i].isTension ? -commonMagnitude : commonMagnitude;
+    }
     // A residual-minimising q can lie near a signed stiffness mechanism.
     // Continue towards a connected, uniformly sized signed seed and test
     // force scales under self-weight. Keep the closest valid candidate;
@@ -327,10 +400,15 @@ void BestFitForceDensitySolver::step() {
     constexpr double blends[] = {0.0, .001, .01, .05, .1, .25, .5, 1.0};
     for (int trial = 0; trial < (initial ? 64 : 12); ++trial) {
         const double blend = initial ? blends[trial / 8] : 0.0;
-        const Vector trialQ = initial
+        Vector trialQ = initial
             ? Vector(((1.0 - blend) * q + blend * common) * std::pow(2.0, trial % 8))
             : Vector(previous + std::pow(0.5, trial) * (q - previous));
-        if (!equilibriumShape(m_design, start, trialQ, m_settings, candidate, report, failure)) continue;
+        for (int i = 0; i < q.size(); ++i) {
+            if (nearZeroMask[i]) {
+                trialQ[i] = (edges[i].isTension ? -1.0 : 1.0) * m_settings.minimumDensityMagnitude;
+            }
+        }
+        if (!equilibriumShape(m_design, start, trialQ, m_settings, candidate, report, failure, sliding)) continue;
         if (m_result.success && report.rmsDesignDistance >= m_result.report.rmsDesignDistance - 1e-9) continue;
         for (std::size_t i = 0; i < candidate.vertices.size(); ++i)
             movement = std::max(movement, double((candidate.vertices[i].position - m_result.mesh.vertices[i].position).length()));

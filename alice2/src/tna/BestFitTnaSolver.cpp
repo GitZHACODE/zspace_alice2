@@ -37,7 +37,9 @@ bool BestFitTnaSolver::exportable() const {
 void BestFitTnaSolver::fail(const std::string& message) { m_stage = BestFitTnaStage::Failed; m_diagnostic = message; }
 void BestFitTnaSolver::measure() {
     m_report = measureTnaEquilibrium(m_mesh, m_fit.design().mesh, m_edges, m_densities,
-                                    m_fit.design().supportVertices, m_fit.settings().loads);
+                                    m_fit.design().supportVertices, m_fit.settings().loads,
+                                    m_fit.settings().allowSlidingTensionSupports,
+                                    m_fit.settings().slidingSupportPenalty);
 }
 
 bool BestFitTnaSolver::startTna(int iterations, float angleTolerance, float tensionDistance) {

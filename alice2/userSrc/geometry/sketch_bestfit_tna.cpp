@@ -34,6 +34,8 @@ public:
         m_ui->addSlider("Nodal load", Vec2{10, 312}, 210, -0.01f, 10, m_verticalLoad);
         m_ui->addSlider("Self-weight density", Vec2{10, 340}, 210, 0, 10, m_density);
         m_ui->addSlider("Tension force distance (step 2)", Vec2{10, 368}, 240, -1, 10, m_tensionDistance);
+        m_ui->addSlider("Support force scale", Vec2{10, 396}, 240, 0, 5, m_supportForceScale);
+        m_ui->addSlider("Sliding support penalty", Vec2{10, 424}, 240, 1.0f, 1000.0f, m_slidingPenalty);
         reload();
     }
     void update(float) override {
@@ -52,12 +54,13 @@ public:
         if (m_showInput) drawMesh(renderer, m_inputMesh, Color(0.72f, 0.72f, 0.72f, 1), 0.8f);
         drawFormDiagram(renderer); drawForceDensities(renderer); drawForceDiagram(renderer); drawSupports(renderer);
         renderer.setColor(Color(0.06f, 0.06f, 0.06f, 1));
-        renderer.drawString("q fit XYZ | w fixed-XY TNA | r reload | e export | f frame | i original | a angles | d densities", 10, 30);
+        renderer.drawString("q fit XYZ | w fixed-XY TNA | r reload | e export | f frame | i original | a angles | d densities | o near zero", 10, 30);
         renderer.drawString(m_status, 10, 52);
-        renderer.drawString("Blue compression | pink tension | black fixed XYZ | red fixed Z", 10, 74);
+        renderer.drawString("Blue compression | pink tension | green support force | black fixed XYZ | red fixed Z", 10, 74);
         renderer.drawString(std::string("t boundary tension: ") + (m_tensionEnabled ? "ON" : "OFF") +
             " | b scope: " + (m_allBoundaryTension ? "ALL" : "OUTER") +
-            " | g grow: " + (m_growBoundaryTension ? "ON" : "OFF"), 10, 96);
+            " | g grow: " + (m_growBoundaryTension ? "ON" : "OFF") +
+            " | o near zero: " + (m_zeroGrowthDensity ? "ON" : "OFF"), 10, 96);
         renderer.drawString("Step 2 locks the XY coordinates produced by step 1.", 10, 118);
         const auto& report = m_solver.report();
         if (report.finite) {
@@ -91,6 +94,11 @@ public:
             case 't': case 'T': m_tensionEnabled = !m_tensionEnabled; reload(); return true;
             case 'b': case 'B': m_allBoundaryTension = !m_allBoundaryTension; reload(); return true;
             case 'g': case 'G': m_growBoundaryTension = !m_growBoundaryTension; reload(); return true;
+            case 'o': case 'O':
+                m_zeroGrowthDensity = !m_zeroGrowthDensity;
+                if (m_zeroGrowthDensity && !m_growBoundaryTension) m_growBoundaryTension = true;
+                reload();
+                return true;
             default: return false;
         }
     }
@@ -105,7 +113,7 @@ private:
         if (std::filesystem::exists(local)) return local;
         return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() / "data" / file;
     }
-    std::array<float, 4> fitControls() const { return {m_fitIterations, m_attraction, m_verticalLoad, m_density}; }
+    std::array<float, 5> fitControls() const { return {m_fitIterations, m_attraction, m_verticalLoad, m_density, m_slidingPenalty}; }
     std::array<float, 3> tnaControls() const { return {m_horizontalIterations, m_angleTolerance, m_tensionDistance}; }
     void sync() {
         if (!m_inputMesh || !m_result.success) return;
@@ -114,7 +122,6 @@ private:
         m_forceResult = m_solver.forceDiagram();
         m_forceMesh = m_forceResult.success ? std::make_shared<MeshData>(m_forceResult.mesh) : nullptr;
         m_status = m_solver.diagnostic();
-        if (!hadForce && m_forceMesh) frameDiagrams();
     }
     void frameDiagrams() {
         if (!m_inputMesh || m_inputMesh->vertices.empty() || !Application::getInstance()) return;
@@ -135,6 +142,7 @@ private:
     void reload() {
         m_solver = {}; m_forceResult = {}; m_result = {};
         m_formMesh.reset(); m_forceMesh.reset(); m_inputMesh.reset();
+        m_growthEdgeIndices.clear();
         m_appliedFitControls = fitControls(); m_appliedTnaControls = tnaControls();
         try {
             m_inputObject = std::make_shared<MeshObject>("bestfit_tna_input");
@@ -156,16 +164,21 @@ private:
             settings.loads.density = m_density;
             settings.loads.additionalFixedVertices = m_verticalOnlySupports;
             settings.loads.unloadedFaces = m_result.exteriorFormFaces;
+            settings.allowSlidingTensionSupports = m_allowSlidingTensionSupports;
+            settings.slidingSupportPenalty = m_slidingPenalty;
+            if (m_zeroGrowthDensity && m_growBoundaryTension) {
+                settings.nearZeroEdges = m_growthEdgeIndices;
+            }
             m_solver.reset(m_result, settings);
             m_status = m_solver.diagnostic();
             sync();
-            frameDiagrams();
         } catch (const std::exception& error) {
             m_inputMesh.reset(); m_status = std::string("Failed to load tna.obj: ") + error.what();
         }
     }
 
     bool growBoundaryTensionMark() {
+        m_growthEdgeIndices.clear();
         std::vector<bool> tensionVertices(m_result.mesh.vertices.size(), false);
         std::vector<bool> supports(m_result.mesh.vertices.size(), false);
         for (const int vertex : m_result.supportVertices) {
@@ -182,13 +195,15 @@ private:
         }
 
         std::vector<TnaEdge> growthEdges;
-        for (const TnaEdge& edge : m_result.activeFormEdges) {
+        for (int i = 0; i < static_cast<int>(m_result.activeFormEdges.size()); ++i) {
+            const TnaEdge& edge = m_result.activeFormEdges[i];
             if (edge.isTension || edge.vertexA < 0 || edge.vertexB < 0 ||
                 edge.vertexA >= static_cast<int>(tensionVertices.size()) ||
                 edge.vertexB >= static_cast<int>(tensionVertices.size())) continue;
             if (supports[edge.vertexA] || supports[edge.vertexB]) continue;
             if (tensionVertices[edge.vertexA] || tensionVertices[edge.vertexB]) {
                 growthEdges.push_back(edge);
+                m_growthEdgeIndices.push_back(i);
             }
         }
         return TnaSolver{}.setTensionEdges(m_result, growthEdges);
@@ -291,8 +306,80 @@ private:
         }
     }
 
+    Vec3 supportReactionForce(int vertex) const {
+        if (!m_formMesh || vertex < 0 || vertex >= static_cast<int>(m_formMesh->vertices.size())) {
+            return Vec3(0.0f, 0.0f, 0.0f);
+        }
+        const auto& report = m_solver.report();
+        if (report.finite && vertex < static_cast<int>(report.reactions.size())) {
+            const Vec3& r = report.reactions[vertex];
+            if (std::isfinite(r.x) && std::isfinite(r.y) && std::isfinite(r.z) &&
+                (r.x != 0.0f || r.y != 0.0f || r.z != 0.0f)) {
+                return r;
+            }
+        }
+        const auto& densities = m_solver.densities();
+        const auto& edges = m_solver.edges();
+        if (densities.empty() || edges.empty()) return Vec3(0.0f, 0.0f, 0.0f);
+        Vec3 force(0.0f, 0.0f, 0.0f);
+        const Vec3& p = m_formMesh->vertices[vertex].position;
+        for (std::size_t i = 0; i < edges.size() && i < densities.size(); ++i) {
+            const auto& edge = edges[i];
+            const float q = densities[i];
+            if (!std::isfinite(q)) continue;
+            if (edge.vertexA == vertex && edge.vertexB >= 0 &&
+                edge.vertexB < static_cast<int>(m_formMesh->vertices.size())) {
+                force += (p - m_formMesh->vertices[edge.vertexB].position) * q;
+            } else if (edge.vertexB == vertex && edge.vertexA >= 0 &&
+                       edge.vertexA < static_cast<int>(m_formMesh->vertices.size())) {
+                force += (p - m_formMesh->vertices[edge.vertexA].position) * q;
+            }
+        }
+        return force;
+    }
+
+    void drawSupportForces(Renderer& renderer) const {
+        if (!m_formMesh || m_supportForceScale <= 0.0f) return;
+        const Color greenColor(0.10f, 0.82f, 0.22f, 1.0f);
+        for (const int vertex : m_result.supportVertices) {
+            if (vertex < 0 || vertex >= static_cast<int>(m_formMesh->vertices.size())) continue;
+            const Vec3 p = m_formMesh->vertices[vertex].position;
+            const Vec3 force = supportReactionForce(vertex);
+            const float forceMagnitude = force.length();
+            if (!std::isfinite(forceMagnitude) || forceMagnitude < 1e-4f) continue;
+
+            const Vec3 pEnd = p + force * m_supportForceScale;
+            renderer.drawLine(p, pEnd, greenColor, 2.5f);
+
+            // Draw arrowhead at pEnd pointing in force direction
+            const Vec3 dir = force / forceMagnitude;
+            Vec3 up(0.0f, 0.0f, 1.0f);
+            if (std::abs(dir.z) > 0.9f) up = Vec3(1.0f, 0.0f, 0.0f);
+            Vec3 side = dir.cross(up).normalized();
+            Vec3 normal = dir.cross(side).normalized();
+
+            const float arrowLength = std::min(0.25f * forceMagnitude * m_supportForceScale, 0.25f);
+            const float arrowWidth = arrowLength * 0.4f;
+            const Vec3 arrowBase = pEnd - dir * arrowLength;
+
+            renderer.drawLine(pEnd, arrowBase + side * arrowWidth, greenColor, 2.0f);
+            renderer.drawLine(pEnd, arrowBase - side * arrowWidth, greenColor, 2.0f);
+            renderer.drawLine(pEnd, arrowBase + normal * arrowWidth, greenColor, 2.0f);
+            renderer.drawLine(pEnd, arrowBase - normal * arrowWidth, greenColor, 2.0f);
+            renderer.drawPoint(pEnd, greenColor, 4.0f);
+
+            if (m_showForceDensities) {
+                std::ostringstream mag;
+                mag << std::fixed << std::setprecision(2) << forceMagnitude;
+                renderer.setColor(greenColor);
+                renderer.drawText(mag.str(), pEnd + Vec3(0.0f, 0.0f, 0.01f), 1.0f);
+            }
+        }
+    }
+
     void drawSupports(Renderer& renderer) const {
         if (!m_formMesh) return;
+        drawSupportForces(renderer);
         for (const int vertex : m_result.supportVertices) {
             if (vertex < 0 || vertex >= static_cast<int>(m_formMesh->vertices.size())) continue;
             renderer.drawPoint(m_formMesh->vertices[vertex].position, Color(0.0f, 0.0f, 0.0f, 1.0f), 8.0f);
@@ -422,9 +509,14 @@ private:
     std::string m_status;
     float m_fitIterations{50}, m_attraction{1}, m_horizontalIterations{500}, m_angleTolerance{3};
     float m_verticalLoad{0.001f}, m_density{1}, m_tensionDistance{0};
-    std::array<float, 4> m_appliedFitControls{};
+    std::array<float, 5> m_appliedFitControls{};
     std::array<float, 3> m_appliedTnaControls{};
     bool m_tensionEnabled{true}, m_allBoundaryTension{false}, m_growBoundaryTension{false};
+    bool m_zeroGrowthDensity{false};
+    bool m_allowSlidingTensionSupports{true};
+    float m_slidingPenalty{100.0f};
+    std::vector<int> m_growthEdgeIndices;
+    float m_supportForceScale{0.4f};
     bool m_showInput{true}, m_showForceAngles{false}, m_showForceDensities{false};
 };
 

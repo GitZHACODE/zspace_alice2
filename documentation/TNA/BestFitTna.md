@@ -10,15 +10,20 @@ underlying geometry, densities and numerical checks always use solver units.
   step 1 stay fixed; forces and unconstrained heights may change.
 - **f** frames both diagrams; **i**, **a**, **d** toggle the reference, reciprocal
   angle labels and density labels.
-- **t**, **b**, **g** retain the original boundary-tension controls.
+- **t**, **b**, **g**, **o** retain the original boundary-tension controls and toggle near-zero vertical member constraint.
 - **r** reloads; **e** exports a valid completed stage to
   `data/bestfit_tna_formfound.obj`, without topology-only exterior faces.
 
-Black vertices remain fixed in XYZ in both stages. Red vertices retain their
-original Z but can move horizontally in step 1. Self-weight excludes exterior
-faces. Editing fitting controls invalidates both stages; editing TNA controls
-restores the fitted result without repeating step 1. A nonzero tension-force
-distance moves and fixes exclusively tension-connected dual vertices for step 2.
+Black vertices remain fixed in XYZ in both stages, except when a black support is
+connected to tension members: in step 1 it is allowed to slide in XY with a high
+penalty stiffness towards its reference position to prevent massive displacement,
+allowing compression and tension member forces to equilibrate in XY so the support
+load becomes purely vertical. Red vertices retain their original Z but can move
+horizontally in step 1. Self-weight excludes exterior faces. Editing fitting controls
+invalidates both stages; editing TNA controls restores the fitted result without
+repeating step 1. A nonzero tension-force distance moves and fixes exclusively
+tension-connected dual vertices for step 2. Support reaction forces are rendered as
+green lines and arrowheads.
 
 ## Numerical method
 
