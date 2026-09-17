@@ -146,6 +146,8 @@ struct TnaVerticalSettings {
     // Original vertex Z values. Only entries at support vertices are used;
     // this keeps the supports at their pre-flattening elevations.
     std::vector<float> supportHeights;
+    // Optional starting elevations for self-weight iteration (all vertices).
+    std::vector<float> initialHeights;
     // Vertices constrained only during vertical equilibrium. Horizontal
     // fixed vertices are always included as vertical supports as well.
     std::vector<int> additionalFixedVertices;
@@ -179,6 +181,11 @@ public:
                                    bool fallbackToAllBoundarySupports = false) const;
 
     TnaForceDiagram makeForceDiagram(const TnaFormDiagram& formDiagram) const;
+    // Densities are aligned with formDiagram.activeFormEdges, not mesh.edges.
+    TnaForceDiagram makeForceDiagram(const TnaFormDiagram& formDiagram,
+                                    const std::vector<float>& forceDensities) const;
+    static std::vector<float> vertexAreas(const MeshData& mesh,
+                                         const std::vector<int>& unloadedFaces = {});
 
     // Call after makeFormDiagram and before makeForceDiagram. Match active
     // edges by unordered endpoints; reject invalid selections atomically.

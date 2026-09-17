@@ -96,7 +96,8 @@ void rotateForceClockwise(MeshData& forceDiagram, const std::vector<Vec3>& rotat
 // also keeps the construction usable for meshes with multiple components.
 bool initialiseForceFromUnitDensities(MeshData& forceDiagram,
                                       const MeshData& formDiagram,
-                                      const std::vector<TnaEdge>& formEdges) {
+                                      const std::vector<TnaEdge>& formEdges,
+                                      const std::vector<float>& densities = {}) {
     if (forceDiagram.vertices.empty() || forceDiagram.edges.empty() ||
         forceDiagram.edges.size() != formEdges.size()) return false;
 
@@ -118,8 +119,9 @@ bool initialiseForceFromUnitDensities(MeshData& forceDiagram,
 
         const int first = forceEdge.vertexA;
         const int second = forceEdge.vertexB;
-        const Vec3 formVector = formDiagram.vertices[formEdge.vertexB].position -
-                                formDiagram.vertices[formEdge.vertexA].position;
+        const Vec3 formVector = (formDiagram.vertices[formEdge.vertexB].position -
+                                formDiagram.vertices[formEdge.vertexA].position) *
+                               (densities.empty() ? 1.0f : densities[edgeIndex]);
         // C^T (C_form * xy_form), for an oriented force edge first -> second.
         rhsX[first] -= formVector.x;
         rhsX[second] += formVector.x;
@@ -565,7 +567,27 @@ bool TnaSolver::setOuterBoundaryEdgesTension(TnaFormDiagram& form,
 }
 
 TnaForceDiagram TnaSolver::makeForceDiagram(const TnaFormDiagram& form) const {
+    return makeForceDiagram(form, {});
+}
+
+std::vector<float> TnaSolver::vertexAreas(const MeshData& mesh, const std::vector<int>& unloadedFaces) {
+    return tributaryAreas(mesh, std::unordered_set<int>(unloadedFaces.begin(), unloadedFaces.end()));
+}
+
+TnaForceDiagram TnaSolver::makeForceDiagram(const TnaFormDiagram& form,
+                                           const std::vector<float>& densities) const {
     TnaForceDiagram result;
+    if (!densities.empty() && densities.size() != form.activeFormEdges.size()) {
+        result.diagnostic = "Seed densities must match active form edges";
+        return result;
+    }
+    for (std::size_t i = 0; i < densities.size(); ++i) {
+        if (!std::isfinite(densities[i]) ||
+            (form.activeFormEdges[i].isTension ? densities[i] >= 0.0f : densities[i] <= 0.0f)) {
+            result.diagnostic = "Seed densities must be finite and respect tension/compression marks";
+            return result;
+        }
+    }
     const MeshData& formDiagram = form.mesh;
     if (formDiagram.vertices.empty() || formDiagram.faces.empty()) {
         result.diagnostic = "TNA force diagram needs a form mesh with vertices and faces";
@@ -685,7 +707,7 @@ TnaForceDiagram TnaSolver::makeForceDiagram(const TnaFormDiagram& form) const {
 
     const bool forceInitialised = missingReciprocalEdges == 0 &&
                                   initialiseForceFromUnitDensities(result.mesh, formDiagram,
-                                                                   result.reciprocalFormEdges);
+                                                                   result.reciprocalFormEdges, densities);
     if (forceInitialised) {
         result.edgeAnglesDegrees = reciprocalAngles(formDiagram, result.mesh,
                                                      result.reciprocalFormEdges);
@@ -702,7 +724,7 @@ TnaForceDiagram TnaSolver::makeForceDiagram(const TnaFormDiagram& form) const {
         status << " (" << missingReciprocalEdges << " active form edges have no dual edge)";
     }
     if (!forceInitialised) {
-        status << " (could not initialise reciprocal unit-density force geometry)";
+        status << " (could not initialise reciprocal force geometry)";
     }
     result.diagnostic = status.str();
     result.success = !result.mesh.vertices.empty() &&
@@ -905,7 +927,8 @@ bool TnaSolver::solveVerticalEquilibrium(const TnaVerticalSettings& settings) {
         !std::isfinite(settings.residualTolerance) || settings.residualTolerance < 0.0f ||
         !std::isfinite(settings.nodalLoad) || !std::isfinite(settings.density) ||
         !std::isfinite(settings.thickness) || !finiteValues(settings.nodalLoads) ||
-        !finiteValues(settings.thicknesses) || !finiteValues(settings.supportHeights)) {
+        !finiteValues(settings.thicknesses) || !finiteValues(settings.supportHeights) ||
+        !finiteValues(settings.initialHeights)) {
         result.diagnostic = "Vertical equilibrium needs finite inputs, a positive force scale and nonnegative tolerance";
         return false;
     }
@@ -919,6 +942,14 @@ bool TnaSolver::solveVerticalEquilibrium(const TnaVerticalSettings& settings) {
 
     result.formDiagram = horizontal.formDiagram;
     const int vertexCount = static_cast<int>(result.formDiagram.vertices.size());
+    if (!settings.initialHeights.empty()) {
+        if (settings.initialHeights.size() != result.formDiagram.vertices.size()) {
+            result.diagnostic = "Initial heights must contain one Z value per vertex";
+            return false;
+        }
+        for (int v = 0; v < vertexCount; ++v)
+            result.formDiagram.vertices[v].position.z = settings.initialHeights[v];
+    }
     std::vector<bool> fixed(vertexCount, false);
     for (const int vertex : horizontal.fixedFormVertices) {
         if (validVertex(result.formDiagram, vertex)) fixed[vertex] = true;
