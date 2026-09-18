@@ -24,7 +24,12 @@ TnaEquilibriumReport measureTnaEquilibrium(
     const std::vector<float>& densities, const std::vector<int>& fixedXYZ,
     const TnaVerticalSettings& loads,
     bool allowSlidingTensionSupports = true,
-    double slidingSupportPenalty = 100.0);
+    double slidingSupportPenalty = 5.0);
+
+std::vector<int> slidingSupports(const std::vector<int>& supports,
+                                 const std::vector<TnaEdge>& edges,
+                                 int count,
+                                 bool enabled = true);
 
 struct BestFitForceDensitySettings {
     TnaVerticalSettings loads;
@@ -34,7 +39,7 @@ struct BestFitForceDensitySettings {
     double displacementTolerance{1e-5};
     std::vector<int> nearZeroEdges;
     bool allowSlidingTensionSupports{true};
-    double slidingSupportPenalty{100.0};
+    double slidingSupportPenalty{5.0};
 };
 
 enum class BestFitStatus { Idle, Running, Converged, Stagnated, IterationLimit, Failed };

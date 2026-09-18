@@ -8,8 +8,11 @@
 #include <array>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <memory>
+#include <nlohmann/json.hpp>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -35,7 +38,7 @@ public:
         m_ui->addSlider("Self-weight density", Vec2{10, 340}, 210, 0, 10, m_density);
         m_ui->addSlider("Tension force distance (step 2)", Vec2{10, 368}, 240, -1, 10, m_tensionDistance);
         m_ui->addSlider("Support force scale", Vec2{10, 396}, 240, 0, 5, m_supportForceScale);
-        m_ui->addSlider("Sliding support penalty", Vec2{10, 424}, 240, 1.0f, 1000.0f, m_slidingPenalty);
+        m_ui->addSlider("Sliding support penalty", Vec2{10, 424}, 240, 0.01f, 500.0f, m_slidingPenalty);
         reload();
     }
     void update(float) override {
@@ -117,7 +120,6 @@ private:
     std::array<float, 3> tnaControls() const { return {m_horizontalIterations, m_angleTolerance, m_tensionDistance}; }
     void sync() {
         if (!m_inputMesh || !m_result.success) return;
-        const bool hadForce = static_cast<bool>(m_forceMesh);
         m_formMesh = std::make_shared<MeshData>(m_solver.mesh());
         m_forceResult = m_solver.forceDiagram();
         m_forceMesh = m_forceResult.success ? std::make_shared<MeshData>(m_forceResult.mesh) : nullptr;
@@ -210,14 +212,15 @@ private:
     }
 
     void exportFormFoundMesh() {
-        if (!m_solver.exportable() || !m_formMesh || m_formMesh->faces.empty()) {
+        if (!m_formMesh || m_formMesh->faces.empty() ||
+            (!m_solver.exportable() && !m_solver.fitResult().success)) {
             m_status = "Finish a valid equilibrium stage before exporting";
             return;
         }
 
         // The form diagram includes exterior n-gons solely to complete the
         // topology needed for the reciprocal force diagram. They are not part
-        // of the physical form-found surface, so omit them from the OBJ.
+        // of the physical form-found surface, so omit them from the OBJ and mesh JSON.
         std::vector<bool> exteriorFaces(m_formMesh->faces.size(), false);
         for (const int face : m_result.exteriorFormFaces) {
             if (face >= 0 && face < static_cast<int>(exteriorFaces.size())) {
@@ -234,10 +237,179 @@ private:
         exportMesh.calculateNormals();
         exportMesh.triangulationDirty = true;
 
+        const auto objPath = dataPath("bestfit_tna_formfound.obj");
         MeshObject output("bestfit_tna_formfound");
-        output.setMeshData(std::make_shared<MeshData>(std::move(exportMesh)));
-        output.writeToObj(dataPath("bestfit_tna_formfound.obj").string());
-        m_status = "Exported clean form-found mesh to data/bestfit_tna_formfound.obj";
+        output.setMeshData(std::make_shared<MeshData>(exportMesh));
+        output.writeToObj(objPath.string());
+
+        // Extract unique undirected edges from clean surface mesh faces
+        std::set<std::pair<int, int>> uniqueEdges;
+        for (const auto& face : exportMesh.faces) {
+            const int k = static_cast<int>(face.vertices.size());
+            for (int i = 0; i < k; ++i) {
+                int u = face.vertices[i];
+                int v = face.vertices[(i + 1) % k];
+                if (u > v) std::swap(u, v);
+                uniqueEdges.emplace(u, v);
+            }
+        }
+
+        using json = nlohmann::json;
+
+        // 1. Mesh JSON (V, E, F)
+        json meshJson;
+        meshJson["V"] = json::array();
+        for (const auto& vertex : exportMesh.vertices) {
+            meshJson["V"].push_back({vertex.position.x, vertex.position.y, vertex.position.z});
+        }
+        meshJson["E"] = json::array();
+        for (const auto& edge : uniqueEdges) {
+            meshJson["E"].push_back({edge.first, edge.second});
+        }
+        meshJson["F"] = json::array();
+        for (const auto& face : exportMesh.faces) {
+            meshJson["F"].push_back(face.vertices);
+        }
+
+        const auto exportDir = objPath.parent_path();
+        const auto meshJsonPath = exportDir / "bestfit_tna_mesh.json";
+        {
+            std::ofstream meshFile(meshJsonPath);
+            if (meshFile.is_open()) {
+                meshFile << meshJson.dump(2);
+            }
+        }
+
+        // 2. Diagrams JSON: form & force diagrams, constraints regions, resolved densities, residual angles
+        const auto sliding = slidingSupports(m_result.supportVertices, m_solver.edges(),
+                                             static_cast<int>(m_formMesh->vertices.size()),
+                                             m_allowSlidingTensionSupports);
+        std::vector<bool> isSliding(m_formMesh->vertices.size(), false);
+        for (int v : sliding) if (v >= 0 && v < static_cast<int>(isSliding.size())) isSliding[v] = true;
+
+        std::vector<int> fixedSupports;
+        for (int v : m_result.supportVertices) {
+            if (!isSliding[v]) fixedSupports.push_back(v);
+        }
+
+        auto safeFloat = [](float val) -> json {
+            if (!std::isfinite(val)) return nullptr;
+            return val;
+        };
+
+        const auto& densities = m_solver.densities();
+        const auto& edges = m_solver.edges();
+        const auto& force = m_solver.forceDiagram();
+
+        json diagramsJson;
+
+        // Constraint regions
+        json constraintsJson;
+        constraintsJson["fixed_supports"] = fixedSupports;
+        constraintsJson["sliding_supports"] = sliding;
+        constraintsJson["vertical_supports"] = m_verticalOnlySupports;
+        diagramsJson["constraints"] = constraintsJson;
+        diagramsJson["fixed_supports"] = fixedSupports;
+        diagramsJson["sliding_supports"] = sliding;
+        diagramsJson["vertical_supports"] = m_verticalOnlySupports;
+
+        // Support reaction forces for all support types (fixed, sliding, vertical)
+        json supportForcesJson = json::array();
+        auto addSupportForce = [&](int v, const std::string& type) {
+            Vec3 f = supportReactionForce(v);
+            json s;
+            s["vertex"] = v;
+            s["type"] = type;
+            s["force"] = {safeFloat(f.x), safeFloat(f.y), safeFloat(f.z)};
+            s["magnitude"] = safeFloat(f.length());
+            supportForcesJson.push_back(s);
+        };
+        for (int v : fixedSupports) addSupportForce(v, "fixed");
+        for (int v : sliding) addSupportForce(v, "sliding");
+        for (int v : m_verticalOnlySupports) addSupportForce(v, "vertical");
+        diagramsJson["support_forces"] = supportForcesJson;
+
+        // Resolved force densities
+        json resolvedDensitiesJson = json::array();
+        for (float q : densities) resolvedDensitiesJson.push_back(safeFloat(q));
+        diagramsJson["resolved_force_densities"] = resolvedDensitiesJson;
+
+        // Residual angles
+        json residualAnglesJson = json::array();
+        for (float angle : force.edgeDirectionDeviationsDegrees) residualAnglesJson.push_back(safeFloat(angle));
+        diagramsJson["residual_angles"] = residualAnglesJson;
+        diagramsJson["residual_angles_degrees"] = residualAnglesJson;
+
+        // Form diagram
+        json formDiagramJson;
+        formDiagramJson["vertices"] = json::array();
+        for (const auto& v : m_formMesh->vertices) {
+            formDiagramJson["vertices"].push_back({v.position.x, v.position.y, v.position.z});
+        }
+        formDiagramJson["edges"] = json::array();
+        for (std::size_t i = 0; i < edges.size(); ++i) {
+            json eJson;
+            eJson["index"] = static_cast<int>(i);
+            eJson["u"] = edges[i].vertexA;
+            eJson["v"] = edges[i].vertexB;
+            eJson["is_tension"] = edges[i].isTension;
+            eJson["force_density"] = i < densities.size() ? safeFloat(densities[i]) : nullptr;
+            formDiagramJson["edges"].push_back(eJson);
+        }
+        formDiagramJson["active_edges"] = json::array();
+        for (const auto& e : edges) {
+            formDiagramJson["active_edges"].push_back({e.vertexA, e.vertexB});
+        }
+        formDiagramJson["exterior_faces"] = m_result.exteriorFormFaces;
+        formDiagramJson["resolved_force_densities"] = resolvedDensitiesJson;
+        diagramsJson["form_diagram"] = formDiagramJson;
+
+        // Force diagram
+        json forceDiagramJson;
+        forceDiagramJson["success"] = force.success;
+        forceDiagramJson["vertices"] = json::array();
+        forceDiagramJson["edges"] = json::array();
+        forceDiagramJson["reciprocal_form_edges"] = json::array();
+        forceDiagramJson["reciprocal_angles_degrees"] = json::array();
+        forceDiagramJson["residual_angles_degrees"] = residualAnglesJson;
+
+        if (force.success) {
+            for (const auto& v : force.mesh.vertices) {
+                forceDiagramJson["vertices"].push_back({v.position.x, v.position.y, v.position.z});
+            }
+            for (const auto& e : force.mesh.edges) {
+                forceDiagramJson["edges"].push_back({e.vertexA, e.vertexB});
+            }
+            for (const auto& e : force.reciprocalFormEdges) {
+                forceDiagramJson["reciprocal_form_edges"].push_back({e.vertexA, e.vertexB});
+            }
+            for (float angle : force.edgeAnglesDegrees) {
+                forceDiagramJson["reciprocal_angles_degrees"].push_back(safeFloat(angle));
+            }
+        }
+        diagramsJson["force_diagram"] = forceDiagramJson;
+
+        // Equilibrium report metrics
+        const auto& report = m_solver.report();
+        if (report.finite) {
+            json eqJson;
+            eqJson["residual"] = safeFloat(static_cast<float>(report.residual));
+            eqJson["horizontal_residual"] = safeFloat(static_cast<float>(report.horizontalResidual));
+            eqJson["vertical_residual"] = safeFloat(static_cast<float>(report.verticalResidual));
+            eqJson["rms_design_distance"] = safeFloat(static_cast<float>(report.rmsDesignDistance));
+            eqJson["max_design_distance"] = safeFloat(static_cast<float>(report.maximumDesignDistance));
+            diagramsJson["equilibrium"] = eqJson;
+        }
+
+        const auto diagramsJsonPath = exportDir / "bestfit_tna_diagrams.json";
+        {
+            std::ofstream diagFile(diagramsJsonPath);
+            if (diagFile.is_open()) {
+                diagFile << diagramsJson.dump(2);
+            }
+        }
+
+        m_status = "Exported OBJ, bestfit_tna_mesh.json, and bestfit_tna_diagrams.json";
     }
 
     static std::vector<int> blackVertexSupports(const MeshData& mesh) {
@@ -341,7 +513,13 @@ private:
     void drawSupportForces(Renderer& renderer) const {
         if (!m_formMesh || m_supportForceScale <= 0.0f) return;
         const Color greenColor(0.10f, 0.82f, 0.22f, 1.0f);
-        for (const int vertex : m_result.supportVertices) {
+        std::vector<int> allSupports = m_result.supportVertices;
+        for (const int v : m_verticalOnlySupports) {
+            if (std::find(allSupports.begin(), allSupports.end(), v) == allSupports.end()) {
+                allSupports.push_back(v);
+            }
+        }
+        for (const int vertex : allSupports) {
             if (vertex < 0 || vertex >= static_cast<int>(m_formMesh->vertices.size())) continue;
             const Vec3 p = m_formMesh->vertices[vertex].position;
             const Vec3 force = supportReactionForce(vertex);
@@ -514,7 +692,7 @@ private:
     bool m_tensionEnabled{true}, m_allBoundaryTension{false}, m_growBoundaryTension{false};
     bool m_zeroGrowthDensity{false};
     bool m_allowSlidingTensionSupports{true};
-    float m_slidingPenalty{100.0f};
+    float m_slidingPenalty{50.0f};
     std::vector<int> m_growthEdgeIndices;
     float m_supportForceScale{0.4f};
     bool m_showInput{true}, m_showForceAngles{false}, m_showForceDensities{false};

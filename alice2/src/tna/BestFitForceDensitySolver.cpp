@@ -9,19 +9,7 @@
 #include <sstream>
 
 namespace alice2 {
-namespace {
-using Matrix = Eigen::MatrixXd;
-using Vector = Eigen::VectorXd;
 
-double coordinate(const Vec3& p, int axis) { return axis == 0 ? p.x : axis == 1 ? p.y : p.z; }
-void coordinate(Vec3& p, int axis, double value) {
-    if (axis == 0) p.x = static_cast<float>(value);
-    else if (axis == 1) p.y = static_cast<float>(value);
-    else p.z = static_cast<float>(value);
-}
-bool finite(const Vec3& p) {
-    return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
-}
 std::vector<int> slidingSupports(const std::vector<int>& supports,
                                  const std::vector<TnaEdge>& edges,
                                  int count,
@@ -41,6 +29,20 @@ std::vector<int> slidingSupports(const std::vector<int>& supports,
         }
     }
     return sliding;
+}
+
+namespace {
+using Matrix = Eigen::MatrixXd;
+using Vector = Eigen::VectorXd;
+
+double coordinate(const Vec3& p, int axis) { return axis == 0 ? p.x : axis == 1 ? p.y : p.z; }
+void coordinate(Vec3& p, int axis, double value) {
+    if (axis == 0) p.x = static_cast<float>(value);
+    else if (axis == 1) p.y = static_cast<float>(value);
+    else p.z = static_cast<float>(value);
+}
+bool finite(const Vec3& p) {
+    return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
 }
 std::vector<std::array<bool, 3>> constraints(int count, const std::vector<int>& xyz,
                                               const std::vector<int>& z,
@@ -285,7 +287,9 @@ TnaEquilibriumReport measureTnaEquilibrium(
                 horizontalSquared += r * r;
             }
         }
-        const double d = (mesh.vertices[v].position - reference.vertices[v].position).length();
+        const double d = isSliding[v]
+            ? std::abs(coordinate(mesh.vertices[v].position, 2) - coordinate(reference.vertices[v].position, 2))
+            : (mesh.vertices[v].position - reference.vertices[v].position).length();
         if (!std::isfinite(d)) return result;
         distanceSquared += d * d; result.maximumDesignDistance = std::max(result.maximumDesignDistance, d);
     }
@@ -370,7 +374,16 @@ void BestFitForceDensitySolver::step() {
         // D*dx + A*dq = p - A*q. No CCF distance-from-plane projection.
         const auto target = equations(m_design.mesh, edges, m_design.supportVertices, m_settings.loads, sliding);
         const Vector residual = e.p - e.A * q;
-        const Vector targetForce = -m_settings.designAttraction * (target.A - e.A) * q;
+        Vector targetForce = -m_settings.designAttraction * (target.A - e.A) * q;
+        std::vector<bool> isSliding(m_design.mesh.vertices.size(), false);
+        for (int v : sliding) if (v >= 0 && v < static_cast<int>(isSliding.size())) isSliding[v] = true;
+        for (int r = 0; r < static_cast<int>(e.rows.size()); ++r) {
+            const int v = e.rows[r].first;
+            const int axis = e.rows[r].second;
+            if (isSliding[v] && axis < 2) {
+                targetForce[r] = 0.0;
+            }
+        }
         Vector proposed;
         if (!boundedFit(e.A, e.A * q + residual + targetForce, edges,
                         m_settings.minimumDensityMagnitude, proposed, nearZeroMask)) {
