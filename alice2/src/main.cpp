@@ -3,8 +3,14 @@
 
 #include "../include/alice2.h"
 #include <iostream>
+#include <string>
+#include "tna/BestFitTnaChecks.h"
 
 int main(int argc, char** argv) {
+    if (argc > 1 && std::string(argv[1]) == "--check-bestfit-tna")
+        return alice2::runBestFitTnaChecks(argc > 2 ? argv[2] : nullptr);
+    if (argc > 2 && std::string(argv[1]) == "--benchmark-bestfit-tna")
+        return alice2::runBestFitTnaBenchmark(argv[2]);
     std::cout << "alice2 - 3D Scene Viewer" << std::endl;
     std::cout << "=========================" << std::endl;
     

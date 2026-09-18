@@ -1,6 +1,7 @@
 #pragma once
 
 #include "TnaSolver.h"
+#include <Eigen/Core>
 
 namespace alice2 {
 
@@ -54,6 +55,10 @@ struct BestFitForceDensityResult {
     std::vector<float> forceDensities;
     TnaEquilibriumReport report;
     int iteration{0};
+    // Cumulative timings, excluding display/force-diagram construction.
+    double densityFitSeconds{0.0};
+    double equilibriumSeconds{0.0};
+    int equilibriumTrials{0};
 };
 
 class BestFitForceDensitySolver {
@@ -68,6 +73,9 @@ private:
     TnaFormDiagram m_design;
     BestFitForceDensitySettings m_settings;
     BestFitForceDensityResult m_result;
+    Eigen::MatrixXd m_referenceEquilibrium;
+    std::vector<int> m_slidingSupports;
+    std::vector<bool> m_nearZeroMask;
 };
 
 } // namespace alice2

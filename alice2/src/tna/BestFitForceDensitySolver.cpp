@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <chrono>
 #include <limits>
 #include <set>
 #include <sstream>
@@ -58,6 +59,8 @@ std::vector<std::array<bool, 3>> constraints(int count, const std::vector<int>& 
     return fixed;
 }
 std::vector<float> verticalLoads(const MeshData& mesh, const TnaVerticalSettings& settings) {
+    if (settings.density == 0.0f)
+        return settings.nodalLoads.empty() ? std::vector<float>(mesh.vertices.size(), settings.nodalLoad) : settings.nodalLoads;
     auto areas = TnaSolver::vertexAreas(mesh, settings.unloadedFaces);
     for (std::size_t i = 0; i < areas.size(); ++i) {
         const float base = settings.nodalLoads.empty() ? settings.nodalLoad : settings.nodalLoads[i];
@@ -104,7 +107,8 @@ Equations equations(const MeshData& mesh, const std::vector<TnaEdge>& edges,
 // Lawson-Hanson active-set NNLS on signed columns, shifted by the lower
 // magnitude bound. COD handles dependent columns without inverting A^T A.
 bool boundedFit(const Matrix& A, const Vector& b, const std::vector<TnaEdge>& edges,
-                double lower, Vector& q, const std::vector<bool>& nearZero = {}) {
+                double lower, Vector& q, const std::vector<bool>& nearZero = {},
+                const Vector* seed = nullptr) {
     const int n = static_cast<int>(edges.size());
     Matrix B = A;
     Vector sign(n);
@@ -112,24 +116,40 @@ bool boundedFit(const Matrix& A, const Vector& b, const std::vector<TnaEdge>& ed
     const Vector rhs = b - B * Vector::Constant(n, lower);
     Vector x = Vector::Zero(n);
     std::vector<bool> passive(n, false);
+    bool refitSeed = false;
+    if (seed && seed->size() == n && seed->allFinite()) {
+        for (int i = 0; i < n; ++i) {
+            if (!nearZero.empty() && nearZero[i]) continue;
+            x[i] = std::max(0.0, sign[i] * (*seed)[i] - lower);
+            passive[i] = x[i] > 1e-12;
+            if (!passive[i]) x[i] = 0.0;
+            refitSeed = refitSeed || passive[i];
+        }
+    }
     const double tolerance = 1e-10 * std::max(1.0, (B.transpose() * rhs).lpNorm<Eigen::Infinity>());
     int budget = std::max(100, 10 * n);
     while (--budget > 0) {
-        Vector gradient = B.transpose() * (rhs - B * x);
-        int entering = -1;
-        double maximum = tolerance;
-        for (int i = 0; i < n; ++i) {
-            if (!nearZero.empty() && nearZero[i]) continue;
-            if (!passive[i] && gradient[i] > maximum) { maximum = gradient[i]; entering = i; }
+        // Re-solve the seeded passive set for the NEW geometry/RHS before
+        // checking inactive gradients; the old solution is only feasible.
+        if (!refitSeed) {
+            Vector gradient = B.transpose() * (rhs - B * x);
+            int entering = -1;
+            double maximum = tolerance;
+            for (int i = 0; i < n; ++i) {
+                if (!nearZero.empty() && nearZero[i]) continue;
+                if (!passive[i] && gradient[i] > maximum) { maximum = gradient[i]; entering = i; }
+            }
+            if (entering < 0) {
+                q = sign.cwiseProduct(x.array().max(0.0).matrix() + Vector::Constant(n, lower));
+                return q.allFinite();
+            }
+            passive[entering] = true;
         }
-        if (entering < 0) {
-            q = sign.cwiseProduct(x.array().max(0.0).matrix() + Vector::Constant(n, lower));
-            return q.allFinite();
-        }
-        passive[entering] = true;
+        refitSeed = false;
         while (--budget > 0) {
             std::vector<int> ids;
             for (int i = 0; i < n; ++i) if (passive[i]) ids.push_back(i);
+            if (ids.empty()) { x.setZero(); break; }
             Matrix selected(B.rows(), ids.size());
             for (int i = 0; i < static_cast<int>(ids.size()); ++i) selected.col(i) = B.col(ids[i]);
             Vector solved = selected.completeOrthogonalDecomposition().solve(rhs);
@@ -186,34 +206,39 @@ bool equilibriumShape(const TnaFormDiagram& design, const MeshData& start,
         for (int v = 0; v < n; ++v) if (!fixed[v][axis]) free[axis].push_back(v);
         const int count = static_cast<int>(free[axis].size());
         if (count == 0) continue;
-        Matrix reduced(count, count);
+        // X and Y always have identical free sets and spring diagonals.
+        Matrix reduced;
+        if (axis != 1) reduced.resize(count, count);
         supportRhs[axis] = Vector::Zero(count);
         for (int r = 0; r < count; ++r) {
             const int vr = free[axis][r];
-            for (int c = 0; c < count; ++c) reduced(r, c) = D(vr, free[axis][c]);
+            if (axis != 1)
+                for (int c = 0; c < count; ++c) reduced(r, c) = D(vr, free[axis][c]);
             for (int v = 0; v < n; ++v) if (fixed[v][axis])
                 supportRhs[axis][r] -= D(vr, v) * coordinate(design.mesh.vertices[v].position, axis);
 
             if (axis < 2 && isSliding[vr] && penalty > 0.0) {
-                reduced(r, r) += penalty;
+                if (axis != 1) reduced(r, r) += penalty;
                 supportRhs[axis][r] += penalty * coordinate(design.mesh.vertices[vr].position, axis);
             }
         }
-        factors[axis].compute(reduced);
-        if (!factors[axis].isInvertible()) { failure = "singular signed stiffness"; return false; }
+        if (axis != 1) {
+            factors[axis].compute(reduced);
+            if (!factors[axis].isInvertible()) { failure = "singular signed stiffness"; return false; }
+        }
     }
     candidate = start;
     double scale = 1.0;
     for (const auto& v : design.mesh.vertices)
         scale = std::max(scale, double((v.position - design.mesh.vertices.front().position).length()));
     auto densities = floats(q);
+    auto loads = verticalLoads(candidate, settings.loads);
     for (int iteration = 0; iteration < std::max(1, settings.loads.maximumIterations); ++iteration) {
-        const auto loads = verticalLoads(candidate, settings.loads);
         for (int axis = 0; axis < 3; ++axis) {
-            if (free[axis].empty()) continue;
+            if (free[axis].empty() || (iteration > 0 && axis < 2)) continue;
             Vector rhs = supportRhs[axis];
             if (axis == 2) for (int r = 0; r < rhs.size(); ++r) rhs[r] += loads[free[axis][r]];
-            Vector solved = factors[axis].solve(rhs);
+            Vector solved = factors[axis == 1 ? 0 : axis].solve(rhs);
             if (!solved.allFinite()) { failure = "nonfinite FDM solve"; return false; }
             for (int r = 0; r < solved.size(); ++r) coordinate(candidate.vertices[free[axis][r]].position, axis, solved[r]);
         }
@@ -233,6 +258,8 @@ bool equilibriumShape(const TnaFormDiagram& design, const MeshData& start,
             candidate.calculateNormals(); candidate.triangulationDirty = true;
             return true;
         }
+        // The residual check already calculated loads on the updated shape.
+        loads = std::move(report.loads);
     }
     failure = "self-weight residual " + std::to_string(report.residual);
     return false;
@@ -345,6 +372,12 @@ bool BestFitForceDensitySolver::reset(const TnaFormDiagram& design, const BestFi
     while (!pending.empty()) { const int v = pending.back(); pending.pop_back();
         for (int u : neighbours[v]) if (!reached[u]) { reached[u] = true; pending.push_back(u); } }
     if (std::find(reached.begin(), reached.end(), false) != reached.end()) return fail("Every active component needs a black support");
+    m_slidingSupports = slidingSupports(design.supportVertices, design.activeFormEdges, n,
+                                        settings.allowSlidingTensionSupports);
+    m_nearZeroMask.assign(design.activeFormEdges.size(), false);
+    for (int edge : settings.nearZeroEdges) m_nearZeroMask[edge] = true;
+    m_referenceEquilibrium = equations(design.mesh, design.activeFormEdges, design.supportVertices,
+                                       settings.loads, m_slidingSupports).A;
     m_result.status = BestFitStatus::Running; m_result.diagnostic = "Step 1: fitting signed densities on original design";
     return true;
 }
@@ -353,18 +386,23 @@ void BestFitForceDensitySolver::step() {
     if (m_result.status != BestFitStatus::Running) return;
     const auto& edges = m_design.activeFormEdges;
     ++m_result.iteration;
-    std::vector<bool> nearZeroMask(edges.size(), false);
-    for (int idx : m_settings.nearZeroEdges) {
-        if (idx >= 0 && idx < static_cast<int>(edges.size())) nearZeroMask[idx] = true;
-    }
-    const auto sliding = slidingSupports(m_design.supportVertices, edges,
-                                         static_cast<int>(m_design.mesh.vertices.size()),
-                                         m_settings.allowSlidingTensionSupports);
+    const auto& nearZeroMask = m_nearZeroMask;
+    const auto& sliding = m_slidingSupports;
     const auto e = equations(m_result.mesh, edges, m_design.supportVertices, m_settings.loads, sliding);
+    const auto fitDensities = [&](const Vector& rhs, Vector& output, const Vector* seed = nullptr) {
+        const auto begin = std::chrono::steady_clock::now();
+        bool success = boundedFit(e.A, rhs, edges, m_settings.minimumDensityMagnitude, output, nearZeroMask, seed);
+        // Degenerate warm starts can cycle. Preserve the original cold solver
+        // as a bounded fallback, including its rank-revealing decomposition.
+        if (!success && seed)
+            success = boundedFit(e.A, rhs, edges, m_settings.minimumDensityMagnitude, output, nearZeroMask);
+        m_result.densityFitSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - begin).count();
+        return success;
+    };
     Vector q;
     if (!m_result.success) {
         // Bhooshan et al., IASS 2015, section 3.2 step 1, extended to signed bounds.
-        if (!boundedFit(e.A, e.p, edges, m_settings.minimumDensityMagnitude, q, nearZeroMask)) {
+        if (!fitDensities(e.p, q)) {
             m_result.status = BestFitStatus::Failed; m_result.diagnostic = "Initial bounded density fit did not converge"; return;
         }
     } else {
@@ -372,9 +410,8 @@ void BestFitForceDensitySolver::step() {
         // Paper steps 3-7: A*dq = residual + target force. Convert attraction
         // displacement to force with the current stiffness, using the sign
         // D*dx + A*dq = p - A*q. No CCF distance-from-plane projection.
-        const auto target = equations(m_design.mesh, edges, m_design.supportVertices, m_settings.loads, sliding);
         const Vector residual = e.p - e.A * q;
-        Vector targetForce = -m_settings.designAttraction * (target.A - e.A) * q;
+        Vector targetForce = -m_settings.designAttraction * (m_referenceEquilibrium - e.A) * q;
         std::vector<bool> isSliding(m_design.mesh.vertices.size(), false);
         for (int v : sliding) if (v >= 0 && v < static_cast<int>(isSliding.size())) isSliding[v] = true;
         for (int r = 0; r < static_cast<int>(e.rows.size()); ++r) {
@@ -385,8 +422,7 @@ void BestFitForceDensitySolver::step() {
             }
         }
         Vector proposed;
-        if (!boundedFit(e.A, e.A * q + residual + targetForce, edges,
-                        m_settings.minimumDensityMagnitude, proposed, nearZeroMask)) {
+        if (!fitDensities(e.A * q + residual + targetForce, proposed, &q)) {
             m_result.status = BestFitStatus::Stagnated;
             m_result.diagnostic = "Step 1 stopped: bounded update stalled; retained best equilibrium shape"; return;
         }
@@ -421,7 +457,11 @@ void BestFitForceDensitySolver::step() {
                 trialQ[i] = (edges[i].isTension ? -1.0 : 1.0) * m_settings.minimumDensityMagnitude;
             }
         }
-        if (!equilibriumShape(m_design, start, trialQ, m_settings, candidate, report, failure, sliding)) continue;
+        const auto trialBegin = std::chrono::steady_clock::now();
+        const bool valid = equilibriumShape(m_design, start, trialQ, m_settings, candidate, report, failure, sliding);
+        m_result.equilibriumSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - trialBegin).count();
+        ++m_result.equilibriumTrials;
+        if (!valid) continue;
         if (m_result.success && report.rmsDesignDistance >= m_result.report.rmsDesignDistance - 1e-9) continue;
         for (std::size_t i = 0; i < candidate.vertices.size(); ++i)
             movement = std::max(movement, double((candidate.vertices[i].position - m_result.mesh.vertices[i].position).length()));

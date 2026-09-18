@@ -1,6 +1,9 @@
 #include "BestFitTnaChecks.h"
 #include "BestFitTnaSolver.h"
 #include <cmath>
+#include <chrono>
+#include <iomanip>
+#include <algorithm>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -9,6 +12,32 @@ namespace alice2 {
 namespace {
 void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
+}
+void checkFit(const TnaFormDiagram& design, const BestFitForceDensitySettings& settings,
+              const BestFitForceDensityResult& result) {
+    require(result.success && result.report.finite, "No finite fitted result");
+    const auto measured = measureTnaEquilibrium(result.mesh, design.mesh, design.activeFormEdges,
+        result.forceDensities, design.supportVertices, settings.loads,
+        settings.allowSlidingTensionSupports, settings.slidingSupportPenalty);
+    require(measured.finite && measured.residual <= settings.loads.residualTolerance, "Fitted residual too large");
+    const auto sliding = slidingSupports(design.supportVertices, design.activeFormEdges,
+        static_cast<int>(design.mesh.vertices.size()), settings.allowSlidingTensionSupports);
+    for (int v : design.supportVertices) {
+        const auto& p = result.mesh.vertices[v].position;
+        const auto& original = design.mesh.vertices[v].position;
+        require(p.z == original.z, "Support height moved");
+        if (std::find(sliding.begin(), sliding.end(), v) == sliding.end())
+            require(p.x == original.x && p.y == original.y, "Fixed support moved");
+    }
+    for (int v : settings.loads.additionalFixedVertices)
+        require(result.mesh.vertices[v].position.z == design.mesh.vertices[v].position.z, "Red height moved");
+    for (std::size_t i = 0; i < result.forceDensities.size(); ++i) {
+        const double magnitude = (design.activeFormEdges[i].isTension ? -1.0 : 1.0) * result.forceDensities[i];
+        require(magnitude >= settings.minimumDensityMagnitude * (1.0 - 1e-6), "Density bound/sign violated");
+    }
+    for (int i : settings.nearZeroEdges)
+        require(std::abs(std::abs(result.forceDensities[i]) - settings.minimumDensityMagnitude) <
+                settings.minimumDensityMagnitude * 1e-6, "Near-zero density changed");
 }
 TnaFormDiagram pyramid(bool tension = false) {
     MeshData mesh;
@@ -39,6 +68,57 @@ void refine(BestFitTnaSolver& solver, int iterations = 500) {
     std::cout << solver.diagnostic() << '\n';
 }
 } // namespace
+
+int runBestFitTnaBenchmark(const char* objPath) {
+    try {
+        MeshObject object("bestfit_benchmark");
+        object.readFromObj(objPath); object.weld(1e-3f);
+        const auto& mesh = *object.getMeshData();
+        std::vector<int> black, red;
+        for (int i = 0; i < static_cast<int>(mesh.vertices.size()); ++i) {
+            const auto& c = mesh.vertices[i].color;
+            if (c.r <= .02f && c.g <= .02f && c.b <= .02f) black.push_back(i);
+            else if (c.r >= .8f && c.g <= .2f && c.b <= .2f) red.push_back(i);
+        }
+        TnaSolver topology;
+        auto form = topology.makeFormDiagram(mesh, black);
+        require(form.success && topology.setOuterBoundaryEdgesTension(form), "Benchmark topology failed");
+        BestFitForceDensitySettings settings;
+        settings.loads.nodalLoad = .001f;
+        settings.loads.additionalFixedVertices = red;
+        settings.loads.unloadedFaces = form.exteriorFormFaces;
+        settings.slidingSupportPenalty = 50.0; // Current sketch default.
+        BestFitForceDensitySolver solver;
+        require(solver.reset(form, settings), "Benchmark reset failed");
+        std::cout << "Benchmark vertices=" << mesh.vertices.size()
+                  << " edges=" << form.activeFormEdges.size() << std::endl;
+        const auto begin = std::chrono::steady_clock::now();
+        double previousRms = std::numeric_limits<double>::infinity();
+        while (solver.result().status == BestFitStatus::Running) {
+            const auto stepBegin = std::chrono::steady_clock::now();
+            solver.step();
+            const auto& r = solver.result();
+            if (r.success) {
+                checkFit(form, settings, r);
+                require(r.report.rmsDesignDistance <= previousRms, "Benchmark fit regressed");
+                previousRms = r.report.rmsDesignDistance;
+            }
+            std::cout << std::setprecision(10) << "iteration=" << r.iteration
+                      << " seconds=" << std::chrono::duration<double>(std::chrono::steady_clock::now() - stepBegin).count()
+                      << " residual=" << r.report.residual << " rms=" << r.report.rmsDesignDistance << std::endl;
+        }
+        std::cout << "total_seconds=" << std::chrono::duration<double>(std::chrono::steady_clock::now() - begin).count()
+                  << " " << solver.result().diagnostic << std::endl;
+        std::cout << "density_seconds=" << solver.result().densityFitSeconds
+                  << " equilibrium_seconds=" << solver.result().equilibriumSeconds
+                  << " trials=" << solver.result().equilibriumTrials << std::endl;
+        require(solver.result().success && solver.result().report.residual <= settings.loads.residualTolerance,
+                "Benchmark failed to produce equilibrium");
+        return 0;
+    } catch (const std::exception& error) {
+        std::cerr << "FAIL benchmark: " << error.what() << std::endl; return 1;
+    }
+}
 
 int runBestFitTnaChecks(const char* objPath) {
     try {
@@ -73,6 +153,46 @@ int runBestFitTnaChecks(const char* objPath) {
                         "Constrained refinement changed XY");
             }
         }
+        // A nonfunicular grid requires repeated fits, exercising warm starts,
+        // unequal XY/Z free sets, signed members, and density bounds.
+        MeshData grid;
+        for (int y = 0; y < 4; ++y) for (int x = 0; x < 4; ++x)
+            grid.vertices.emplace_back(Vec3(float(x), float(y),
+                float(.3 * (x * (3 - x) + y * (3 - y)) + .1 * std::sin(x + 2 * y))));
+        for (int y = 0; y < 3; ++y) for (int x = 0; x < 3; ++x) {
+            const int v = 4 * y + x;
+            grid.faces.emplace_back(std::vector<int>{v, v + 1, v + 5, v + 4});
+        }
+        bool exercisedWarmStart = false;
+        for (bool sliding : {false, true}) for (bool nearZero : {false, true}) {
+            auto form = TnaSolver{}.makeFormDiagram(grid, {0, 3, 12, 15});
+            require(form.success, "Grid topology failed");
+            if (sliding) require(TnaSolver{}.setOuterBoundaryEdgesTension(form), "Grid tension marks failed");
+            BestFitForceDensitySettings gridSettings;
+            gridSettings.loads.nodalLoad = .1f;
+            gridSettings.loads.additionalFixedVertices = {1};
+            gridSettings.loads.unloadedFaces = form.exteriorFormFaces;
+            gridSettings.allowSlidingTensionSupports = sliding;
+            gridSettings.slidingSupportPenalty = 50;
+            if (nearZero) gridSettings.nearZeroEdges = {0};
+            BestFitForceDensitySolver gridSolver;
+            require(gridSolver.reset(form, gridSettings), "Grid reset failed");
+            double previous = std::numeric_limits<double>::infinity();
+            while (gridSolver.result().status == BestFitStatus::Running) {
+                gridSolver.step();
+                checkFit(form, gridSettings, gridSolver.result());
+                require(gridSolver.result().report.rmsDesignDistance <= previous, "Grid design fit regressed");
+                previous = gridSolver.result().report.rmsDesignDistance;
+            }
+            exercisedWarmStart = exercisedWarmStart || gridSolver.result().iteration > 1;
+            // Reset invalidates topology/reference caches and accumulated timing.
+            require(gridSolver.reset(pyramid(), settings), "Cached solver reset failed");
+            require(gridSolver.result().equilibriumTrials == 0, "Reset retained profiling state");
+            gridSolver.step();
+            checkFit(pyramid(), settings, gridSolver.result());
+        }
+        require(exercisedWarmStart, "Grid did not exercise repeated density updates");
+        std::cout << "PASS repeated fits, sliding/fixed/red supports, near-zero bounds and cache reset\n";
         auto bad = pyramid(); bad.supportVertices.clear();
         BestFitForceDensitySolver fitSolver;
         require(!fitSolver.reset(bad, settings), "Missing supports accepted");
@@ -110,12 +230,11 @@ int runBestFitTnaChecks(const char* objPath) {
             }
             require(solver.fitResult().success, "OBJ did not produce a valid fitted shape");
             require(solver.report().residual <= settings.loads.residualTolerance, "OBJ fitted residual too large");
-            for (int v : black) require((solver.mesh().vertices[v].position - original.vertices[v].position).length() == 0,
-                                        "Black support moved");
+            checkFit(form, settings, solver.fitResult());
             for (int v : red) require(solver.mesh().vertices[v].position.z == original.vertices[v].position.z, "Red height moved");
             refine(solver, 5000);
             require(solver.stage() == BestFitTnaStage::Complete, "OBJ TNA did not equilibrate");
-            for (int v : black) require((solver.mesh().vertices[v].position - original.vertices[v].position).length() == 0,
+            for (int v : black) require((solver.mesh().vertices[v].position - solver.fitResult().mesh.vertices[v].position).length() == 0,
                                         "TNA black support moved");
             for (int v : red) require(solver.mesh().vertices[v].position.z == original.vertices[v].position.z, "TNA red height moved");
             solver.restoreFit();

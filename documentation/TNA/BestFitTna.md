@@ -50,6 +50,15 @@ densities and force scales, retaining the closest valid equilibrium candidate.
 This is a local search, not a guarantee of the globally closest shape. Convergence,
 stagnation, iteration exhaustion and failure are reported separately.
 
+Density updates warm-start the bounded least-squares solve from the accepted
+densities, re-solving the passive set for the new geometry before testing
+optimality. A failed warm start retries the original cold solve. The reference
+matrix, sliding support list and near-zero edge mask are cached until reset.
+Each equilibrium candidate shares its X/Y factorization and solves XY only
+once; subsequent self-weight iterations update Z and reuse the loads already
+computed by the preceding residual check. The full 64-candidate initialization
+and 12-trial backtracking limits are retained.
+
 Step 2 integrates the reciprocal force diagram from the fitted horizontal edge
 forces, preserving edge ownership and sign. It uses TNA form weight 1 (fixed plan)
 and the existing 0.1-to-5-times initial force-edge length bounds. It checks both
@@ -72,3 +81,21 @@ The check runs without an OpenGL context. It covers known equilibrium, mixed
 signs, rank-deficient fitting, support constraints, invalid inputs, transfer,
 active horizontal/vertical refinement, fixed XY and honest iteration-limit
 failure. Omit the OBJ argument to run only the synthetic checks.
+
+The checks also cover repeated density updates, sliding versus fixed supports,
+red Z constraints, near-zero bounds, monotone fit distance and cache reset.
+
+To time step 1 using the current sketch defaults (including sliding penalty 50):
+
+```powershell
+./alice2/build/bin/Release/alice2.exe --benchmark-bestfit-tna ./alice2/data/tna.obj
+```
+
+The benchmark reports each outer iteration, total solve time, cumulative density
+fit/equilibrium time and candidate count. It checks equilibrium, support
+constraints, density signs and non-increasing design RMS. It excludes loading,
+reset and rendering. On the current OBJ (156 welded vertices, 268 active edges),
+the initial Release comparison measured 5.06 s before and 2.21 s after, with the
+same six outer iterations and matching printed residual/RMS values at each step.
+Timings depend on hardware and build configuration. Computation still runs
+synchronously in the sketch; these optimizations reduce its duration.
