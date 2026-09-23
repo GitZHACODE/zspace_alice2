@@ -1,7 +1,8 @@
 #pragma once
 
 #include "TnaSolver.h"
-#include <Eigen/Core>
+#include <Eigen/SparseCore>
+#include <stop_token>
 
 namespace alice2 {
 
@@ -41,9 +42,11 @@ struct BestFitForceDensitySettings {
     std::vector<int> nearZeroEdges;
     bool allowSlidingTensionSupports{true};
     double slidingSupportPenalty{5.0};
+    // Dense reference mode is retained for regression comparisons.
+    bool sparseDensityFit{true};
 };
 
-enum class BestFitStatus { Idle, Running, Converged, Stagnated, IterationLimit, Failed };
+enum class BestFitStatus { Idle, Running, Converged, Stagnated, IterationLimit, Failed, Cancelled };
 
 struct BestFitForceDensityResult {
     // A valid, finite equilibrium candidate exists, including after stagnation.
@@ -59,13 +62,14 @@ struct BestFitForceDensityResult {
     double densityFitSeconds{0.0};
     double equilibriumSeconds{0.0};
     int equilibriumTrials{0};
+    int densityFallbacks{0};
 };
 
 class BestFitForceDensitySolver {
 public:
     bool reset(const TnaFormDiagram& design, const BestFitForceDensitySettings& settings);
     // One accepted outer update (with bounded backtracking) per call.
-    void step();
+    void step(std::stop_token stop = {});
     const BestFitForceDensityResult& result() const { return m_result; }
     const TnaFormDiagram& design() const { return m_design; }
     const BestFitForceDensitySettings& settings() const { return m_settings; }
@@ -73,7 +77,7 @@ private:
     TnaFormDiagram m_design;
     BestFitForceDensitySettings m_settings;
     BestFitForceDensityResult m_result;
-    Eigen::MatrixXd m_referenceEquilibrium;
+    Eigen::SparseMatrix<double> m_referenceEquilibrium;
     std::vector<int> m_slidingSupports;
     std::vector<bool> m_nearZeroMask;
 };

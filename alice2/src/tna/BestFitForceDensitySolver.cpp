@@ -1,6 +1,8 @@
 #include "BestFitForceDensitySolver.h"
 
 #include <Eigen/Dense>
+#include <Eigen/SparseQR>
+#include <type_traits>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -34,6 +36,7 @@ std::vector<int> slidingSupports(const std::vector<int>& supports,
 
 namespace {
 using Matrix = Eigen::MatrixXd;
+using SparseMatrix = Eigen::SparseMatrix<double>;
 using Vector = Eigen::VectorXd;
 
 double coordinate(const Vec3& p, int axis) { return axis == 0 ? p.x : axis == 1 ? p.y : p.z; }
@@ -70,7 +73,7 @@ std::vector<float> verticalLoads(const MeshData& mesh, const TnaVerticalSettings
     return areas;
 }
 struct Equations {
-    Matrix A;
+    SparseMatrix A;
     Vector p;
     std::vector<std::pair<int, int>> rows;
 };
@@ -87,7 +90,9 @@ Equations equations(const MeshData& mesh, const std::vector<TnaEdge>& edges,
             e.rows.emplace_back(v, axis);
         }
     }
-    e.A = Matrix::Zero(e.rows.size(), edges.size());
+    e.A.resize(e.rows.size(), edges.size());
+    std::vector<Eigen::Triplet<double>> entries;
+    entries.reserve(6 * edges.size());
     e.p = Vector::Zero(e.rows.size());
     auto loads = verticalLoads(mesh, settings);
     for (int i = 0; i < static_cast<int>(e.rows.size()); ++i)
@@ -97,23 +102,33 @@ Equations equations(const MeshData& mesh, const std::vector<TnaEdge>& edges,
         for (int axis = 0; axis < 3; ++axis) {
             const double d = coordinate(mesh.vertices[edge.vertexA].position, axis) -
                              coordinate(mesh.vertices[edge.vertexB].position, axis);
-            if (row[edge.vertexA][axis] >= 0) e.A(row[edge.vertexA][axis], i) = d;
-            if (row[edge.vertexB][axis] >= 0) e.A(row[edge.vertexB][axis], i) = -d;
+            if (d == 0.0) continue;
+            if (row[edge.vertexA][axis] >= 0) entries.emplace_back(row[edge.vertexA][axis], i, d);
+            if (row[edge.vertexB][axis] >= 0) entries.emplace_back(row[edge.vertexB][axis], i, -d);
         }
     }
+    e.A.setFromTriplets(entries.begin(), entries.end());
     return e;
 }
 
-// Lawson-Hanson active-set NNLS on signed columns, shifted by the lower
-// magnitude bound. COD handles dependent columns without inverting A^T A.
-bool boundedFit(const Matrix& A, const Vector& b, const std::vector<TnaEdge>& edges,
+// Bound-constrained least squares on signed, lower-bound-shifted columns.
+// Sparse block principal pivots are the default; the original Lawson-Hanson
+// path is the dense reference. Neither path forms/inverts normal equations.
+template<typename FitMatrix>
+bool boundedFit(const FitMatrix& A, const Vector& b, const std::vector<TnaEdge>& edges,
                 double lower, Vector& q, const std::vector<bool>& nearZero = {},
-                const Vector* seed = nullptr) {
+                const Vector* seed = nullptr, std::stop_token stop = {}, int* fallbacks = nullptr) {
     const int n = static_cast<int>(edges.size());
-    Matrix B = A;
+    FitMatrix B = A;
     Vector sign(n);
-    for (int i = 0; i < n; ++i) { sign[i] = edges[i].isTension ? -1.0 : 1.0; B.col(i) *= sign[i]; }
+    for (int i = 0; i < n; ++i) {
+        sign[i] = edges[i].isTension ? -1.0 : 1.0;
+        if constexpr (std::is_same_v<FitMatrix, SparseMatrix>) {
+            for (SparseMatrix::InnerIterator entry(B, i); entry; ++entry) entry.valueRef() *= sign[i];
+        } else B.col(i) *= sign[i];
+    }
     const Vector rhs = b - B * Vector::Constant(n, lower);
+    if (!rhs.allFinite()) return false;
     Vector x = Vector::Zero(n);
     std::vector<bool> passive(n, false);
     bool refitSeed = false;
@@ -127,8 +142,85 @@ bool boundedFit(const Matrix& A, const Vector& b, const std::vector<TnaEdge>& ed
         }
     }
     const double tolerance = 1e-10 * std::max(1.0, (B.transpose() * rhs).lpNorm<Eigen::Infinity>());
+    if (!std::isfinite(tolerance)) return false;
+    if constexpr (std::is_same_v<FitMatrix, SparseMatrix>) {
+        // Block principal pivots: solve a free set, then swap all primal/dual
+        // infeasible variables together. A bounded single-pivot recovery avoids
+        // spending unbounded time on degenerate active sets.
+        if (!refitSeed) {
+            const Vector gradient = B.transpose() * rhs;
+            for (int i = 0; i < n; ++i)
+                passive[i] = (nearZero.empty() || !nearZero[i]) && gradient[i] > tolerance;
+        }
+        int bestViolations = n + 1, blockAttempts = 3;
+        for (int iteration = 0; iteration < 128; ++iteration) {
+            if (stop.stop_requested()) return false;
+            std::vector<int> ids;
+            for (int i = 0; i < n; ++i) if (passive[i]) ids.push_back(i);
+            x.setZero();
+            if (!ids.empty()) {
+                SparseMatrix selected(B.rows(), ids.size());
+                std::vector<Eigen::Triplet<double>> entries;
+                entries.reserve(6 * ids.size());
+                for (int i = 0; i < static_cast<int>(ids.size()); ++i)
+                    for (SparseMatrix::InnerIterator entry(B, ids[i]); entry; ++entry)
+                        entries.emplace_back(entry.row(), i, entry.value());
+                selected.setFromTriplets(entries.begin(), entries.end());
+                Eigen::SparseQR<SparseMatrix, Eigen::COLAMDOrdering<int>> qr;
+                qr.compute(selected);
+                if (qr.info() != Eigen::Success) return false;
+                Vector solved;
+                if (qr.rank() == selected.cols()) {
+                    solved = qr.solve(rhs);
+                    if (qr.info() != Eigen::Success) return false;
+                } else {
+                    // Use the original minimum-norm solution when dependent
+                    // columns leave the force densities nonunique.
+                    if (fallbacks) ++*fallbacks;
+                    solved = Matrix(selected).completeOrthogonalDecomposition().solve(rhs);
+                }
+                if (!solved.allFinite()) return false;
+                for (int i = 0; i < static_cast<int>(ids.size()); ++i) x[ids[i]] = solved[i];
+            }
+            const Vector gradient = B.transpose() * (rhs - B * x);
+            if (!gradient.allFinite()) return false;
+            std::vector<int> violations;
+            for (int i = 0; i < n; ++i) {
+                if (!nearZero.empty() && nearZero[i]) continue;
+                if ((passive[i] && x[i] < -1e-12) || (!passive[i] && gradient[i] > tolerance))
+                    violations.push_back(i);
+            }
+            if (violations.empty()) {
+                x = x.cwiseMax(0.0);
+                // Verify KKT on the returned feasible point, including free
+                // gradients. A numerical failure invokes the dense reference.
+                const Vector checked = B.transpose() * (rhs - B * x);
+                if (!checked.allFinite()) return false;
+                for (int i = 0; i < n; ++i) {
+                    if (!nearZero.empty() && nearZero[i]) continue;
+                    if ((x[i] > 1e-12 && std::abs(checked[i]) > 10 * tolerance) ||
+                        (x[i] <= 1e-12 && checked[i] > 10 * tolerance)) return false;
+                }
+                q = sign.cwiseProduct(x + Vector::Constant(n, lower));
+                return q.allFinite();
+            }
+            if (static_cast<int>(violations.size()) < bestViolations) {
+                bestViolations = static_cast<int>(violations.size());
+                blockAttempts = 3;
+            } else if (blockAttempts > 0) --blockAttempts;
+            if (blockAttempts > 0) {
+                for (int i : violations) passive[i] = !passive[i];
+            } else {
+                const int i = violations.back();
+                passive[i] = !passive[i];
+            }
+        }
+        return false;
+    }
+    // Original Lawson-Hanson reference path.
     int budget = std::max(100, 10 * n);
     while (--budget > 0) {
+        if (stop.stop_requested()) return false;
         // Re-solve the seeded passive set for the NEW geometry/RHS before
         // checking inactive gradients; the old solution is only feasible.
         if (!refitSeed) {
@@ -147,6 +239,7 @@ bool boundedFit(const Matrix& A, const Vector& b, const std::vector<TnaEdge>& ed
         }
         refitSeed = false;
         while (--budget > 0) {
+            if (stop.stop_requested()) return false;
             std::vector<int> ids;
             for (int i = 0; i < n; ++i) if (passive[i]) ids.push_back(i);
             if (ids.empty()) { x.setZero(); break; }
@@ -186,7 +279,7 @@ Vector vector(const std::vector<float>& q) {
 bool equilibriumShape(const TnaFormDiagram& design, const MeshData& start,
                       const Vector& q, const BestFitForceDensitySettings& settings,
                       MeshData& candidate, TnaEquilibriumReport& report, std::string& failure,
-                      const std::vector<int>& sliding = {}) {
+                      const std::vector<int>& sliding = {}, std::stop_token stop = {}) {
     const int n = static_cast<int>(start.vertices.size());
     const auto fixed = constraints(n, design.supportVertices, settings.loads.additionalFixedVertices, sliding);
     std::vector<bool> isSliding(n, false);
@@ -203,6 +296,7 @@ bool equilibriumShape(const TnaFormDiagram& design, const MeshData& start,
     std::array<Vector, 3> supportRhs;
     const double penalty = settings.slidingSupportPenalty;
     for (int axis = 0; axis < 3; ++axis) {
+        if (stop.stop_requested()) return false;
         for (int v = 0; v < n; ++v) if (!fixed[v][axis]) free[axis].push_back(v);
         const int count = static_cast<int>(free[axis].size());
         if (count == 0) continue;
@@ -234,6 +328,7 @@ bool equilibriumShape(const TnaFormDiagram& design, const MeshData& start,
     auto densities = floats(q);
     auto loads = verticalLoads(candidate, settings.loads);
     for (int iteration = 0; iteration < std::max(1, settings.loads.maximumIterations); ++iteration) {
+        if (stop.stop_requested()) return false;
         for (int axis = 0; axis < 3; ++axis) {
             if (free[axis].empty() || (iteration > 0 && axis < 2)) continue;
             Vector rhs = supportRhs[axis];
@@ -382,8 +477,15 @@ bool BestFitForceDensitySolver::reset(const TnaFormDiagram& design, const BestFi
     return true;
 }
 
-void BestFitForceDensitySolver::step() {
+void BestFitForceDensitySolver::step(std::stop_token stop) {
     if (m_result.status != BestFitStatus::Running) return;
+    const auto cancelled = [&] {
+        if (!stop.stop_requested()) return false;
+        m_result.status = BestFitStatus::Cancelled;
+        m_result.diagnostic = m_result.success ? "Fit cancelled; retained last equilibrium shape" : "Fit cancelled";
+        return true;
+    };
+    if (cancelled()) return;
     const auto& edges = m_design.activeFormEdges;
     ++m_result.iteration;
     const auto& nearZeroMask = m_nearZeroMask;
@@ -391,11 +493,19 @@ void BestFitForceDensitySolver::step() {
     const auto e = equations(m_result.mesh, edges, m_design.supportVertices, m_settings.loads, sliding);
     const auto fitDensities = [&](const Vector& rhs, Vector& output, const Vector* seed = nullptr) {
         const auto begin = std::chrono::steady_clock::now();
-        bool success = boundedFit(e.A, rhs, edges, m_settings.minimumDensityMagnitude, output, nearZeroMask, seed);
-        // Degenerate warm starts can cycle. Preserve the original cold solver
-        // as a bounded fallback, including its rank-revealing decomposition.
-        if (!success && seed)
-            success = boundedFit(e.A, rhs, edges, m_settings.minimumDensityMagnitude, output, nearZeroMask);
+        bool success = false;
+        if (m_settings.sparseDensityFit)
+            success = boundedFit(e.A, rhs, edges, m_settings.minimumDensityMagnitude, output, nearZeroMask,
+                                 seed, stop, &m_result.densityFallbacks);
+        // Degenerate block pivots can cycle. Retry with the original dense
+        // solver (warm first, then cold), never after a cancellation request.
+        if (!success && !stop.stop_requested()) {
+            if (m_settings.sparseDensityFit) ++m_result.densityFallbacks;
+            const Matrix dense(e.A);
+            success = boundedFit(dense, rhs, edges, m_settings.minimumDensityMagnitude, output, nearZeroMask, seed, stop);
+            if (!success && seed && !stop.stop_requested())
+                success = boundedFit(dense, rhs, edges, m_settings.minimumDensityMagnitude, output, nearZeroMask, nullptr, stop);
+        }
         m_result.densityFitSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - begin).count();
         return success;
     };
@@ -403,6 +513,7 @@ void BestFitForceDensitySolver::step() {
     if (!m_result.success) {
         // Bhooshan et al., IASS 2015, section 3.2 step 1, extended to signed bounds.
         if (!fitDensities(e.p, q)) {
+            if (cancelled()) return;
             m_result.status = BestFitStatus::Failed; m_result.diagnostic = "Initial bounded density fit did not converge"; return;
         }
     } else {
@@ -423,6 +534,7 @@ void BestFitForceDensitySolver::step() {
         }
         Vector proposed;
         if (!fitDensities(e.A * q + residual + targetForce, proposed, &q)) {
+            if (cancelled()) return;
             m_result.status = BestFitStatus::Stagnated;
             m_result.diagnostic = "Step 1 stopped: bounded update stalled; retained best equilibrium shape"; return;
         }
@@ -448,6 +560,7 @@ void BestFitForceDensitySolver::step() {
     // never present a singular/unstable least-squares fit as a solved shape.
     constexpr double blends[] = {0.0, .001, .01, .05, .1, .25, .5, 1.0};
     for (int trial = 0; trial < (initial ? 64 : 12); ++trial) {
+        if (cancelled()) return;
         const double blend = initial ? blends[trial / 8] : 0.0;
         Vector trialQ = initial
             ? Vector(((1.0 - blend) * q + blend * common) * std::pow(2.0, trial % 8))
@@ -458,9 +571,10 @@ void BestFitForceDensitySolver::step() {
             }
         }
         const auto trialBegin = std::chrono::steady_clock::now();
-        const bool valid = equilibriumShape(m_design, start, trialQ, m_settings, candidate, report, failure, sliding);
+        const bool valid = equilibriumShape(m_design, start, trialQ, m_settings, candidate, report, failure, sliding, stop);
         m_result.equilibriumSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - trialBegin).count();
         ++m_result.equilibriumTrials;
+        if (cancelled()) return;
         if (!valid) continue;
         if (m_result.success && report.rmsDesignDistance >= m_result.report.rmsDesignDistance - 1e-9) continue;
         for (std::size_t i = 0; i < candidate.vertices.size(); ++i)

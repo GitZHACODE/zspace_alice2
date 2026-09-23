@@ -1,18 +1,25 @@
 # Best-fit shape and fixed-plan TNA
 
 The enabled sketch is `alice2/userSrc/geometry/sketch_bestfit_tna.cpp`.
-It loads and welds `alice2/data/tna.obj`, retaining the original as a grey reference.
+It loads and welds `<working directory>/data/tna.obj`, retaining the original as a grey reference.
+All exports also go to `<working directory>/data/`; there is no source-tree fallback.
 The force diagram is scaled and translated for side-by-side display only;
 underlying geometry, densities and numerical checks always use solver units.
 
-- **1** fits signed force densities and moves the shape in XYZ.
-- **2** transfers the fitted shape and densities to TNA. All XY coordinates from
+- **q** fits signed force densities and moves the shape in XYZ.
+- **c** cancels fitting, retaining the last accepted equilibrium shape if one exists.
+- **w** transfers the fitted shape and densities to TNA. All XY coordinates from
   step 1 stay fixed; forces and unconstrained heights may change.
 - **f** frames both diagrams; **i**, **a**, **d** toggle the reference, reciprocal
   angle labels and density labels.
 - **t**, **b**, **g**, **o** retain the original boundary-tension controls and toggle near-zero vertical member constraint.
 - **r** reloads; **e** exports a valid completed stage to
   `data/bestfit_tna_formfound.obj`, without topology-only exterior faces.
+
+In this sketch, OUTER is the boundary ring passing through the black supports;
+all other boundary rings are inner. Selection starts at a black support and does
+not depend on face order or which loop the mesh traversal encounters first.
+The ALL boundary-tension toggle still includes both outer and inner rings.
 
 Black vertices remain fixed in XYZ in both stages, except when a black support is
 connected to tension members: in step 1 it is allowed to slide in XY with a high
@@ -51,13 +58,24 @@ This is a local search, not a guarantee of the globally closest shape. Convergen
 stagnation, iteration exhaustion and failure are reported separately.
 
 Density updates warm-start the bounded least-squares solve from the accepted
-densities, re-solving the passive set for the new geometry before testing
-optimality. A failed warm start retries the original cold solve. The reference
+densities. Equilibrium matrices use sparse storage (at most six coefficients per
+edge). The default density solver uses block principal pivots and sparse QR,
+swapping multiple infeasible variables together rather than refactoring after
+every individual change. It verifies feasibility and KKT optimality before
+returning. Rank-deficient subproblems use the original minimum-norm COD solve;
+failed or cycling sparse fits retry the dense Lawson-Hanson solver. The reference
 matrix, sliding support list and near-zero edge mask are cached until reset.
 Each equilibrium candidate shares its X/Y factorization and solves XY only
 once; subsequent self-weight iterations update Z and reuse the loads already
 computed by the preceding residual check. The full 64-candidate initialization
 and 12-trial backtracking limits are retained.
+
+Step 1 runs on an owning worker thread. The viewer consumes independent solver
+snapshots after outer updates; camera input and rendering continue during a fit.
+Cancellation is checked in both density solvers, between candidate trials and
+inside self-weight iterations. Reload, restart and sketch cleanup stop/join the
+old job and discard its snapshots before starting another. An individual matrix
+factorization cannot be interrupted, so cancellation completes at its next check.
 
 Step 2 integrates the reciprocal force diagram from the fitted horizontal edge
 forces, preserving edge ownership and sign. It uses TNA form weight 1 (fixed plan)
@@ -83,19 +101,26 @@ active horizontal/vertical refinement, fixed XY and honest iteration-limit
 failure. Omit the OBJ argument to run only the synthetic checks.
 
 The checks also cover repeated density updates, sliding versus fixed supports,
-red Z constraints, near-zero bounds, monotone fit distance and cache reset.
+red Z constraints, near-zero bounds, monotone fit distance, cache reset,
+sparse-versus-dense fit quality, rank-deficient fallback, cancellation and
+background-worker restart without stale results.
 
 To time step 1 using the current sketch defaults (including sliding penalty 50):
 
 ```powershell
 ./alice2/build/bin/Release/alice2.exe --benchmark-bestfit-tna ./alice2/data/tna.obj
+# Optional reference comparison with the previous dense algorithm:
+./alice2/build/bin/Release/alice2.exe --benchmark-bestfit-tna ./alice2/data/tna.obj --dense
 ```
 
 The benchmark reports each outer iteration, total solve time, cumulative density
-fit/equilibrium time and candidate count. It checks equilibrium, support
+fit/equilibrium time, candidate count and dense fallback count. It checks equilibrium, support
 constraints, density signs and non-increasing design RMS. It excludes loading,
-reset and rendering. On the current OBJ (156 welded vertices, 268 active edges),
-the initial Release comparison measured 5.06 s before and 2.21 s after, with the
-same six outer iterations and matching printed residual/RMS values at each step.
-Timings depend on hardware and build configuration. Computation still runs
-synchronously in the sketch; these optimizations reduce its duration.
+reset and rendering. On the updated OBJ (308 welded vertices, 545 active edges),
+the Release comparison measured 80.05 s for the previous dense solver and 9.78 s
+for sparse block pivots. Both took 15 outer iterations and 195 candidate trials,
+with matching printed residual/RMS values at every step. The sparse run used no
+dense fallbacks: density fitting took 5.44 s and equilibrium trials 4.33 s.
+Timings depend on hardware and build configuration. Nonunique density solutions
+can differ between backends on other meshes; final equilibrium, signs, supports
+and design fit must be checked rather than assuming identical coordinates.

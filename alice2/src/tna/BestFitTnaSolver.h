@@ -13,7 +13,7 @@ public:
     void restoreFit();
     bool startTna(int horizontalIterations = 500, float angleTolerance = 3.0f,
                   float tensionVertexDistance = 0.0f);
-    void step();
+    void step(std::stop_token stop = {});
     BestFitTnaStage stage() const { return m_stage; }
     bool running() const;
     bool exportable() const;

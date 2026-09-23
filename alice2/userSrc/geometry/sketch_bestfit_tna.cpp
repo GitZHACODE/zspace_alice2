@@ -4,6 +4,7 @@
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
 #include <tna/BestFitTnaSolver.h>
+#include <tna/BestFitTnaWorker.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -43,21 +44,33 @@ public:
     }
     void update(float) override {
         if (fitControls() != m_appliedFitControls) reload();
+        try {
+            if (auto snapshot = m_fitWorker.poll()) {
+                m_solver = std::move(*snapshot);
+                sync();
+            }
+        } catch (const std::exception& error) {
+            m_fitWorker.discard();
+            m_solver = {};
+            m_status = std::string("Fit failed: ") + error.what();
+        }
         if (tnaControls() != m_appliedTnaControls) {
             m_appliedTnaControls = tnaControls();
             if (m_solver.stage() != BestFitTnaStage::Fitting) { m_solver.restoreFit(); sync(); }
         }
         if (!m_solver.running()) return;
-        // One fitting/self-weight update or two inexpensive reciprocal steps.
+        if (m_solver.stage() == BestFitTnaStage::Fitting) return;
+        // Fitting runs on the worker; reciprocal updates remain inexpensive.
         const int steps = m_solver.stage() == BestFitTnaStage::Horizontal ? 2 : 1;
         for (int i = 0; i < steps && m_solver.running(); ++i) m_solver.step();
         sync();
     }
+    void cleanup() override { m_fitWorker.discard(); }
     void draw(Renderer& renderer, Camera&) override {
         if (m_showInput) drawMesh(renderer, m_inputMesh, Color(0.72f, 0.72f, 0.72f, 1), 0.8f);
         drawFormDiagram(renderer); drawForceDensities(renderer); drawForceDiagram(renderer); drawSupports(renderer);
         renderer.setColor(Color(0.06f, 0.06f, 0.06f, 1));
-        renderer.drawString("q fit XYZ | w fixed-XY TNA | r reload | e export | f frame | i original | a angles | d densities | o near zero", 10, 30);
+        renderer.drawString("q fit XYZ | c cancel fit | w fixed-XY TNA | r reload | e export | f frame | i original | a angles | d densities | o near zero", 10, 30);
         renderer.drawString(m_status, 10, 52);
         renderer.drawString("Blue compression | pink tension | green support force | black fixed XYZ | red fixed Z", 10, 74);
         renderer.drawString(std::string("t boundary tension: ") + (m_tensionEnabled ? "ON" : "OFF") +
@@ -80,7 +93,15 @@ public:
         switch (key) {
             case 'q':
                 if (fitControls() != m_appliedFitControls) reload();
-                m_solver.startFit(); sync(); return true;
+                m_fitWorker.discard();
+                if (m_solver.startFit()) m_fitWorker.start(m_solver);
+                sync(); return true;
+            case 'c': case 'C':
+                if (m_solver.stage() == BestFitTnaStage::Fitting) {
+                    m_fitWorker.requestStop();
+                    m_status = "Cancelling fit...";
+                }
+                return true;
             case 'w':
                 if (fitControls() != m_appliedFitControls) reload();
                 m_appliedTnaControls = tnaControls();
@@ -110,11 +131,7 @@ public:
 
 private:
     static std::filesystem::path dataPath(const std::string& file) {
-        const std::filesystem::path requested(file);
-        if (requested.is_absolute() || std::filesystem::exists(requested)) return requested;
-        const auto local = std::filesystem::path("data") / file;
-        if (std::filesystem::exists(local)) return local;
-        return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() / "data" / file;
+        return std::filesystem::current_path() / "data" / file;
     }
     std::array<float, 5> fitControls() const { return {m_fitIterations, m_attraction, m_verticalLoad, m_density, m_slidingPenalty}; }
     std::array<float, 3> tnaControls() const { return {m_horizontalIterations, m_angleTolerance, m_tensionDistance}; }
@@ -142,6 +159,7 @@ private:
         Application::getInstance()->getCameraController().focusOnBounds(minimum, maximum);
     }
     void reload() {
+        m_fitWorker.discard();
         m_solver = {}; m_forceResult = {}; m_result = {};
         m_formMesh.reset(); m_forceMesh.reset(); m_inputMesh.reset();
         m_growthEdgeIndices.clear();
@@ -156,7 +174,20 @@ private:
             m_result = topology.makeFormDiagram(*m_inputMesh, blackVertexSupports(*m_inputMesh), false);
             if (m_result.success && m_tensionEnabled) {
                 if (m_allBoundaryTension) topology.setBoundaryEdgesTension(m_result);
-                else topology.setOuterBoundaryEdgesTension(m_result);
+                else {
+                    // In this sketch the black-supported boundary is outer;
+                    // all remaining loops are inner, regardless of mesh order.
+                    // The selector's default (-1) means the first loop, which
+                    // may be a hole, so always seed it with a black support.
+                    if (m_result.supportVertices.empty()) {
+                        m_status = "Outer ring needs a black boundary support";
+                        return;
+                    }
+                    if (!topology.setOuterBoundaryEdgesTension(m_result, m_result.supportVertices.front())) {
+                        m_status = m_result.diagnostic;
+                        return;
+                    }
+                }
                 if (m_growBoundaryTension) growBoundaryTensionMark();
             }
             BestFitForceDensitySettings settings;
@@ -238,6 +269,7 @@ private:
         exportMesh.triangulationDirty = true;
 
         const auto objPath = dataPath("bestfit_tna_formfound.obj");
+        std::filesystem::create_directories(objPath.parent_path());
         MeshObject output("bestfit_tna_formfound");
         output.setMeshData(std::make_shared<MeshData>(exportMesh));
         output.writeToObj(objPath.string());
@@ -681,6 +713,7 @@ private:
     std::shared_ptr<MeshData> m_inputMesh, m_formMesh, m_forceMesh;
     std::unique_ptr<SimpleUI> m_ui;
     BestFitTnaSolver m_solver;
+    BestFitTnaWorker m_fitWorker;
     TnaFormDiagram m_result;
     TnaForceDiagram m_forceResult;
     std::vector<int> m_verticalOnlySupports;

@@ -116,15 +116,16 @@ bool BestFitTnaSolver::startTna(int iterations, float angleTolerance, float tens
     return true;
 }
 
-void BestFitTnaSolver::step() {
+void BestFitTnaSolver::step(std::stop_token stop) {
     if (m_stage == BestFitTnaStage::Fitting) {
-        m_fit.step();
+        m_fit.step(stop);
         const auto& fit = m_fit.result(); m_diagnostic = fit.diagnostic;
         if (fit.success) {
             m_mesh = fit.mesh; m_edges = fit.edges; m_densities = fit.forceDensities; m_report = fit.report;
         }
         if (fit.status != BestFitStatus::Running) {
-            m_stage = fit.success ? BestFitTnaStage::Fitted : BestFitTnaStage::Failed;
+            m_stage = fit.success ? BestFitTnaStage::Fitted :
+                fit.status == BestFitStatus::Cancelled ? BestFitTnaStage::Ready : BestFitTnaStage::Failed;
             if (fit.success) {
                 auto planar = m_fit.design(); planar.mesh = fit.mesh;
                 for (auto& v : planar.mesh.vertices) v.position.z = 0;
