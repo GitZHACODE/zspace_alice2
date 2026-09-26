@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -32,13 +33,16 @@ public:
         scene().setShowAxes(false);
         m_ui = std::make_unique<SimpleUI>(input());
         m_ui->addSlider("Grid Spacing", Vec2{10.0f, 92.0f}, 180.0f, 0.02f, 2.0f, m_spacing);
+        m_ui->addSlider("Smooth Steps", Vec2{10.0f, 124.0f}, 180.0f, 0.0f, 50.0f, m_smoothSteps);
         loadAndSolve();
     }
 
     void update(float) override {
-        if (std::abs(m_spacing - m_lastSpacing) > 1e-4f) {
+        m_smoothSteps = std::round(m_smoothSteps);
+        if (std::abs(m_spacing - m_lastSpacing) > 1e-4f || smoothingSteps() != m_lastSmoothSteps) {
             runMiq();
             m_lastSpacing = m_spacing;
+            m_lastSmoothSteps = smoothingSteps();
         }
     }
 
@@ -52,10 +56,9 @@ public:
 
         drawActiveField(renderer);
         if (m_drawMiqGrid) drawMiqGrid(renderer);
-        if (m_drawQuadMesh) drawQuadMesh(renderer);
 
         renderer.setColor(Color(0.05f, 0.05f, 0.05f, 1.0f));
-        renderer.drawString("m stress/curvature | c stress colour | x crosses | o/p cross size | q grid | w quads | e export | r reload", 10.0f, 30.0f);
+        renderer.drawString("m stress/curvature | c stress colour | x crosses | o/p cross size | q contours | e export | r reload", 10.0f, 30.0f);
         renderer.drawString(m_status, 10.0f, 52.0f);
         renderer.drawString(m_miqStatus, 10.0f, 74.0f);
         if (m_ui) m_ui->draw(renderer);
@@ -68,7 +71,6 @@ public:
             case 'o': case 'O': m_crossScale *= 1.2f; return true;
             case 'p': case 'P': m_crossScale /= 1.2f; return true;
             case 'q': case 'Q': m_drawMiqGrid = !m_drawMiqGrid; return true;
-            case 'w': case 'W': m_drawQuadMesh = !m_drawQuadMesh; return true;
             case 'e': case 'E': exportRemesh(); return true;
             case 'm': case 'M':
                 m_fieldSource = m_fieldSource == FieldSource::Stress ? FieldSource::Curvature : FieldSource::Stress;
@@ -94,9 +96,25 @@ private:
     }
 
     void loadAndSolve() {
+        // Never retain a field or exported grid from a previous input mesh.
+        m_analyzer = StressAnalyzer{};
+        m_miqResult = MiqRemeshResult{};
+        m_curvatureField.clear();
+        m_smoothedField.clear();
+        m_supportVertices.clear();
+        m_loadVertices.clear();
+        m_miqStatus.clear();
+        m_lastSpacing = m_spacing;
+        m_lastSmoothSteps = smoothingSteps();
         m_mesh = std::make_shared<MeshObject>("slab_long");
         try {
             m_mesh->readFromObj(m_objPath);
+            const size_t importedVertices = m_mesh->getMeshData()->vertices.size();
+            // Maya's face-vertex colour export splits shared corners. Weld
+            // before triangulation and retain black markers from any duplicate.
+            m_mesh->weld(1e-6f, true);
+            std::printf("[StressMiq] Welded vertices %zu -> %zu (preserving black supports)\n",
+                        importedVertices, m_mesh->getMeshData()->vertices.size());
             triangulateFaces();
             m_mesh->generateEdgesFromFaces();
             m_mesh->recalculateNormals();
@@ -115,8 +133,18 @@ private:
         m_analyzer.clearBoundaryConditions();
         m_analyzer.clearForces();
         m_analyzer.setFixedVertices(m_supportVertices);
+        if (m_supportVertices.empty()) {
+            m_status = "No black supports: export OBJ vertex colours as v x y z r g b (black = 0 0 0)";
+            std::printf("[StressMiq] %s\n", m_status.c_str());
+            return;
+        }
+        if (m_loadVertices.empty()) {
+            m_status = "No free load vertices: all vertices are black supports";
+            return;
+        }
         m_analyzer.setForces(m_loadVertices, Vec3(0.0f, 0.0f, -0.03f));
-        m_analyzer.setFieldSmoothingIterations(12);
+        // Smooth the active source field below, without repeating the solve.
+        m_analyzer.setFieldSmoothingIterations(0);
         m_analyzer.setStressMagnitudeThreshold(1e-8);
         if (!m_analyzer.solveVerticalSlab(*m_mesh)) {
             m_status = "Stress solve failed";
@@ -129,8 +157,10 @@ private:
         float maxStress = 0.0f;
         for (float value : m_analyzer.getStressMagnitudes()) maxStress = std::max(maxStress, value);
         char buffer[128];
-        std::snprintf(buffer, sizeof(buffer), "Stress field | spacing %.3f | max %.5f", m_spacing, maxStress);
+        std::snprintf(buffer, sizeof(buffer), "Stress field | black supports %zu | loads %zu | max %.5f",
+                      m_supportVertices.size(), m_loadVertices.size(), maxStress);
         m_status = buffer;
+        std::printf("[StressMiq] %s\n", m_status.c_str());
         runMiq();
         m_lastSpacing = m_spacing;
     }
@@ -152,21 +182,22 @@ private:
         m_supportVertices.clear();
         m_loadVertices.clear();
         const auto data = m_mesh->getMeshData();
-        float minX = data->vertices.front().position.x;
-        float maxX = minX;
-        for (const MeshVertex& vertex : data->vertices) {
-            minX = std::min(minX, vertex.position.x);
-            maxX = std::max(maxX, vertex.position.x);
-        }
-        const float tolerance = std::max(1e-5f, (maxX - minX) * 1e-3f);
+        constexpr float blackThreshold = 0.02f;
         for (int id = 0; id < static_cast<int>(data->vertices.size()); ++id) {
-            const float x = data->vertices[id].position.x;
-            if (std::abs(x - minX) <= tolerance) m_supportVertices.push_back(id);
-            if (std::abs(x - maxX) <= tolerance) m_loadVertices.push_back(id);
+            // Read source colours before colorMeshByMagnitude overwrites them.
+            const MeshVertex& vertex = data->vertices[id];
+            const Color& color = vertex.color;
+            if (color.r <= blackThreshold && color.g <= blackThreshold && color.b <= blackThreshold) {
+                m_supportVertices.push_back(id);
+            } else {
+                m_loadVertices.push_back(id);
+            }
         }
     }
 
     void runMiq() {
+        m_miqResult = MiqRemeshResult{};
+        m_smoothedField.clear();
         if (!hasMesh()) return;
         const TensorField* field = &m_analyzer.getSmoothedCrossField();
         if (m_fieldSource == FieldSource::Curvature) {
@@ -177,12 +208,64 @@ private:
             m_miqStatus = std::string(fieldName()) + " field is unavailable";
             return;
         }
+        m_smoothedField = *field;
+        smoothActiveField();
         MiqRemeshOptions options;
         options.targetSpacing = m_spacing;
-        m_miqResult = m_miqRemesher.parameterize(*m_mesh->getMeshData(), *field, options);
+        m_miqResult = m_miqRemesher.parameterize(*m_mesh->getMeshData(), m_smoothedField, options);
         m_miqStatus = m_miqResult.success ? std::string(fieldName()) + " MIQ: " + m_miqResult.diagnostic
                                            : std::string(fieldName()) + " MIQ rejected: " + m_miqResult.diagnostic;
+        m_miqStatus += " | smooth steps " + std::to_string(smoothingSteps());
         std::printf("[StressMiq] %s\n", m_miqStatus.c_str());
+    }
+
+    int smoothingSteps() const { return static_cast<int>(std::round(m_smoothSteps)); }
+
+    void smoothActiveField() {
+        const auto data = m_mesh->getMeshData();
+        std::vector<Vec3> normals(data->faces.size());
+        std::vector<std::vector<int>> neighbors(data->faces.size());
+        std::map<std::pair<int, int>, std::vector<int>> edgeFaces;
+        for (int fi = 0; fi < static_cast<int>(data->faces.size()); ++fi) {
+            const auto& face = data->faces[fi];
+            normals[fi] = data->calculateFaceNormal(face).normalized();
+            // Even at zero steps MIQ needs an orthonormal tangent frame.
+            Vec3 major = m_smoothedField[fi].majorDirection;
+            major -= normals[fi] * major.dot(normals[fi]);
+            if (major.lengthSquared() <= 1e-10f)
+                major = data->vertices[face.vertices[1]].position - data->vertices[face.vertices[0]].position;
+            m_smoothedField[fi].majorDirection = major.normalized();
+            m_smoothedField[fi].minorDirection = normals[fi].cross(major).normalized();
+            for (int i = 0; i < 3; ++i) {
+                const int a = face.vertices[i], b = face.vertices[(i + 1) % 3];
+                edgeFaces[{std::min(a, b), std::max(a, b)}].push_back(fi);
+            }
+        }
+        for (const auto& entry : edgeFaces) {
+            for (int a : entry.second)
+                for (int b : entry.second)
+                    if (a != b) neighbors[a].push_back(b);
+        }
+        for (int step = 0; step < smoothingSteps(); ++step) {
+            TensorField next = m_smoothedField;
+            for (int fi = 0; fi < static_cast<int>(data->faces.size()); ++fi) {
+                const Vec3 base = m_smoothedField[fi].majorDirection;
+                Vec3 sum = base;
+                for (int neighbor : neighbors[fi]) {
+                    Vec3 direction = m_smoothedField[neighbor].majorDirection;
+                    direction -= normals[fi] * direction.dot(normals[fi]);
+                    if (direction.lengthSquared() <= 1e-10f) continue;
+                    direction.normalize();
+                    if (base.dot(direction) < 0.0f) direction = -direction;
+                    sum += direction;
+                }
+                sum -= normals[fi] * sum.dot(normals[fi]);
+                if (sum.lengthSquared() <= 1e-10f) continue;
+                next[fi].majorDirection = sum.normalized();
+                next[fi].minorDirection = normals[fi].cross(next[fi].majorDirection).normalized();
+            }
+            m_smoothedField = std::move(next);
+        }
     }
 
     void exportRemesh() {
@@ -246,18 +329,20 @@ private:
         StressAnalysisDrawSettings settings;
         settings.drawColoredMesh = m_drawStress && m_fieldSource == FieldSource::Stress;
         settings.drawMeshEdges = true;
-        settings.drawBoundaryConditions = false;
-        settings.drawCrossField = m_drawCrosses && m_fieldSource == FieldSource::Stress;
+        settings.drawBoundaryConditions = true;
+        settings.fixedVertexColor = Color(0.0f, 0.0f, 0.0f, 1.0f);
+        settings.drawCrossField = false;
         settings.crossScale = m_crossScale;
         settings.edgeColor = Color(0.78f, 0.78f, 0.78f, 1.0f);
         if (m_fieldSource == FieldSource::Stress) {
             m_analyzer.draw(renderer, *m_mesh, settings);
+            if (m_drawCrosses) drawTensorCrosses(renderer, *m_mesh->getMeshData(), m_smoothedField, settings);
             return;
         }
         const auto data = m_mesh->getMeshData();
         if (!data) return;
         m_analyzer.drawMeshEdges(renderer, *data, settings.edgeColor, settings.edgeWidth);
-        if (m_drawCrosses) drawTensorCrosses(renderer, *data, m_curvatureField, settings);
+        if (m_drawCrosses) drawTensorCrosses(renderer, *data, m_smoothedField, settings);
     }
 
     void drawTensorCrosses(Renderer& renderer,
@@ -282,28 +367,7 @@ private:
     }
 
     void drawMiqGrid(Renderer& renderer) const {
-        drawLineSet(renderer, m_miqResult.gridLines.u, Color(0.10f, 0.72f, 0.18f, 1.0f), 1.8f);
         drawLineSet(renderer, m_miqResult.gridLines.v, Color(0.95f, 0.52f, 0.02f, 1.0f), 1.6f);
-    }
-
-    void drawQuadMesh(Renderer& renderer) const {
-        const auto& quadMesh = m_miqResult.quadMesh;
-        if (!quadMesh || quadMesh->faces.empty()) return;
-        std::vector<Vec3> quadSegments;
-        std::vector<Vec3> boundarySegments;
-        for (const MeshFace& face : quadMesh->faces) {
-            const bool boundaryFace = face.color.r > 0.7f && face.color.g < 0.6f;
-            std::vector<Vec3>& segments = boundaryFace ? boundarySegments : quadSegments;
-            for (int i = 0; i < static_cast<int>(face.vertices.size()); ++i) {
-                const int a = face.vertices[i];
-                const int b = face.vertices[(i + 1) % static_cast<int>(face.vertices.size())];
-                if (a < 0 || b < 0 || a >= static_cast<int>(quadMesh->vertices.size()) || b >= static_cast<int>(quadMesh->vertices.size())) continue;
-                segments.push_back(quadMesh->vertices[a].position);
-                segments.push_back(quadMesh->vertices[b].position);
-            }
-        }
-        if (!quadSegments.empty()) renderer.drawLines(quadSegments.data(), static_cast<int>(quadSegments.size()), Color(0.04f, 0.40f, 0.12f, 1.0f), 2.2f);
-        if (!boundarySegments.empty()) renderer.drawLines(boundarySegments.data(), static_cast<int>(boundarySegments.size()), Color(0.95f, 0.45f, 0.02f, 1.0f), 1.6f);
     }
 
     void drawLineSet(Renderer& renderer, const std::vector<std::vector<Vec3>>& lines, const Color& color, float width) const {
@@ -317,12 +381,13 @@ private:
         if (!segments.empty()) renderer.drawLines(segments.data(), static_cast<int>(segments.size()), color, width);
     }
 
-    std::string m_objPath{"data/bridge.obj"};
+    std::string m_objPath{"data/ffMesh.obj"};
     std::shared_ptr<MeshObject> m_mesh;
     StressAnalyzer m_analyzer;
     MiqFieldRemesher m_miqRemesher;
     MiqRemeshResult m_miqResult;
     TensorField m_curvatureField;
+    TensorField m_smoothedField;
     std::unique_ptr<SimpleUI> m_ui;
     std::vector<int> m_supportVertices;
     std::vector<int> m_loadVertices;
@@ -330,10 +395,11 @@ private:
     std::string m_miqStatus;
     float m_spacing{0.25f};
     float m_lastSpacing{-1.0f};
+    float m_smoothSteps{12.0f};
+    int m_lastSmoothSteps{-1};
     bool m_drawStress{true};
     bool m_drawCrosses{true};
     bool m_drawMiqGrid{true};
-    bool m_drawQuadMesh{true};
     FieldSource m_fieldSource{FieldSource::Stress};
     float m_crossScale{0.055f};
 };

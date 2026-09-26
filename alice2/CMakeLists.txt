@@ -189,6 +189,21 @@ if(ALICE2_ENABLE_MIQ_REMESH)
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND TARGET CoMISo)
         target_compile_options(CoMISo PRIVATE -Wno-register)
     endif()
+    if(MSVC AND TARGET CoMISo)
+        # GMM 4.2 uses std::divides/multiplies without including <functional>.
+        target_compile_options(CoMISo PRIVATE /FIfunctional)
+        # This obsolete storage qualifier is rejected by MSVC in C++20 mode.
+        # Patch the fetched header so the fix also covers libigl's MIQ adapter.
+        get_target_property(ALICE2_COMISO_SOURCE_DIR CoMISo SOURCE_DIR)
+        set(ALICE2_GMM_DOMAIN_HEADER "${ALICE2_COMISO_SOURCE_DIR}/ext/gmm-4.2/include/gmm/gmm_domain_decomp.h")
+        if(EXISTS "${ALICE2_GMM_DOMAIN_HEADER}")
+            file(READ "${ALICE2_GMM_DOMAIN_HEADER}" ALICE2_GMM_DOMAIN_SOURCE)
+            string(REPLACE "register double a" "double a" ALICE2_GMM_DOMAIN_PATCHED "${ALICE2_GMM_DOMAIN_SOURCE}")
+            if(NOT ALICE2_GMM_DOMAIN_SOURCE STREQUAL ALICE2_GMM_DOMAIN_PATCHED)
+                file(WRITE "${ALICE2_GMM_DOMAIN_HEADER}" "${ALICE2_GMM_DOMAIN_PATCHED}")
+            endif()
+        endif()
+    endif()
     set(ALICE2_MIQ_TARGET igl_copyleft::comiso)
 endif()
 
@@ -247,6 +262,13 @@ else()
 
     set(ALICE2_DEPENDENCY_TARGETS ${OPENGL_LIBRARIES} ${GLFW_LIBRARIES})
     set(ALICE2_DEPENDENCY_MODE "alice2/depends")
+endif()
+
+if(ALICE2_ENABLE_MIQ_REMESH AND TARGET Eigen3::Eigen)
+    # Use the same Eigen as libigl/CoMiSo. The legacy bundled Eigen 3.3
+    # shadows its fetched 3.4 headers and lacks MIQ's indexed-vector API.
+    set(EIGEN_DIR "")
+    list(APPEND ALICE2_DEPENDENCY_TARGETS Eigen3::Eigen)
 endif()
 
 set(GL2PS_DIR "${ALICE2_DEPENDS_DIR}/gl2ps-1.4.2")
@@ -381,6 +403,17 @@ endif()
 
 if(ALICE2_ENABLE_MIQ_REMESH)
     target_compile_definitions(alice2 PRIVATE ALICE2_WITH_MIQ=1)
+    if(WIN32 AND TARGET CoMISo)
+        get_target_property(ALICE2_COMISO_SOURCE_DIR CoMISo SOURCE_DIR)
+        file(GLOB ALICE2_MIQ_BLAS_DLLS "${ALICE2_COMISO_SOURCE_DIR}/ext/OpenBLAS-v0.2.14-Win64-int64/bin/*.dll")
+        if(ALICE2_MIQ_BLAS_DLLS)
+            add_custom_command(TARGET alice2 POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${ALICE2_MIQ_BLAS_DLLS} "$<TARGET_FILE_DIR:alice2>"
+                COMMENT "Copying MIQ OpenBLAS and Fortran runtimes to output directory"
+                VERBATIM)
+        endif()
+    endif()
 else()
     target_compile_definitions(alice2 PRIVATE ALICE2_WITH_MIQ=0)
 endif()

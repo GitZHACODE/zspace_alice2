@@ -134,7 +134,9 @@ namespace alice2 {
         void applyTransform();
 
         // Mesh operations
-        void weld(float epsilon = 1e-6f);
+        // Normally keep the first vertex colour. When requested, any black
+        // source vertex (RGB <= 0.02) makes its welded vertex black as well.
+        void weld(float epsilon = 1e-6f, bool preserveBlackColors = false);
         void chamferVertices(const std::vector<int>& vertexIds,
                              float edgePercentage,
                              bool removeInternalEdges = true);

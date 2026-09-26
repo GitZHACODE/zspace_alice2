@@ -2127,7 +2127,7 @@ namespace alice2 {
         return result;
     }
 
-    void MeshObject::weld(float epsilon)
+    void MeshObject::weld(float epsilon, bool preserveBlackColors)
     {
         struct Key
         {
@@ -2170,6 +2170,9 @@ namespace alice2 {
             else
             {
                 remap[i] = it->second;
+                const Color& color = getMeshData()->vertices[i].color;
+                if (preserveBlackColors && color.r <= 0.02f && color.g <= 0.02f && color.b <= 0.02f)
+                    newVerts[it->second].color = color;
             }
         }
 
@@ -2184,9 +2187,11 @@ namespace alice2 {
                 idx.push_back(remap[vid]);
             // remove consecutive duplicates
             idx.erase(std::unique(idx.begin(), idx.end()), idx.end());
+            if (idx.size() > 1 && idx.front() == idx.back()) idx.pop_back();
             if (idx.size() >= 3)
             {
-                MeshFace f(idx, getMeshData()->calculateFaceNormal({idx, {}, {}}), face.color);
+                // Normals are recomputed after committing the remapped vertices.
+                MeshFace f(idx, face.normal, face.color);
                 newFaces.push_back(f);
             }
         }

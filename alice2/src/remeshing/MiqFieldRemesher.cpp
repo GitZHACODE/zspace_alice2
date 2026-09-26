@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <map>
 #include <queue>
 #include <set>
@@ -70,19 +71,12 @@ bool validateTopology(const MeshData& mesh, std::string& message) {
             boundary[edge.second].push_back(edge.first);
         }
     }
-    if (boundary.empty()) { message = "MIQ spike supports one-boundary patches only; the input mesh is closed"; return false; }
+    if (boundary.empty()) { message = "MIQ requires an open surface patch; the input mesh is closed"; return false; }
     for (const auto& [vertex, neighbors] : boundary) {
         if (neighbors.size() != 2) { message = "input mesh boundary is not a manifold loop"; return false; }
     }
-    std::set<int> visitedBoundary;
-    std::queue<int> boundaryQueue;
-    boundaryQueue.push(boundary.begin()->first);
-    visitedBoundary.insert(boundary.begin()->first);
-    while (!boundaryQueue.empty()) {
-        const int current = boundaryQueue.front(); boundaryQueue.pop();
-        for (int next : boundary[current]) if (visitedBoundary.insert(next).second) boundaryQueue.push(next);
-    }
-    if (visitedBoundary.size() != boundary.size()) { message = "MIQ spike supports exactly one boundary loop"; return false; }
+    // Multiple manifold boundary loops are valid (for example a slab with a
+    // hole). libigl constructs the cuts needed for the MIQ parameterization.
 
     std::vector<char> visitedFaces(mesh.faces.size(), 0);
     std::queue<int> faceQueue;
