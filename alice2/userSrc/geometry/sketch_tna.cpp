@@ -1,4 +1,4 @@
-//#define __MAIN__
+// #define __MAIN__
 #ifdef __MAIN__
 
 #include <alice2.h>
@@ -33,7 +33,7 @@ public:
         m_ui->setTheme(SimpleUI::UITheme::Dark);
         m_ui->addSlider("Form weight", Vec2{10.0f, 168.0f}, 190.0f, 0.0f, 1.0f, m_formWeight);
         m_ui->addSlider("H max iterations", Vec2{10.0f, 196.0f}, 190.0f, 1.0f, 500.0f, m_horizontalMaximumIterations);
-        m_ui->addSlider("H target angle", Vec2{10.0f, 224.0f}, 190.0f, 0.0f, 10.0f, m_horizontalTargetAngle);
+        m_ui->addSlider("H target angle", Vec2{10.0f, 224.0f}, 190.0f, 0.0f, 20.0f, m_horizontalTargetAngle);
         m_ui->addSlider("V nodal load", Vec2{10.0f, 252.0f}, 190.0f, -0.01f, 0.01f, m_verticalLoad);
         m_ui->addSlider("V self-weight density", Vec2{10.0f, 280.0f}, 190.0f, 0.0f, 10.0f, m_selfWeightDensity);
         m_ui->addSlider("Tension force vertex distance", Vec2{10.0f, 308.0f}, 220.0f,

@@ -1,6 +1,8 @@
 #include "BestFitTnaChecks.h"
 #include "BestFitTnaSolver.h"
 #include "BestFitTnaWorker.h"
+#include "OffsetCableNetwork.h"
+#include "VerticalReactionFit.h"
 #include <cmath>
 #include <chrono>
 #include <iomanip>
@@ -126,6 +128,158 @@ int runBestFitTnaBenchmark(const char* objPath, bool dense) {
 
 int runBestFitTnaChecks(const char* objPath) {
     try {
+        {
+            TnaFormDiagram tied;
+            tied.success = true;
+            tied.mesh.vertices.emplace_back(Vec3(-1,0,0));
+            tied.mesh.vertices.emplace_back(Vec3(1,0,0));
+            tied.mesh.vertices.emplace_back(Vec3(.2f,0,1));
+            tied.supportVertices = {0,1};
+            tied.activeFormEdges = {{0,2,false},{1,2,false},{0,1,true}};
+            BestFitForceDensitySettings settings;
+            settings.allowSlidingTensionSupports = false;
+            settings.loads.density = 0;
+            settings.loads.nodalLoads = {0,0,2};
+            settings.maximumIterations = 100;
+            VerticalReactionFit solver;
+            require(solver.reset(tied, settings, 50), "Vertical reaction reset");
+            while (solver.result().status == BestFitStatus::Running) solver.step();
+            std::cout << solver.result().diagnostic << std::endl;
+            require(solver.result().success, "Tied arch did not reach vertical reactions");
+            for (int v : tied.supportVertices) {
+                const auto& reaction = solver.result().report.reactions[v];
+                require(std::hypot(reaction.x, reaction.y) < settings.loads.residualTolerance,
+                        "Horizontal fixed-support reaction remains");
+                require((solver.result().mesh.vertices[v].position-tied.mesh.vertices[v].position).length() == 0,
+                        "Fixed anchor moved");
+            }
+            std::stop_source cancellation;
+            cancellation.request_stop();
+            require(solver.reset(tied, settings, 50), "Cancellation reset");
+            solver.step(cancellation.get_token());
+            require(solver.result().status == BestFitStatus::Cancelled && !solver.result().success,
+                    "Cancellation incorrectly reported equilibrium");
+            tied.supportVertices = {0};
+            settings.loads.additionalFixedVertices = {1};
+            double movement[2]{};
+            for (int i = 0; i < 2; ++i) {
+                require(solver.reset(tied, settings, i == 0 ? 0 : 500), "Sliding preference reset");
+                while (solver.result().status == BestFitStatus::Running) solver.step();
+                require(solver.result().success, "Sliding preference broke equilibrium");
+                const auto& position = solver.result().mesh.vertices[1].position;
+                require(position.z == 0, "Sliding support Z changed");
+                movement[i] = (position-tied.mesh.vertices[1].position).length();
+            }
+            require(movement[1] <= movement[0] + 1e-5, "Higher sliding penalty did not reduce movement");
+            std::cout << "Sliding movement: penalty 0 = " << movement[0] << ", penalty 500 = " << movement[1] << std::endl;
+            for (int i = 0; i < 2; ++i) {
+                require(solver.reset(tied, settings, 500, {1}, i == 0 ? 0 : 500), "Yellow preference reset");
+                while (solver.result().status == BestFitStatus::Running) solver.step();
+                require(solver.result().success, "Yellow preference broke equilibrium");
+                require(solver.result().mesh.vertices[1].position.z == 0, "Yellow support height moved");
+                const double distance = (solver.result().mesh.vertices[1].position-tied.mesh.vertices[1].position).length();
+                require(std::abs(distance-movement[i]) < 1e-5, "Yellow penalty did not override red penalty independently");
+            }
+            tied.supportVertices.clear();
+            settings.loads.additionalFixedVertices = {0,1};
+            require(solver.reset(tied, settings, 50, {0,1}, 50), "All-sliding anchors rejected");
+            while (solver.result().status == BestFitStatus::Running) solver.step();
+            require(solver.result().success, "All-sliding tied arch equilibrium");
+            tied.supportVertices = {0,1,2};
+            tied.activeFormEdges.pop_back();
+            settings.loads.additionalFixedVertices.clear();
+            settings.minimumDensityMagnitude = 1;
+            settings.maximumIterations = 10;
+            require(solver.reset(tied, settings, 50), "Incompatible network reset");
+            while (solver.result().status == BestFitStatus::Running) solver.step();
+            require(!solver.result().success, "Incompatible reactions falsely marked equilibrated");
+            std::cout << "PASS coupled geometry/density fit and vertical-only fixed reactions\n";
+        }
+        {
+            MeshData mesh;
+            for (int y = 0; y < 3; ++y) for (int x = 0; x < 3; ++x)
+                mesh.vertices.emplace_back(Vec3(float(x), float(y), 0));
+            for (int y = 0; y < 2; ++y) for (int x = 0; x < 2; ++x) {
+                const int v = y * 3 + x;
+                mesh.faces.emplace_back(std::vector<int>{v, v+1, v+4, v+3});
+            }
+            for (int v : {1,3,4,5,7}) mesh.vertices[v].color = Color(1,1,0);
+            mesh.vertices[0].color = Color(0,0,0);
+            mesh.vertices[2].color = Color(1,0,0);
+            auto network = makeOffsetCableNetwork(mesh, .5f);
+            MeshData soup;
+            for (const auto& f : mesh.faces) {
+                std::vector<int> indices;
+                for (int v : f.vertices) {
+                    indices.push_back(static_cast<int>(soup.vertices.size()));
+                    soup.vertices.push_back(mesh.vertices[v]);
+                }
+                soup.faces.emplace_back(indices);
+            }
+            const auto welded = weldOffsetCableMesh(soup);
+            const auto restored = makeOffsetCableNetwork(welded, .5f);
+            require(welded.vertices.size() == 9 && restored.form.mesh.vertices.size() == 10,
+                    "Face-corner OBJ welding must restore interior cable node");
+            require(restored.form.activeFormEdges.size() == network.form.activeFormEdges.size() &&
+                    restored.form.supportVertices.size() == network.form.supportVertices.size() &&
+                    restored.sliding.size() == network.sliding.size(), "Weld must preserve color constraints");
+            require(network.form.mesh.vertices.size() == 10, "Offset node count");
+            require(network.form.activeFormEdges.size() == 17, "Compression/cable/connector count");
+            require(network.cableNode[4] == 9 && network.cableNode[1] == 1, "Cable source mapping");
+            require(std::abs(network.form.mesh.vertices[9].position.z - .5f) < 1e-6f, "Normal offset");
+            require(network.form.supportVertices == std::vector<int>({0,1,3,5,7}), "Fixed boundary anchors");
+            require(network.sliding == std::vector<int>({2}), "Red sliding support");
+            const auto yellowSliding = makeOffsetCableNetwork(mesh, .5f, true);
+            require(yellowSliding.form.supportVertices == std::vector<int>({0}), "Black support must remain fixed");
+            require(yellowSliding.yellowSupports == std::vector<int>({1,3,5,7}), "Yellow sliding classification");
+            const auto slidingSettings = offsetCableSettings(yellowSliding, .25f, 1);
+            require(slidingSettings.loads.additionalFixedVertices.size() == 5, "Red and yellow must be fixed Z");
+            int cableValence = 0, connectors = 0;
+            for (size_t i = 0; i < network.memberKinds.size(); ++i) {
+                const auto& e = network.form.activeFormEdges[i];
+                if (network.memberKinds[i] == "cable" && (e.vertexA == 9 || e.vertexB == 9)) ++cableValence;
+                if (network.memberKinds[i] == "connector") {
+                    require(e.vertexA == 4 && e.vertexB == 9 && e.isTension, "Tension connector");
+                    ++connectors;
+                }
+            }
+            require(cableValence == 4 && connectors == 1, "Branched cable network");
+            auto settings = offsetCableSettings(network, .25f, 1);
+            BestFitForceDensitySolver solver;
+            require(solver.reset(network.form, settings), "Offset network solver reset");
+            std::vector<float> q(network.form.activeFormEdges.size(), 1);
+            const auto report = measureTnaEquilibrium(network.form.mesh, network.form.mesh,
+                network.form.activeFormEdges, q, network.form.supportVertices, settings.loads, false, 0);
+            require(report.finite && report.loads[9] == 0 && report.loads[4] > .25f, "Surface-only loading");
+            require(!settings.allowSlidingTensionSupports && settings.slidingSupportPenalty == 0,
+                    "Fixed anchors must not slide or use springs");
+            auto negative = makeOffsetCableNetwork(mesh, -.5f);
+            require(std::abs(negative.form.mesh.vertices[9].position.z + .5f) < 1e-6f, "Signed offset");
+            mesh.vertices[0].color = Color(1,1,0);
+            auto shared = makeOffsetCableNetwork(mesh, .5f);
+            require(solver.reset(shared.form, offsetCableSettings(shared, .25f, 1)),
+                    "Shared boundary compression and cable endpoints");
+            bool rejected = false;
+            try { makeOffsetCableNetwork(mesh, 0); } catch (const std::exception&) { rejected = true; }
+            require(rejected, "Zero offset must be rejected");
+            // A raised compression mesh with a lower cable layer has a known
+            // equilibrium: four q=1 compression spokes, q=-1 cables and q=-4 tie.
+            for (int v : {0,2,6,8}) mesh.vertices[v].color = Color(0,0,0);
+            mesh.vertices[4].position.z = 1;
+            auto feasible = makeOffsetCableNetwork(mesh, -.5f);
+            auto fitSettings = offsetCableSettings(feasible, 0, 0);
+            fitSettings.loads.nodalLoads[4] = 2;
+            std::vector<float> known;
+            for (const auto& kind : feasible.memberKinds)
+                known.push_back(kind == "compression" ? 1.f : kind == "cable" ? -1.f : -4.f);
+            auto balanced = measureTnaEquilibrium(feasible.form.mesh, feasible.form.mesh,
+                feasible.form.activeFormEdges, known, feasible.form.supportVertices, fitSettings.loads, false, 0);
+            require(balanced.finite && balanced.residual < 1e-5, "Known spatial cable equilibrium");
+            require(solver.reset(feasible.form, fitSettings), "Spatial fit reset");
+            while (solver.result().status == BestFitStatus::Running) solver.step();
+            checkFit(feasible.form, fitSettings, solver.result());
+            std::cout << "PASS offset cable topology, branching, anchors, red supports and surface-only loads\n";
+        }
         // Start faces at the hole and vary their order: the supported ring,
         // not the first boundary encountered, must receive outer tension.
         for (bool reverseOrder : {false, true}) {
@@ -338,3 +492,47 @@ int runBestFitTnaChecks(const char* objPath) {
     }
 }
 } // namespace alice2
+
+namespace alice2 {
+int runOffsetCableCheck(const char* path) {
+    try {
+        MeshObject input("offset_check");
+        input.readFromObj(path);
+        auto mesh = weldOffsetCableMesh(*input.getMeshData());
+        auto network = makeOffsetCableNetwork(mesh, -.5f, true);
+        auto shifted = makeOffsetCableNetwork(mesh, -1.f, true);
+        int offsetCount = 0;
+        for (int v = 0; v < network.surfaceVertexCount; ++v) {
+            int cable = network.cableNode[v];
+            if (cable < network.surfaceVertexCount) continue;
+            ++offsetCount;
+            require(std::abs((shifted.form.mesh.vertices[cable].position -
+                network.form.mesh.vertices[cable].position).length() - .5f) < 1e-4f,
+                "Offset control did not move cable node");
+        }
+        require(offsetCount > 0, "No interior yellow cable nodes to offset");
+        std::cout << "Welded " << input.getMeshData()->vertices.size() << " -> " << mesh.vertices.size()
+                  << " surface vertices; " << offsetCount << " offset cable nodes" << std::endl;
+        auto settings = offsetCableSettings(network, .001f, 1.f);
+        settings.maximumIterations = 100;
+        VerticalReactionFit solver;
+        require(solver.reset(network.form, settings, 50, network.yellowSupports, 50), solver.result().diagnostic.c_str());
+        while (solver.result().status == BestFitStatus::Running) {
+            solver.step();
+            std::cout << solver.result().diagnostic << std::endl;
+        }
+        checkFit(network.form, settings, solver.result());
+        require(solver.result().report.horizontalResidual <= settings.loads.residualTolerance,
+                "Support horizontal reactions remain");
+        double movement = 0;
+        for (size_t i = 0; i < network.form.mesh.vertices.size(); ++i)
+            movement = std::max(movement, double((solver.result().mesh.vertices[i].position -
+                network.form.mesh.vertices[i].position).length()));
+        std::cout << "PASS offset control and spatial fit; maximum displacement " << movement << std::endl;
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "FAIL offset cable check: " << e.what() << std::endl;
+        return 1;
+    }
+}
+}

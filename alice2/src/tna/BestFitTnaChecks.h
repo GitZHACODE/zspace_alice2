@@ -1,5 +1,6 @@
 #pragma once
 namespace alice2 {
+int runOffsetCableCheck(const char* objPath);
 // Headless numerical regression entry point; never creates a graphics context.
 int runBestFitTnaChecks(const char* objPath);
 int runBestFitTnaBenchmark(const char* objPath, bool dense = false);

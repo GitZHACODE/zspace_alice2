@@ -10,6 +10,7 @@
 #include <limits>
 #include <set>
 #include <sstream>
+#include <tuple>
 
 namespace alice2 {
 
@@ -452,12 +453,13 @@ bool BestFitForceDensitySolver::reset(const TnaFormDiagram& design, const BestFi
     for (const auto& face : design.mesh.faces) for (int v : face.vertices)
         if (v < 0 || v >= n) return fail("Invalid face vertex index");
     std::vector<std::vector<int>> neighbours(n);
-    std::set<std::pair<int, int>> unique;
+    std::set<std::tuple<int, int, bool>> unique;
     for (const auto& e : design.activeFormEdges) {
         if (e.vertexA < 0 || e.vertexB < 0 || e.vertexA >= n || e.vertexB >= n || e.vertexA == e.vertexB ||
             (design.mesh.vertices[e.vertexA].position - design.mesh.vertices[e.vertexB].position).length() < 1e-6f)
             return fail("Invalid or zero-length active member");
-        if (!unique.emplace(std::min(e.vertexA, e.vertexB), std::max(e.vertexA, e.vertexB)).second)
+        // A separate cable can coincide with a compression edge between shared anchors.
+        if (!unique.emplace(std::min(e.vertexA, e.vertexB), std::max(e.vertexA, e.vertexB), e.isTension).second)
             return fail("Duplicate active member");
         neighbours[e.vertexA].push_back(e.vertexB); neighbours[e.vertexB].push_back(e.vertexA);
     }

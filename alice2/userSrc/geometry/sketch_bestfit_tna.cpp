@@ -1,4 +1,4 @@
-#define __MAIN__
+// #define __MAIN__
 #ifdef __MAIN__
 
 #include <alice2.h>
@@ -219,6 +219,10 @@ private:
         std::vector<bool> tensionVertices(m_result.mesh.vertices.size(), false);
         std::vector<bool> supports(m_result.mesh.vertices.size(), false);
         for (const int vertex : m_result.supportVertices) {
+            if (vertex >= 0 && vertex < static_cast<int>(supports.size())) supports[vertex] = true;
+        }
+        // Growth must not add tension edges incident to red (fixed Z) supports either.
+        for (const int vertex : m_verticalOnlySupports) {
             if (vertex >= 0 && vertex < static_cast<int>(supports.size())) supports[vertex] = true;
         }
         for (const TnaEdge& edge : m_result.activeFormEdges) {
