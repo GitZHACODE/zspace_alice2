@@ -11,7 +11,7 @@ class VerticalReactionFit {
 public:
     bool reset(const TnaFormDiagram& form, const BestFitForceDensitySettings& settings,
                double slidingMovementPenalty, const std::vector<int>& yellowSupports = {},
-               double yellowMovementPenalty = 50) {
+               double yellowMovementPenalty = 50, const std::vector<float>& initialDensities = {}) {
         BestFitForceDensitySolver validation;
         m_form = form; m_settings = settings; m_penalty = slidingMovementPenalty;
         m_result = {}; m_result.mesh = form.mesh; m_result.edges = form.activeFormEdges;
@@ -50,6 +50,21 @@ public:
         }
         const int e = int(form.activeFormEdges.size());
         m_x = Eigen::VectorXd::Zero(e + m_coordinates.size());
+        m_seedProvided = !initialDensities.empty();
+        if (m_seedProvided) {
+            if (initialDensities.size() != size_t(e)) {
+                m_result.status = BestFitStatus::Failed;
+                m_result.diagnostic = "Initial density count does not match members"; return false;
+            }
+            for (int i = 0; i < e; ++i) {
+                const double q = initialDensities[i] * (form.activeFormEdges[i].isTension ? -1. : 1.);
+                if (!std::isfinite(q) || q <= settings.minimumDensityMagnitude) {
+                    m_result.status = BestFitStatus::Failed;
+                    m_result.diagnostic = "Initial densities must respect signs and exceed the minimum"; return false;
+                }
+                m_x[i] = std::log(q - settings.minimumDensityMagnitude);
+            }
+        }
         for (int i = 0; i < int(m_coordinates.size()); ++i) {
             auto [v,a] = m_coordinates[i];
             m_x[e+i] = component(form.mesh.vertices[v].position, a) / m_scale;
@@ -69,7 +84,7 @@ public:
         if (stop.stop_requested()) { finish(BestFitStatus::Cancelled); return; }
         const int e = int(m_form.activeFormEdges.size()), k = int(m_coordinates.size());
         const int r = int(m_rows.size()), variables = int(m_x.size());
-        if (m_result.iteration == 0) {
+        if (m_result.iteration == 0 && !m_seedProvided) {
             // Start from the existing free-node equilibrium when it also
             // improves the full residual. Seed work remains on the worker.
             BestFitForceDensitySolver seed;
@@ -207,5 +222,6 @@ private:
     std::vector<double> m_preferences;
     Eigen::VectorXd m_x, m_reference;
     double m_penalty{50}, m_scale{1}, m_forceScale{1}, m_weight{100}, m_damping{1e-4};
+    bool m_seedProvided{false};
 };
 }
