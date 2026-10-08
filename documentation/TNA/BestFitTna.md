@@ -1,6 +1,9 @@
 # Best-fit shape and fixed-plan TNA
 
-The enabled sketch is `alice2/userSrc/geometry/sketch_bestfit_tna.cpp`.
+This document describes the v1 sketch `alice2/userSrc/geometry/sketch_bestfit_tna.cpp`.
+Its `__MAIN__` define is currently commented out; the enabled offset-cable v2 sketch
+is documented in [OffsetCableNetwork.md](OffsetCableNetwork.md), with the mathematical
+reference in [OffsetCableComputationalReference.md](OffsetCableComputationalReference.md).
 It loads and welds `<working directory>/data/tna.obj`, retaining the original as a grey reference.
 All exports also go to `<working directory>/data/`; there is no source-tree fallback.
 The force diagram is scaled and translated for side-by-side display only;
