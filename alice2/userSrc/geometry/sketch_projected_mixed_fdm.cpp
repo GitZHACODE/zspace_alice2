@@ -1,4 +1,4 @@
-#define __MAIN__
+// #define __MAIN__
 #ifdef __MAIN__
 
 #include <alice2.h>
@@ -26,7 +26,7 @@ public:
         m_ui->setTheme(SimpleUI::UITheme::Dark);
         m_ui->addSlider("Projection", Vec2{10, 160}, 220, .01f, 1.f, m_projection);
         m_ui->addSlider("Density trust", Vec2{10, 190}, 220, .01f, 1.f, m_trust);
-        m_ui->addSlider("Horizontal support force", Vec2{10, 220}, 220, 0.f, 10.f, m_supportWeight);
+        m_ui->addSlider("Support balance", Vec2{10, 220}, 220, 0.f, 10.f, m_supportWeight);
         m_ui->addSlider("Cable offset", Vec2{10, 250}, 220, -2.f, -.02f, m_offset);
         m_ui->addSlider("Surface nodal load", Vec2{10, 280}, 220, 0.f, .05f, m_nodalLoad);
         m_ui->addSlider("Surface weight density", Vec2{10, 310}, 220, 0.f, 10.f, m_density);

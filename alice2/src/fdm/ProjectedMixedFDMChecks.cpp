@@ -80,6 +80,16 @@ void checkSolve() {
     require(balanced.equilibriumValidated &&
             balanced.history.back().horizontalSupportForce < result.history.back().horizontalSupportForce,
             "horizontal support-force target did not reduce actual support force");
+    require(balanced.history.back().shapeError <= 3 * std::max(1.0, result.history.back().shapeError) + 1e-8,
+            "support balancing exceeded the shape allowance");
+    for (int e = 0; e < balanced.q.size(); ++e) {
+        if (g.edges[e].type == MemberType::Compression)
+            require(std::abs(balanced.q[e] - result.q[e]) <= 0.1 * result.q[e] + 1e-9,
+                    "support balancing changed compression too much");
+        else {
+            require(balanced.q[e] <= result.q[e] + 1e-9, "support balancing weakened a cable");
+        }
+    }
 
     StructuralGraph physical = g;
     for (auto& n : physical.nodes) n.load.setZero();

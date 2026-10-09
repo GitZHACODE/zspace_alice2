@@ -36,7 +36,7 @@ struct SolverOptions {
     double maxDensity = 1e3;
     double regularization = 1e-3;
     double trustFraction = 0.25;
-    double supportHorizontalWeight = 0; // penalty on fixed x/y force components
+    double supportHorizontalWeight = 0; // 0 disables balancing; 1..10 sets shape allowance
     double forceTolerance = 1e-8;
     double shapeTolerance = 1e-7;
 };

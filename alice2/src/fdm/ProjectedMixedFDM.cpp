@@ -64,19 +64,6 @@ double horizontalSupportNorm(const StructuralGraph& g, const Eigen::MatrixXd& X,
     return (p - horizontalSupportMatrix(g, X) * q).norm();
 }
 
-Sparse stackedCorrectionMatrix(const Sparse& A, const Sparse& H, double weight) {
-    std::vector<Triplet> terms;
-    terms.reserve(A.nonZeros() + H.nonZeros());
-    for (int c = 0; c < A.outerSize(); ++c)
-        for (Sparse::InnerIterator it(A, c); it; ++it) terms.emplace_back(it.row(), it.col(), it.value());
-    const double scale = std::sqrt(weight);
-    for (int c = 0; c < H.outerSize(); ++c)
-        for (Sparse::InnerIterator it(H, c); it; ++it)
-            terms.emplace_back(A.rows() + it.row(), it.col(), scale * it.value());
-    Sparse B(A.rows() + H.rows(), A.cols()); B.setFromTriplets(terms.begin(), terms.end());
-    return B;
-}
-
 bool valid(const StructuralGraph& g, const SolverOptions& o, std::string& reason) {
     if (g.nodes.empty() || g.edges.empty() || !std::isfinite(o.minDensity) || !std::isfinite(o.maxDensity) ||
         !std::isfinite(o.projection) || !std::isfinite(o.regularization) ||
@@ -204,6 +191,88 @@ Eigen::VectorXd boundedFit(const Sparse& A, const Eigen::VectorXd& p,
     }
     return q;
 }
+
+// Derivative of the recovered horizontal support force, p_C - L_CF X_F - L_CC X_C.
+// Each column includes the movement of the free nodes caused by changing one density.
+Eigen::MatrixXd supportJacobian(const StructuralGraph& g, const Eigen::VectorXd& q,
+                                const Eigen::MatrixXd& X) {
+    const auto support = supportRows(g);
+    Eigen::MatrixXd J = Eigen::MatrixXd::Zero((support.array() >= 0).count(), q.size());
+    for (int d = 0; d < 2; ++d) {
+        std::vector<int> free(g.nodes.size(), -1);
+        int count = 0;
+        for (int i = 0; i < int(g.nodes.size()); ++i)
+            if (!g.nodes[i].fixed[d]) free[i] = count++;
+        std::vector<Triplet> terms;
+        for (int e = 0; e < q.size(); ++e) {
+            const int i = g.edges[e].i, j = g.edges[e].j;
+            const double v = -q[e];
+            if (free[i] >= 0) {
+                terms.emplace_back(free[i], free[i], v);
+                if (free[j] >= 0) terms.emplace_back(free[i], free[j], -v);
+            }
+            if (free[j] >= 0) {
+                terms.emplace_back(free[j], free[j], v);
+                if (free[i] >= 0) terms.emplace_back(free[j], free[i], -v);
+            }
+        }
+        Sparse M(count, count); M.setFromTriplets(terms.begin(), terms.end()); M.makeCompressed();
+        Eigen::SparseLU<Sparse> lu;
+        if (count) { lu.analyzePattern(M); lu.factorize(M); }
+        for (int s = 0; s < int(g.nodes.size()); ++s) {
+            const int row = support(s, d);
+            if (row < 0) continue;
+            Eigen::VectorXd rhs = Eigen::VectorXd::Zero(count);
+            for (int e = 0; e < q.size(); ++e) {
+                const auto& edge = g.edges[e];
+                if (edge.i == s && free[edge.j] >= 0) rhs[free[edge.j]] += q[e];
+                if (edge.j == s && free[edge.i] >= 0) rhs[free[edge.i]] += q[e];
+            }
+            const Eigen::VectorXd y = count ? lu.solve(rhs) : Eigen::VectorXd();
+            for (int e = 0; e < q.size(); ++e) {
+                const auto& edge = g.edges[e];
+                const double delta = X(edge.j, d) - X(edge.i, d);
+                double value = 0;
+                if (edge.i == s) value -= delta;
+                if (edge.j == s) value += delta;
+                if (free[edge.i] >= 0) value += y[free[edge.i]] * delta;
+                if (free[edge.j] >= 0) value -= y[free[edge.j]] * delta;
+                J(row, e) = value;
+            }
+        }
+    }
+    return J;
+}
+
+Eigen::VectorXd supportStep(const StructuralGraph& g, const Eigen::VectorXd& q,
+                            const Eigen::MatrixXd& X, const Eigen::VectorXd& supportP,
+                            double weight) {
+    const Eigen::VectorXd force = supportP - horizontalSupportMatrix(g, X) * q;
+    const Eigen::MatrixXd J = supportJacobian(g, q, X);
+    Eigen::VectorXd scale(q.size());
+    for (int e = 0; e < q.size(); ++e)
+        scale[e] = std::abs(q[e]) * (g.edges[e].type == MemberType::Compression ? 0.01 : 0.5)
+                   * std::min(1.0, weight);
+    const Eigen::MatrixXd B = J * scale.asDiagonal();
+    Eigen::VectorXd v = Eigen::VectorXd::Ones(force.size()); v.normalize();
+    for (int k = 0; k < 20; ++k) {
+        Eigen::VectorXd next = B * (B.transpose() * v);
+        if (next.norm() == 0) break;
+        v = next.normalized();
+    }
+    const double lambda = 1e-3;
+    const double lipschitz = std::max(lambda, (B.transpose() * v).squaredNorm() + lambda) * 1.01;
+    Eigen::VectorXd u = Eigen::VectorXd::Zero(q.size());
+    for (int k = 0; k < 400; ++k) {
+        Eigen::VectorXd next = u - (B.transpose() * (force + B * u) + lambda * u) / lipschitz;
+        for (int e = 0; e < q.size(); ++e)
+            next[e] = g.edges[e].type == MemberType::Compression
+                ? std::clamp(next[e], -1.0, 1.0) : std::clamp(next[e], -1.0, 0.0);
+        if ((next - u).norm() < 1e-8) { u = next; break; }
+        u = next;
+    }
+    return scale.cwiseProduct(u);
+}
 } // namespace
 
 Eigen::SparseMatrix<double> equilibriumMatrix(const StructuralGraph& g, const Eigen::MatrixXd& X) {
@@ -246,6 +315,60 @@ Eigen::VectorXd freeResidual(const StructuralGraph& g, const Eigen::MatrixXd& X,
 SolverResult solveProjectedMixedFDM(const StructuralGraph& g, const SolverOptions& o) {
     SolverResult out;
     if (!valid(g, o, out.reason)) return out;
+    if (o.supportHorizontalWeight > 0) {
+        SolverOptions base = o;
+        base.supportHorizontalWeight = 0;
+        out = solveProjectedMixedFDM(g, base);
+        if (!out.equilibriumValidated || out.q.size() == 0) return out;
+        const Eigen::MatrixXd X0 = inputPositions(g);
+        const Eigen::VectorXd supportP = horizontalSupportLoads(g);
+        const Eigen::VectorXd p = freeLoads(g);
+        if (supportP.size() == 0) return out;
+        const Eigen::VectorXd referenceQ = out.q;
+        const double shapeLimit = std::max(1.0, shapeError(out.X, X0)) *
+            (1.0 + 0.2 * std::min(10.0, o.supportHorizontalWeight));
+        for (int iteration = 0; iteration < 12; ++iteration) {
+            const double oldForce = horizontalSupportNorm(g, out.X, out.q, supportP);
+            if (oldForce < o.forceTolerance) { out.reason = "converged"; break; }
+            const Eigen::VectorXd step = supportStep(g, out.q, out.X, supportP, o.supportHorizontalWeight);
+            bool accepted = false;
+            int rejected = 0;
+            for (int backtrack = 0; backtrack < o.maxBacktracks + 5; ++backtrack) {
+                const double beta = std::ldexp(1.0, -backtrack);
+                Eigen::VectorXd trialQ = out.q + beta * step;
+                for (int e = 0; e < trialQ.size(); ++e) {
+                    if (g.edges[e].type == MemberType::Compression)
+                        trialQ[e] = std::clamp(trialQ[e],
+                            std::max(o.minDensity, 0.9 * referenceQ[e]),
+                            std::min(o.maxDensity, 1.1 * referenceQ[e]));
+                    else trialQ[e] = std::clamp(trialQ[e], -o.maxDensity, referenceQ[e]);
+                }
+                Eigen::MatrixXd trialX;
+                if (recover(g, trialQ, trialX) &&
+                    shapeError(trialX, X0) <= shapeLimit &&
+                    freeResidual(g, trialX, trialQ).norm() <=
+                        o.forceTolerance * std::max({1.0, p.norm(), trialQ.norm()})) {
+                    const double force = horizontalSupportNorm(g, trialX, trialQ, supportP);
+                    if (force < oldForce - 1e-6 * std::max(1.0, oldForce)) {
+                        const double relativeStep = (trialQ - out.q).norm() / std::max(1.0, out.q.norm());
+                        out.q = trialQ; out.X = trialX;
+                        out.history.push_back({shapeError(out.X, X0), freeResidual(g, out.X, out.q).norm(),
+                                               0, force, relativeStep, rejected});
+                        accepted = true; break;
+                    }
+                }
+                ++rejected;
+            }
+            if (!accepted) { out.reason = "support_stagnated"; break; }
+            if (iteration == 11) out.reason = shapeError(out.X, X0) > 0.99 * shapeLimit
+                ? "support_shape_limit" : "support_max_iterations";
+        }
+        out.residuals = Eigen::MatrixXd::Zero(g.nodes.size(), 3);
+        Eigen::VectorXd r = freeResidual(g, out.X, out.q); int row = 0;
+        for (int i = 0; i < out.residuals.rows(); ++i) for (int d = 0; d < 3; ++d)
+            if (!g.nodes[i].fixed[d]) out.residuals(i, d) = r[row++];
+        return out;
+    }
     const Eigen::MatrixXd X0 = inputPositions(g);
     const Eigen::VectorXd p = freeLoads(g);
     const Eigen::VectorXd supportP = horizontalSupportLoads(g);
@@ -274,8 +397,7 @@ SolverResult solveProjectedMixedFDM(const StructuralGraph& g, const SolverOption
         out.equilibriumValidated = r.norm() <= o.forceTolerance * std::max({1.0, p.norm(), q.norm()});
     };
     record(out.fixedGeometryResidual, 0, 0);
-    double previousMerit = out.history.back().shapeError +
-        o.supportHorizontalWeight * std::pow(out.history.back().horizontalSupportForce, 2);
+    double previousMerit = out.history.back().shapeError;
     int smallSteps = 0;
     for (int iteration = 0; iteration < o.maxIterations; ++iteration) {
         bool accepted = false;
@@ -287,23 +409,14 @@ SolverResult solveProjectedMixedFDM(const StructuralGraph& g, const SolverOption
                 if (!g.nodes[i].fixed[d]) Xp(i, d) += alpha * (X0(i, d) - Xp(i, d));
             Sparse A = equilibriumMatrix(g, Xp);
             projected = (p - A * q).norm();
-            Eigen::VectorXd target;
-            if (o.supportHorizontalWeight > 0 && supportP.size() > 0) {
-                Sparse H = horizontalSupportMatrix(g, Xp);
-                Sparse B = stackedCorrectionMatrix(A, H, o.supportHorizontalWeight);
-                Eigen::VectorXd targetP(p.size() + supportP.size());
-                targetP << p, std::sqrt(o.supportHorizontalWeight) * supportP;
-                target = boundedFit(B, targetP, g, q, o, true, anchor);
-            } else target = boundedFit(A, p, g, q, o, true, anchor);
+            Eigen::VectorXd target = boundedFit(A, p, g, q, o, true, anchor);
             for (int backtrack = 0; backtrack < o.maxBacktracks; ++backtrack) {
                 const double beta = std::ldexp(1.0, -backtrack);
                 Eigen::VectorXd trialQ = q + beta * (target - q);
                 Eigen::MatrixXd trialX;
                 if (recover(g, trialQ, trialX) &&
                     freeResidual(g, trialX, trialQ).norm() <= o.forceTolerance * std::max({1.0, p.norm(), trialQ.norm()}) &&
-                    shapeError(trialX, X0) + o.supportHorizontalWeight *
-                        std::pow(horizontalSupportNorm(g, trialX, trialQ, supportP), 2) <
-                        previousMerit - 1e-12 * std::max(1.0, previousMerit)) {
+                    shapeError(trialX, X0) < previousMerit - 1e-12 * std::max(1.0, previousMerit)) {
                     step = (trialQ - q).norm() / std::max(1.0, q.norm());
                     q = trialQ; out.X = trialX; accepted = true; break;
                 }
@@ -316,8 +429,7 @@ SolverResult solveProjectedMixedFDM(const StructuralGraph& g, const SolverOption
             break;
         }
         record(projected, step, rejected);
-        double merit = out.history.back().shapeError +
-            o.supportHorizontalWeight * std::pow(out.history.back().horizontalSupportForce, 2);
+        double merit = out.history.back().shapeError;
         double improvement = (previousMerit - merit) / std::max(1.0, previousMerit);
         smallSteps = (improvement < o.shapeTolerance && step < o.shapeTolerance) ? smallSteps + 1 : 0;
         previousMerit = merit;
