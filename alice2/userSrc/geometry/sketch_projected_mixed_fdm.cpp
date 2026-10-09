@@ -24,12 +24,14 @@ public:
         m_ui->setTheme(SimpleUI::UITheme::Dark);
         m_ui->addSlider("Projection", Vec2{10, 160}, 220, .01f, 1.f, m_projection);
         m_ui->addSlider("Density trust", Vec2{10, 190}, 220, .01f, 1.f, m_trust);
+        m_ui->addSlider("Horizontal support force", Vec2{10, 220}, 220, 0.f, 100.f, m_supportWeight);
         m_graph = demoGraph();
         solve();
         Application::getInstance()->getCameraController().focusOnBounds(Vec3(-2.5f,-1.5f,-.3f), Vec3(2.5f,1.5f,1.5f));
     }
     void update(float) override {
-        if (m_projection != m_lastProjection || m_trust != m_lastTrust) solve();
+        if (m_projection != m_lastProjection || m_trust != m_lastTrust ||
+            m_supportWeight != m_lastSupportWeight) solve();
     }
     void draw(Renderer& renderer, Camera&) override {
         for (const auto& e : m_graph.edges) {
@@ -141,8 +143,9 @@ private:
         return Vec3(float(m_result.X(i,0)),float(m_result.X(i,1)),float(m_result.X(i,2)));
     }
     void solve() {
-        m_lastProjection = m_projection; m_lastTrust = m_trust;
+        m_lastProjection = m_projection; m_lastTrust = m_trust; m_lastSupportWeight = m_supportWeight;
         fdm::SolverOptions options; options.projection = m_projection; options.trustFraction = m_trust;
+        options.supportHorizontalWeight = m_supportWeight;
         m_result = fdm::solveProjectedMixedFDM(m_graph, options);
         m_supportForces.resize(0, 0);
         if (m_result.equilibriumValidated && m_result.X.rows() == int(m_graph.nodes.size()) &&
@@ -159,7 +162,8 @@ private:
             const auto& last = m_result.history.back();
             text << " | iterations " << m_result.history.size()-1
                  << " | shape " << std::setprecision(4) << last.shapeError
-                 << " | force residual " << last.forceResidual;
+                 << " | force residual " << last.forceResidual
+                 << " | support horizontal " << last.horizontalSupportForce;
         }
         m_status = text.str();
     }
@@ -168,8 +172,8 @@ private:
     Eigen::MatrixXd m_supportForces;
     std::unique_ptr<SimpleUI> m_ui;
     std::string m_status;
-    float m_projection = .15f, m_trust = .25f;
-    float m_lastProjection = -1, m_lastTrust = -1;
+    float m_projection = .15f, m_trust = .25f, m_supportWeight = 10.f;
+    float m_lastProjection = -1, m_lastTrust = -1, m_lastSupportWeight = -1;
     bool m_showInput = true, m_showForces = false;
 };
 

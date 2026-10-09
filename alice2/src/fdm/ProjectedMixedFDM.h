@@ -36,12 +36,14 @@ struct SolverOptions {
     double maxDensity = 1e3;
     double regularization = 1e-3;
     double trustFraction = 0.25;
+    double supportHorizontalWeight = 0; // penalty on fixed x/y force components
     double forceTolerance = 1e-8;
     double shapeTolerance = 1e-7;
 };
 
 struct IterationRecord {
     double shapeError = 0, forceResidual = 0, projectedResidual = 0;
+    double horizontalSupportForce = 0;
     double densityStep = 0;
     int rejectedTrials = 0;
 };

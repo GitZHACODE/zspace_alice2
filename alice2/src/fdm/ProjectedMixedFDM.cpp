@@ -26,13 +26,65 @@ Eigen::MatrixXi dofRows(const StructuralGraph& g) {
     return rows;
 }
 
+Eigen::MatrixXi supportRows(const StructuralGraph& g) {
+    Eigen::MatrixXi rows = Eigen::MatrixXi::Constant(g.nodes.size(), 3, -1);
+    int next = 0;
+    for (int i = 0; i < rows.rows(); ++i)
+        for (int d = 0; d < 2; ++d) if (g.nodes[i].fixed[d]) rows(i, d) = next++;
+    return rows;
+}
+
+Sparse horizontalSupportMatrix(const StructuralGraph& g, const Eigen::MatrixXd& X) {
+    const auto rows = supportRows(g);
+    std::vector<Triplet> terms;
+    for (int e = 0; e < int(g.edges.size()); ++e) {
+        const auto& edge = g.edges[e];
+        for (int d = 0; d < 2; ++d) {
+            const double delta = X(edge.j, d) - X(edge.i, d);
+            if (rows(edge.i, d) >= 0) terms.emplace_back(rows(edge.i, d), e, delta);
+            if (rows(edge.j, d) >= 0) terms.emplace_back(rows(edge.j, d), e, -delta);
+        }
+    }
+    Sparse H((rows.array() >= 0).count(), g.edges.size());
+    H.setFromTriplets(terms.begin(), terms.end());
+    return H;
+}
+
+Eigen::VectorXd horizontalSupportLoads(const StructuralGraph& g) {
+    int count = 0;
+    for (const auto& n : g.nodes) for (int d = 0; d < 2; ++d) count += n.fixed[d];
+    Eigen::VectorXd p(count); int row = 0;
+    for (const auto& n : g.nodes) for (int d = 0; d < 2; ++d)
+        if (n.fixed[d]) p[row++] = n.load[d];
+    return p;
+}
+
+double horizontalSupportNorm(const StructuralGraph& g, const Eigen::MatrixXd& X,
+                             const Eigen::VectorXd& q, const Eigen::VectorXd& p) {
+    return (p - horizontalSupportMatrix(g, X) * q).norm();
+}
+
+Sparse stackedCorrectionMatrix(const Sparse& A, const Sparse& H, double weight) {
+    std::vector<Triplet> terms;
+    terms.reserve(A.nonZeros() + H.nonZeros());
+    for (int c = 0; c < A.outerSize(); ++c)
+        for (Sparse::InnerIterator it(A, c); it; ++it) terms.emplace_back(it.row(), it.col(), it.value());
+    const double scale = std::sqrt(weight);
+    for (int c = 0; c < H.outerSize(); ++c)
+        for (Sparse::InnerIterator it(H, c); it; ++it)
+            terms.emplace_back(A.rows() + it.row(), it.col(), scale * it.value());
+    Sparse B(A.rows() + H.rows(), A.cols()); B.setFromTriplets(terms.begin(), terms.end());
+    return B;
+}
+
 bool valid(const StructuralGraph& g, const SolverOptions& o, std::string& reason) {
     if (g.nodes.empty() || g.edges.empty() || !std::isfinite(o.minDensity) || !std::isfinite(o.maxDensity) ||
         !std::isfinite(o.projection) || !std::isfinite(o.regularization) ||
-        !std::isfinite(o.trustFraction) || !std::isfinite(o.forceTolerance) ||
+        !std::isfinite(o.trustFraction) || !std::isfinite(o.supportHorizontalWeight) ||
+        !std::isfinite(o.forceTolerance) ||
         !std::isfinite(o.shapeTolerance) || o.minDensity <= 0 || o.maxDensity < o.minDensity ||
         o.projection <= 0 || o.projection > 1 || o.regularization <= 0 || o.trustFraction <= 0 ||
-        o.forceTolerance <= 0 || o.shapeTolerance <= 0 ||
+        o.forceTolerance <= 0 || o.shapeTolerance <= 0 || o.supportHorizontalWeight < 0 ||
         o.maxIterations < 0 || o.maxBacktracks < 1) { reason = "invalid options or empty graph"; return false; }
     for (const auto& n : g.nodes) if (!n.x0.allFinite() || !n.load.allFinite()) {
         reason = "nonfinite node"; return false;
@@ -196,6 +248,7 @@ SolverResult solveProjectedMixedFDM(const StructuralGraph& g, const SolverOption
     if (!valid(g, o, out.reason)) return out;
     const Eigen::MatrixXd X0 = inputPositions(g);
     const Eigen::VectorXd p = freeLoads(g);
+    const Eigen::VectorXd supportP = horizontalSupportLoads(g);
     Eigen::VectorXd q(g.edges.size());
     for (int e = 0; e < q.size(); ++e)
         q[e] = (g.edges[e].type == MemberType::Compression ? 1.0 : -1.0) *
@@ -207,11 +260,13 @@ SolverResult solveProjectedMixedFDM(const StructuralGraph& g, const SolverOption
     if (!recover(g, q, out.X)) { out.reason = "initial signed FDM is singular or invalid"; return out; }
     auto record = [&](double projected, double step, int rejected) {
         const Eigen::VectorXd r = freeResidual(g, out.X, q);
-        out.history.push_back({shapeError(out.X, X0), r.norm(), projected, step, rejected});
+        const double supportForce = horizontalSupportNorm(g, out.X, q, supportP);
+        out.history.push_back({shapeError(out.X, X0), r.norm(), projected, supportForce, step, rejected});
         out.equilibriumValidated = r.norm() <= o.forceTolerance * std::max({1.0, p.norm(), q.norm()});
     };
     record(out.fixedGeometryResidual, 0, 0);
-    double previousShape = out.history.back().shapeError;
+    double previousMerit = out.history.back().shapeError +
+        o.supportHorizontalWeight * std::pow(out.history.back().horizontalSupportForce, 2);
     int smallSteps = 0;
     for (int iteration = 0; iteration < o.maxIterations; ++iteration) {
         bool accepted = false;
@@ -223,14 +278,23 @@ SolverResult solveProjectedMixedFDM(const StructuralGraph& g, const SolverOption
                 if (!g.nodes[i].fixed[d]) Xp(i, d) += alpha * (X0(i, d) - Xp(i, d));
             Sparse A = equilibriumMatrix(g, Xp);
             projected = (p - A * q).norm();
-            Eigen::VectorXd target = boundedFit(A, p, g, q, o, true, anchor);
+            Eigen::VectorXd target;
+            if (o.supportHorizontalWeight > 0 && supportP.size() > 0) {
+                Sparse H = horizontalSupportMatrix(g, Xp);
+                Sparse B = stackedCorrectionMatrix(A, H, o.supportHorizontalWeight);
+                Eigen::VectorXd targetP(p.size() + supportP.size());
+                targetP << p, std::sqrt(o.supportHorizontalWeight) * supportP;
+                target = boundedFit(B, targetP, g, q, o, true, anchor);
+            } else target = boundedFit(A, p, g, q, o, true, anchor);
             for (int backtrack = 0; backtrack < o.maxBacktracks; ++backtrack) {
                 const double beta = std::ldexp(1.0, -backtrack);
                 Eigen::VectorXd trialQ = q + beta * (target - q);
                 Eigen::MatrixXd trialX;
                 if (recover(g, trialQ, trialX) &&
                     freeResidual(g, trialX, trialQ).norm() <= o.forceTolerance * std::max({1.0, p.norm(), trialQ.norm()}) &&
-                    shapeError(trialX, X0) < previousShape - 1e-12 * std::max(1.0, previousShape)) {
+                    shapeError(trialX, X0) + o.supportHorizontalWeight *
+                        std::pow(horizontalSupportNorm(g, trialX, trialQ, supportP), 2) <
+                        previousMerit - 1e-12 * std::max(1.0, previousMerit)) {
                     step = (trialQ - q).norm() / std::max(1.0, q.norm());
                     q = trialQ; out.X = trialX; accepted = true; break;
                 }
@@ -238,14 +302,16 @@ SolverResult solveProjectedMixedFDM(const StructuralGraph& g, const SolverOption
             }
         }
         if (!accepted) {
-            out.reason = out.equilibriumValidated && previousShape / std::max(1.0, X0.squaredNorm()) < o.shapeTolerance
+            out.reason = out.equilibriumValidated && previousMerit / std::max(1.0, X0.squaredNorm()) < o.shapeTolerance
                 ? "converged" : "stagnated: no valid shape-improving signed FDM step";
             break;
         }
         record(projected, step, rejected);
-        double improvement = (previousShape - out.history.back().shapeError) / std::max(1.0, previousShape);
+        double merit = out.history.back().shapeError +
+            o.supportHorizontalWeight * std::pow(out.history.back().horizontalSupportForce, 2);
+        double improvement = (previousMerit - merit) / std::max(1.0, previousMerit);
         smallSteps = (improvement < o.shapeTolerance && step < o.shapeTolerance) ? smallSteps + 1 : 0;
-        previousShape = out.history.back().shapeError;
+        previousMerit = merit;
         if (smallSteps >= 2 && out.equilibriumValidated) { out.reason = "converged"; break; }
     }
     if (out.reason.empty()) out.reason = "max_iterations";

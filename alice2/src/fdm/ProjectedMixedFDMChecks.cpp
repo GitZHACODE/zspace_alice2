@@ -60,11 +60,26 @@ void checkSolve() {
     auto result = solveProjectedMixedFDM(g);
     require(result.equilibriumValidated && result.X.allFinite(), "mixed signed FDM equilibrium failed");
     require(result.history.back().forceResidual < 1e-7, "actual residual too large");
+    Eigen::MatrixXd supportForces = forceDensityMatrix(g, result.q) * result.X;
+    double horizontalSquared = 0;
+    for (int i = 0; i < int(g.nodes.size()); ++i)
+        for (int d = 0; d < 2; ++d)
+            if (g.nodes[i].fixed[d])
+                horizontalSquared += std::pow(g.nodes[i].load[d] - supportForces(i,d), 2);
+    require(std::abs(std::sqrt(horizontalSquared) - result.history.back().horizontalSupportForce) < 1e-10,
+            "horizontal support-force report differs from actual forces");
     require(result.history.size() > 1 &&
             result.history.back().shapeError < result.history.front().shapeError - 1e-8,
             "projected solve did not improve shape");
     for (int i = 0; i < q.size(); ++i)
         require((q[i] > 0) == (result.q[i] > 0) && std::abs(result.q[i]) >= 1e-3, "member sign or lower bound violated");
+
+    SolverOptions balancedOptions;
+    balancedOptions.supportHorizontalWeight = 10;
+    auto balanced = solveProjectedMixedFDM(g, balancedOptions);
+    require(balanced.equilibriumValidated &&
+            balanced.history.back().horizontalSupportForce < result.history.back().horizontalSupportForce,
+            "horizontal support-force target did not reduce actual support force");
 
     StructuralGraph zero;
     for (Eigen::Vector3d x : {Eigen::Vector3d(0,0,0), Eigen::Vector3d(2,1,1), Eigen::Vector3d(1,.5,.5)}) {
