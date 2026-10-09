@@ -4,8 +4,10 @@
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
 #include <fdm/ProjectedMixedFDM.h>
+#include <tna/OffsetCableNetwork.h>
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <iomanip>
 #include <sstream>
 
@@ -14,7 +16,7 @@ using namespace alice2;
 class ProjectedMixedFDMSketch : public ISketch {
 public:
     std::string getName() const override { return "Projected Mixed FDM"; }
-    std::string getDescription() const override { return "Compression above tension cables with vertical tension connectors"; }
+    std::string getDescription() const override { return "Projected signed FDM on the welded tna.obj offset cable network"; }
     std::string getAuthor() const override { return "alice2 User"; }
 
     void setup() override {
@@ -24,25 +26,32 @@ public:
         m_ui->setTheme(SimpleUI::UITheme::Dark);
         m_ui->addSlider("Projection", Vec2{10, 160}, 220, .01f, 1.f, m_projection);
         m_ui->addSlider("Density trust", Vec2{10, 190}, 220, .01f, 1.f, m_trust);
-        m_ui->addSlider("Horizontal support force", Vec2{10, 220}, 220, 0.f, 100.f, m_supportWeight);
-        m_graph = demoGraph();
-        solve();
-        Application::getInstance()->getCameraController().focusOnBounds(Vec3(-2.5f,-1.5f,-.3f), Vec3(2.5f,1.5f,1.5f));
+        m_ui->addSlider("Horizontal support force", Vec2{10, 220}, 220, 0.f, 10.f, m_supportWeight);
+        m_ui->addSlider("Cable offset", Vec2{10, 250}, 220, -2.f, -.02f, m_offset);
+        m_ui->addSlider("Surface nodal load", Vec2{10, 280}, 220, 0.f, .05f, m_nodalLoad);
+        m_ui->addSlider("Surface weight density", Vec2{10, 310}, 220, 0.f, 10.f, m_density);
+        reload();
     }
     void update(float) override {
+        if (m_offset != m_lastOffset || m_nodalLoad != m_lastNodalLoad ||
+            m_density != m_lastDensity) { reload(); return; }
         if (m_projection != m_lastProjection || m_trust != m_lastTrust ||
             m_supportWeight != m_lastSupportWeight) solve();
     }
     void draw(Renderer& renderer, Camera&) override {
-        for (const auto& e : m_graph.edges) {
+        for (int k = 0; k < int(m_graph.edges.size()); ++k) {
+            const auto& e = m_graph.edges[k];
+            const bool connector = m_network.memberKinds[k] == "connector";
             const bool cable = e.type == fdm::MemberType::Tension;
-            Color color = cable ? Color(.90f,.12f,.45f,1) : Color(.13f,.34f,.82f,1);
-            renderer.drawLine(position(e.i), position(e.j), color, cable ? 3.f : 2.f);
+            Color color = connector ? Color(.95f,.55f,.08f,1)
+                : cable ? Color(.90f,.12f,.45f,1) : Color(.13f,.34f,.82f,1);
+            renderer.drawLine(position(e.i), position(e.j), color, cable ? 2.5f : 1.5f);
             if (m_showInput) renderer.drawLine(inputPosition(e.i), inputPosition(e.j), Color(.65f,.65f,.65f,1), 1.f);
         }
         for (int i = 0; i < int(m_graph.nodes.size()); ++i) {
             const bool fixed = m_graph.nodes[i].fixed[0] && m_graph.nodes[i].fixed[1] && m_graph.nodes[i].fixed[2];
-            renderer.drawPoint(position(i), fixed ? Color(.12f,.12f,.12f,1) : Color(.15f,.7f,.25f,1), fixed ? 9.f : 7.f);
+            if (fixed || i >= m_network.surfaceVertexCount)
+                renderer.drawPoint(position(i), fixed ? Color(.12f,.12f,.12f,1) : Color(.15f,.7f,.25f,1), fixed ? 7.f : 3.f);
             if (m_showForces && m_result.q.size() == int(m_graph.edges.size()) && !fixed) {
                 Eigen::Vector3d r = m_result.residuals.row(i).transpose();
                 if (r.norm() > 1e-9) renderer.drawLine(position(i), position(i) + Vec3(float(r.x()),float(r.y()),float(r.z())), Color(1,0,0,1), 2.f);
@@ -58,10 +67,11 @@ public:
             drawSupportForces(renderer);
         }
         renderer.setColor(Color(.08f,.08f,.08f,1));
-        renderer.drawString("Projected mixed FDM | blue compression, pink tension | i input | d forces", 10, 30);
+        renderer.drawString("Projected mixed FDM | blue compression, pink cable, orange connector | i input | d forces", 10, 30);
         renderer.drawString(m_status, 10, 55);
-        renderer.drawString("Top compression (+) | middle vertical and lower cable tension (-)", 10, 80);
-        if (m_showForces) renderer.drawString("Green arrows: structure on supports | red: free-node residuals", 10, 105);
+        renderer.drawString("tna.obj | positive compression, negative tension | surface gravity loads", 10, 80);
+        renderer.drawString(m_detail, 10, 105);
+        if (m_showForces) renderer.drawString("Green arrows: structure on supports | red: free-node residuals", 10, 130);
         if (m_ui) m_ui->draw(renderer);
     }
     bool onKeyPress(unsigned char key, int, int) override {
@@ -100,39 +110,68 @@ private:
             renderer.drawText(label.str(), end + Vec3(0,0,.03f), 1.f);
         }
     }
-    static fdm::StructuralGraph demoGraph() {
-        fdm::StructuralGraph g;
-        const Eigen::Vector3d trueX[] = {
-            {-2,-1,0}, {2,-1,0}, {-2,1,0}, {2,1,0},
-            {-.7,0,1}, {.7,0,1},
-            {-.7,0,.35}, {.7,0,.35}
-        };
-        for (int i = 0; i < 8; ++i) {
-            fdm::Node n; n.x0 = trueX[i];
-            if (i < 4) for (bool& f : n.fixed) f = true;
-            g.nodes.push_back(n);
+    static std::filesystem::path dataPath() {
+        auto path = std::filesystem::current_path() / "data" / "tna.obj";
+        if (std::filesystem::exists(path)) return path;
+        return std::filesystem::current_path() / "alice2" / "data" / "tna.obj";
+    }
+    void reload() {
+        m_lastOffset = m_offset;
+        m_lastNodalLoad = m_nodalLoad;
+        m_lastDensity = m_density;
+        m_graph = {};
+        m_network = {};
+        m_result = {};
+        m_detail.clear();
+        m_supportForces.resize(0, 0);
+        try {
+            MeshObject inputMesh("projected_fdm_input");
+            inputMesh.readFromObj(dataPath().string());
+            const auto welded = weldOffsetCableMesh(*inputMesh.getMeshData());
+            m_network = makeOffsetCableNetwork(welded, m_offset, true);
+
+            // Keep the cable selection from the reference sketch, with vertical connectors.
+            for (int v = 0; v < m_network.surfaceVertexCount; ++v) {
+                int cable = m_network.cableNode[v];
+                if (cable < m_network.surfaceVertexCount) continue;
+                const Vec3 p = m_network.form.mesh.vertices[v].position;
+                m_network.form.mesh.vertices[cable].position = p + Vec3(0, 0, m_offset);
+            }
+            auto& mesh = m_network.form.mesh;
+            m_graph.nodes.resize(mesh.vertices.size());
+            const bool useYellowBoundarySupports = m_network.form.supportVertices.empty();
+            for (int i = 0; i < int(mesh.vertices.size()); ++i) {
+                const Vec3 p = mesh.vertices[i].position;
+                auto& node = m_graph.nodes[i];
+                node.x0 = Eigen::Vector3d(p.x, p.y, p.z);
+                const bool fixed = std::find(m_network.form.supportVertices.begin(),
+                    m_network.form.supportVertices.end(), i) != m_network.form.supportVertices.end() ||
+                    (useYellowBoundarySupports && std::find(m_network.yellowSupports.begin(),
+                        m_network.yellowSupports.end(), i) != m_network.yellowSupports.end());
+                if (fixed) for (bool& coordinate : node.fixed) coordinate = true;
+                else if (std::find(m_network.sliding.begin(), m_network.sliding.end(), i) != m_network.sliding.end())
+                    node.fixed[2] = true;
+            }
+            for (int k = 0; k < int(m_network.form.activeFormEdges.size()); ++k) {
+                const auto& edge = m_network.form.activeFormEdges[k];
+                const bool compression = !edge.isTension;
+                const double magnitude = m_network.memberKinds[k] == "connector" ? .07 : .1;
+                m_graph.edges.push_back({edge.vertexA, edge.vertexB,
+                    compression ? fdm::MemberType::Compression : fdm::MemberType::Tension, magnitude});
+            }
+            // Freeze tributary areas at the input mesh for constant-load FDM.
+            const auto areas = TnaSolver::vertexAreas(mesh);
+            for (int i = 0; i < m_network.surfaceVertexCount; ++i)
+                m_graph.nodes[i].load.z() = -double(m_nodalLoad + m_density * areas[i]);
+            solve();
+            Vec3 lo, hi;
+            mesh.updateBounds(lo, hi);
+            Application::getInstance()->getCameraController().focusOnBounds(lo, hi);
+        } catch (const std::exception& e) {
+            m_graph = {};
+            m_network = {};
+            m_status = e.what();
         }
-        using Type = fdm::MemberType;
-        g.edges = {
-            {0,4,Type::Compression,1.2}, {2,4,Type::Compression,1.2},
-            {1,5,Type::Compression,1.2}, {3,5,Type::Compression,1.2},
-            {4,5,Type::Compression,.8}, {0,6,Type::Tension,1.1},
-            {2,6,Type::Tension,1.1}, {1,7,Type::Tension,1.1},
-            {3,7,Type::Tension,1.1}, {6,7,Type::Tension,.8},
-            {4,6,Type::Tension,.7}, {5,7,Type::Tension,.7}
-        };
-        Eigen::VectorXd q(g.edges.size());
-        Eigen::MatrixXd X(8,3);
-        for (int i = 0; i < 8; ++i) X.row(i) = trueX[i].transpose();
-        for (int k = 0; k < q.size(); ++k)
-            q[k] = (g.edges[k].type == Type::Compression ? 1 : -1) * g.edges[k].targetDensityMagnitude;
-        Eigen::MatrixXd P = fdm::forceDensityMatrix(g,q) * X;
-        for (int i = 4; i < 8; ++i) g.nodes[i].load = P.row(i).transpose();
-        g.nodes[4].x0 += Eigen::Vector3d(.2,-.1,.18);
-        g.nodes[5].x0 += Eigen::Vector3d(-.15,.12,.1);
-        g.nodes[6].x0 += Eigen::Vector3d(.12,.08,-.12);
-        g.nodes[7].x0 += Eigen::Vector3d(-.1,-.07,.14);
-        return g;
     }
     Vec3 inputPosition(int i) const {
         const auto& x = m_graph.nodes[i].x0;
@@ -144,8 +183,12 @@ private:
     }
     void solve() {
         m_lastProjection = m_projection; m_lastTrust = m_trust; m_lastSupportWeight = m_supportWeight;
+        if (m_graph.edges.empty()) return;
         fdm::SolverOptions options; options.projection = m_projection; options.trustFraction = m_trust;
         options.supportHorizontalWeight = m_supportWeight;
+        options.regularization = 1e-6;
+        options.minDensity = 1e-4;
+        options.maxIterations = 40;
         m_result = fdm::solveProjectedMixedFDM(m_graph, options);
         m_supportForces.resize(0, 0);
         if (m_result.equilibriumValidated && m_result.X.rows() == int(m_graph.nodes.size()) &&
@@ -157,7 +200,7 @@ private:
                         ? m_graph.nodes[i].load[d] - m_supportForces(i,d) : 0.0;
         }
         std::ostringstream text;
-        text << m_result.reason;
+        text << m_graph.nodes.size() << " nodes, " << m_graph.edges.size() << " edges | " << m_result.reason;
         if (!m_result.history.empty()) {
             const auto& last = m_result.history.back();
             text << " | iterations " << m_result.history.size()-1
@@ -166,14 +209,22 @@ private:
                  << " | support horizontal " << last.horizontalSupportForce;
         }
         m_status = text.str();
+        std::ostringstream detail;
+        detail << "Input fixed-geometry residual " << std::setprecision(3) << m_result.fixedGeometryResidual;
+        if (m_result.q.size()) detail << " | q range " << m_result.q.minCoeff() << " to " << m_result.q.maxCoeff();
+        m_detail = detail.str();
     }
     fdm::StructuralGraph m_graph;
+    OffsetCableNetwork m_network;
     fdm::SolverResult m_result;
     Eigen::MatrixXd m_supportForces;
     std::unique_ptr<SimpleUI> m_ui;
     std::string m_status;
-    float m_projection = .15f, m_trust = .25f, m_supportWeight = 10.f;
+    std::string m_detail;
+    float m_projection = .15f, m_trust = .25f, m_supportWeight = 0.f, m_offset = -.5f;
+    float m_nodalLoad = .001f, m_density = 1.f;
     float m_lastProjection = -1, m_lastTrust = -1, m_lastSupportWeight = -1;
+    float m_lastOffset = 0, m_lastNodalLoad = -1, m_lastDensity = -1;
     bool m_showInput = true, m_showForces = false;
 };
 

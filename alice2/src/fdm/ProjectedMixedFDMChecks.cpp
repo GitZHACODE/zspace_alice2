@@ -81,6 +81,14 @@ void checkSolve() {
             balanced.history.back().horizontalSupportForce < result.history.back().horizontalSupportForce,
             "horizontal support-force target did not reduce actual support force");
 
+    StructuralGraph physical = g;
+    for (auto& n : physical.nodes) n.load.setZero();
+    physical.nodes[2].load.z() = -.2;
+    physical.nodes[3].load.z() = -.1;
+    auto loaded = solveProjectedMixedFDM(physical);
+    require(loaded.equilibriumValidated && (loaded.q - q).norm() > 1e-3,
+            "physical loads left all reference densities unchanged");
+
     StructuralGraph zero;
     for (Eigen::Vector3d x : {Eigen::Vector3d(0,0,0), Eigen::Vector3d(2,1,1), Eigen::Vector3d(1,.5,.5)}) {
         Node n; n.x0 = x; zero.nodes.push_back(n);
@@ -97,7 +105,9 @@ void checkSolve() {
             "sign-infeasible zero-load input geometry was not diagnosed");
 
     zero.edges[1].type = MemberType::Compression;
-    auto singular = solveProjectedMixedFDM(zero);
+    SolverOptions lockedDensities;
+    lockedDensities.minDensity = lockedDensities.maxDensity = 1;
+    auto singular = solveProjectedMixedFDM(zero, lockedDensities);
     require(!singular.equilibriumValidated && singular.reason.find("singular") != std::string::npos,
             "singular signed FDM was accepted");
 

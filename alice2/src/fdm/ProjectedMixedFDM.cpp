@@ -257,7 +257,16 @@ SolverResult solveProjectedMixedFDM(const StructuralGraph& g, const SolverOption
     const Sparse A0 = equilibriumMatrix(g, X0);
     Eigen::VectorXd feasible = boundedFit(A0, p, g, q, o, false, anchor);
     out.fixedGeometryResidual = (A0 * feasible - p).norm();
-    if (!recover(g, q, out.X)) { out.reason = "initial signed FDM is singular or invalid"; return out; }
+    const bool referenceValid = recover(g, q, out.X);
+    Eigen::MatrixXd fittedX;
+    const bool fittedValid = recover(g, feasible, fittedX);
+    if (fittedValid && (!referenceValid || shapeError(fittedX, X0) < shapeError(out.X, X0))) {
+        q = feasible;
+        out.X = std::move(fittedX);
+    } else if (!referenceValid) {
+        out.reason = "initial signed FDM is singular or invalid";
+        return out;
+    }
     auto record = [&](double projected, double step, int rejected) {
         const Eigen::VectorXd r = freeResidual(g, out.X, q);
         const double supportForce = horizontalSupportNorm(g, out.X, q, supportP);
