@@ -14,8 +14,8 @@ namespace SlicingParameters {
     constexpr int longitudeCornerStartVertexId = 43;
     constexpr int longitudeCornerEndVertexId = 66;
 
-    // Longitudinal slicing: this is the layer spacing / print height used to walk the longitude direction.
-    constexpr float longitudeLayerSpacing = 0.01f;
+    // Physical height of one deposited print layer, in mesh units.
+    constexpr float printHeight = 0.01f;
 
     //actual concrete thickness will be = printwidth*2 - overlapwidth
     constexpr float printBoundaryWidth = 0.018f;

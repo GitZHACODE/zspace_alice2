@@ -9,7 +9,9 @@ set "CONFIG=Release"
 set "BUILD_DIR=build_zspace"
 set "ZSPACE_SDK_DIR=%~1"
 set "CMAKE_EXE=cmake"
-set "BUILD_TOOL_ARGS=/m /clp:ErrorsOnly"
+REM The TetGen dependency and alice2 share generated dependency targets; MSBuild's
+REM unrestricted project parallelism can silently fail this graph on VS 2022.
+set "BUILD_TOOL_ARGS=/m:1 /clp:ErrorsOnly"
 
 if "%ZSPACE_SDK_DIR%"=="" (
     set "ZSPACE_SDK_DIR=%~dp0sdk\zspace"

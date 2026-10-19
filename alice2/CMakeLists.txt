@@ -2,6 +2,25 @@ cmake_minimum_required(VERSION 3.16)
 
 project(alice2 VERSION 3.0.0 LANGUAGES C CXX)
 
+include(FetchContent)
+
+# Conforming tetrahedralization for the experimental two-boundary slicer.
+# Pin the dependency so clean builds reproduce the same PLC behavior.
+FetchContent_Declare(alice2_tetgen
+    GIT_REPOSITORY https://github.com/jdumas/tetgen.git
+    GIT_TAG c63e7a6434652b8a2065c835bd9d6d298db1a0bc
+    GIT_SHALLOW FALSE
+    SOURCE_SUBDIR _alice2_no_subdirectory
+)
+FetchContent_MakeAvailable(alice2_tetgen)
+add_library(alice2_tetgen_lib STATIC
+    "${alice2_tetgen_SOURCE_DIR}/tetgen.cxx"
+    "${alice2_tetgen_SOURCE_DIR}/predicates.cxx"
+)
+target_compile_definitions(alice2_tetgen_lib PRIVATE TETLIBRARY)
+target_include_directories(alice2_tetgen_lib PUBLIC "${alice2_tetgen_SOURCE_DIR}")
+set_target_properties(alice2_tetgen_lib PROPERTIES FOLDER "_deps")
+
 option(ALICE2_ENABLE_CUDA "Enable CUDA build of alice2" OFF)
 option(ALICE2_WITH_ZSPACE_CORE "Enable zSpace integration" ON)
 option(ALICE2_USE_ZSPACE_SOURCE "Build zSpace from a local source checkout" OFF)
@@ -331,12 +350,15 @@ else()
     target_compile_definitions(alice2 PRIVATE ALICE2_WITH_CUDA=0)
 endif()
 target_compile_definitions(alice2 PRIVATE JSON_SKIP_LIBRARY_VERSION_CHECK=1)
+target_compile_definitions(alice2 PRIVATE TETLIBRARY)
 
 target_link_libraries(alice2
     ${OPENGL_LIBRARIES}
     ${GLEW_LIBRARIES}
     ${GLFW_LIBRARIES}
+    alice2_tetgen_lib
 )
+target_include_directories(alice2 PRIVATE ${alice2_tetgen_SOURCE_DIR})
 if(ALICE2_WITH_ZSPACE_CORE)
     target_link_libraries(alice2
         zspace::core

@@ -106,5 +106,6 @@
     },
     "C_Cpp.default.cppStandard": "c++20",
     "C_Cpp.default.compilerPath": "cl.exe",
-    "C_Cpp.default.intelliSenseMode": "windows-msvc-x64"
+    "C_Cpp.default.intelliSenseMode": "windows-msvc-x64",
+    "cmake.sourceDirectory": "C:/Users/Wo.Lin/source/repos/gitzhacode/zspace_alice2/alice2"
 }

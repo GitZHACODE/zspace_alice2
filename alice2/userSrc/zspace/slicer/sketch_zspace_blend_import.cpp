@@ -950,7 +950,7 @@ private:
 
         alice2::computeGeodesicScalars(m_mesh, m_loops, m_scalars, true);
         alice2::computeGeodesicContours(m_loops, m_scalars,
-            alice2::SlicingParameters::longitudeLayerSpacing,
+            alice2::SlicingParameters::printHeight,
             m_topMesh, m_bottomMesh, m_sectionMeshes);
         alice2::populateSliceMetadata(m_mesh, m_loops, m_sectionGraphs, m_sliceMetadata);
         markSectionMeshCornerVerticesById();

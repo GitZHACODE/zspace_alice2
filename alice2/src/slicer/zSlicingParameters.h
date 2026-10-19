@@ -17,9 +17,9 @@ namespace SlicingParameters {
     constexpr int bracingInputBottomGraphIds[bracingInputGraphPairCount] = { 0, 1 };
     constexpr int bracingInputTopGraphIds[bracingInputGraphPairCount] = { 2, 3 };
 
-    // Longitudinal slicing: this is the layer spacing / print height used to walk the longitude direction.
-    // constexpr float longitudeLayerSpacing = 0.09f;
-    constexpr float longitudeLayerSpacing = 3.01f;
+    // Physical height of one deposited print layer, in mesh units.
+    constexpr float printHeight = 0.3f;
+    // constexpr float printHeight = 3.01f;
 
     //actual concrete thickness will be = printwidth*2 - overlapwidth
     constexpr float printBoundaryWidth = 0.30f;
@@ -32,6 +32,7 @@ namespace SlicingParameters {
     constexpr float edgeTrimSlotWidth = printBoundaryWidth - (printOverlapWidth);
 
     constexpr float sdfWidth = 0.001f;
+    constexpr int sdfLayerCount = 12;
     constexpr int sdfFieldResolutionX = 200;
     constexpr int sdfFieldResolutionY = 200;
     inline const zSpace::zDomain<zSpace::zPoint> sdfFieldBounds(

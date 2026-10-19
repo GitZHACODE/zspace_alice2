@@ -36,7 +36,7 @@ namespace alice2 {
         zVector normal(0, 0, 1);
         computeVLoops(mesh, medial,  loops, topMesh, bottomMesh);
         computeGeodesicScalars(mesh, loops, scalars, true);
-        computeGeodesicContours(loops, scalars, SlicingParameters::longitudeLayerSpacing, topMesh, bottomMesh, sectionMeshes);
+        computeGeodesicContours(loops, scalars, SlicingParameters::printHeight, topMesh, bottomMesh, sectionMeshes);
         createSectionGraphs(sectionMeshes, sectionGraphs);
         computeSDF(sectionGraphs, sectionMeshes, contourGraphs);
         return true;
