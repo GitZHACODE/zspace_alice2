@@ -2,8 +2,8 @@
 setlocal
 
 REM MSBuild can fail if the parent environment contains both PATH and Path.
-set "Path=%Path%"
-set "PATH="
+REM set "Path=%Path%"
+REM set "PATH="
 
 set "CONFIG=Release"
 set "BUILD_DIR=build_zspace"
@@ -43,7 +43,7 @@ if errorlevel 1 goto :fail
 
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
 
-"%CMAKE_EXE%" -S . -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%CONFIG% -DALICE2_WITH_ZSPACE_CORE=ON -DALICE2_USE_ZSPACE_SOURCE=OFF -DZSPACE_SDK_DIR="%ZSPACE_SDK_DIR%"
+"%CMAKE_EXE%" -A x64 -S . -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%CONFIG% -DALICE2_WITH_ZSPACE_CORE=ON -DALICE2_USE_ZSPACE_SOURCE=OFF -DZSPACE_SDK_DIR="%ZSPACE_SDK_DIR%"
 if errorlevel 1 goto :fail_pop
 
 "%CMAKE_EXE%" --build "%BUILD_DIR%" --config %CONFIG% -- %BUILD_TOOL_ARGS%

@@ -6,6 +6,7 @@ option(ALICE2_ENABLE_CUDA "Enable CUDA build of alice2" OFF)
 option(ALICE2_WITH_ZSPACE_CORE "Enable zSpace integration" ON)
 option(ALICE2_USE_ZSPACE_SOURCE "Build zSpace from a local source checkout" OFF)
 set(ZSPACE_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../zspace_core" CACHE PATH "Path to local zspace_core checkout")
+set(ZSPACE_TOOLSETS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../zspace_toolsets" CACHE PATH "Path to local zspace_toolsets")
 set(ZSPACE_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/sdk/zspace" CACHE PATH "Path to installed zSpace binary SDK")
 set(ALICE2_BUILD_MODE "default" CACHE STRING "Select alice2 build mode (default or test)")
 set_property(CACHE ALICE2_BUILD_MODE PROPERTY STRINGS default test)
@@ -216,6 +217,7 @@ endif()
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${ZSPACE_TOOLSETS_DIR}/cpp
     ${OPENGL_INCLUDE_DIRS}
     ${GLEW_INCLUDE_DIRS}
     ${GLFW_INCLUDE_DIRS}
@@ -223,6 +225,19 @@ include_directories(
     ${NLOHMANN_JSON_INCLUDE_DIRS}
     ${GL2PS_INCLUDE_DIRS}
 )
+
+# TetGen: vendored inside zspace_toolsets's igl depends tree (used by
+# zToolsets/ts3dp's harmonic tet-volume slicing). The header was
+# manually fetched to match the commit tetgen.lib was built from, since the
+# original CMake FetchContent source directory (_deps/tetgen-src) is not
+# checked into this repo - see cpp/depends/igl/build/_deps/tetgen-src/tetgen.h.
+set(TETGEN_INCLUDE_DIR "${ZSPACE_TOOLSETS_DIR}/cpp/depends/igl/build/_deps/tetgen-src")
+set(TETGEN_LIBRARY "${ZSPACE_TOOLSETS_DIR}/cpp/depends/igl/build/lib/tetgen.lib")
+if(EXISTS "${TETGEN_INCLUDE_DIR}/tetgen.h" AND EXISTS "${TETGEN_LIBRARY}")
+    include_directories(${TETGEN_INCLUDE_DIR})
+else()
+    message(WARNING "TetGen not found at ${TETGEN_INCLUDE_DIR} / ${TETGEN_LIBRARY} - sketches using HarmonicSlicer will fail to build.")
+endif()
 if(ALICE2_WITH_ZSPACE_CORE AND ALICE2_USE_ZSPACE_SOURCE)
     include_directories(BEFORE
         "${ZSPACE_CORE_DIR}"
@@ -349,6 +364,11 @@ if(ALICE2_ENABLE_CUDA)
     target_link_libraries(alice2 CUDA::cublas CUDA::cudart)
 endif()
 
+if(EXISTS "${TETGEN_INCLUDE_DIR}/tetgen.h" AND EXISTS "${TETGEN_LIBRARY}")
+    target_compile_definitions(alice2 PRIVATE TETLIBRARY)
+    target_link_libraries(alice2 "${TETGEN_LIBRARY}")
+endif()
+
 if(WIN32)
     target_link_libraries(alice2 user32 gdi32 shell32)
 endif()
@@ -363,15 +383,22 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/data")
         COMMENT "Copying data directory to output directory")
 endif()
 
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(alice2 OpenMP::OpenMP_CXX)
+endif()
+
 if(MSVC)
     target_compile_options(alice2 PRIVATE
         $<$<COMPILE_LANGUAGE:CXX>:/W4>
         $<$<COMPILE_LANGUAGE:CXX>:/wd4100>
         $<$<COMPILE_LANGUAGE:CXX>:/wd4244>
+        $<$<COMPILE_LANGUAGE:CXX>:/openmp>
     )
-    target_compile_definitions(alice2 PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_compile_definitions(alice2 PRIVATE _CRT_SECURE_NO_WARNINGS EIGEN_DONT_PARALLELIZE)
 else()
     target_compile_options(alice2 PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_definitions(alice2 PRIVATE EIGEN_DONT_PARALLELIZE)
 endif()
 
 if(WIN32)
@@ -497,3 +524,10 @@ message(STATUS "  GLFW: ${GLFW_LIBRARIES} (precompiled)")
 message(STATUS "  Eigen: ${EIGEN_DIR} (header-only)")
 message(STATUS "  nlohmann/json: ${NLOHMANN_JSON_INCLUDE_DIRS} (header-only)")
 message(STATUS "  gl2ps: ${GL2PS_INCLUDE_DIRS} (SVG export)")
+
+# Optional USD input; DLLs and schema resources are deployed beside alice2.
+option(ALICE2_WITH_TS3DP_USD "Enable OpenUSD slicer input" ON)
+if(ALICE2_WITH_ZSPACE_CORE AND ALICE2_WITH_TS3DP_USD)
+    include("${ZSPACE_TOOLSETS_DIR}/cmake/OpenUSD.cmake")
+    zspace_toolsets_enable_usd(alice2)
+endif()

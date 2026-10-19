@@ -2,8 +2,8 @@
 setlocal
 
 REM MSBuild can fail if the parent environment contains both PATH and Path.
-set "Path=%Path%"
-set "PATH="
+REM set "Path=%Path%"
+REM set "PATH="
 
 REM Usage:
 REM   build.bat        -> normal build in "build"

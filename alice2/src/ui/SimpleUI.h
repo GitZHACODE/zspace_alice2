@@ -34,9 +34,17 @@ namespace alice2 {
         void addButtonGroup(const std::vector<std::string>& labels, const Vec2& pos,
                             float buttonW, float buttonH, float spacing, int& selectedIdx);
 
-        // Horizontal slider bound to a float in [minV, maxV]
+        // Horizontal slider bound to a float in [minV, maxV].
+        // step > 0 snaps the value to the nearest multiple of step (offset
+        // from minV) on press/drag; step <= 0 (default) means continuous.
         void addSlider(const std::string& label, const Vec2& pos,
-                       float width, float minV, float maxV, float& bound);
+                       float width, float minV, float maxV, float& bound,
+                       float step = 0.0f);
+
+        // Horizontal slider bound to an int in [minV, maxV], always stepping
+        // by whole units.
+        void addSliderInt(const std::string& label, const Vec2& pos,
+                          float width, int minV, int maxV, int& bound);
 
         // Per-event input forwarding from sketch (recommended)
         bool onMousePress(int button, int state, int x, int y); // return true if consumed
@@ -80,6 +88,16 @@ namespace alice2 {
             float width{120.0f};
             float minV{0.0f}, maxV{1.0f};
             float* bound{nullptr};
+            float step{0.0f};
+            bool dragging{false};
+        };
+
+        struct IntSlider {
+            std::string label;
+            Vec2 pos;
+            float width{120.0f};
+            int minV{0}, maxV{1};
+            int* bound{nullptr};
             bool dragging{false};
         };
 
@@ -87,9 +105,11 @@ namespace alice2 {
         std::vector<Toggle> m_toggles;
         std::vector<ButtonGroup> m_groups;
         std::vector<Slider> m_sliders;
+        std::vector<IntSlider> m_intSliders;
 
         // Interaction state
         int m_activeSlider{-1};
+        int m_activeIntSlider{-1};
 
         // Theme state
         UITheme m_theme{UITheme::Light};
