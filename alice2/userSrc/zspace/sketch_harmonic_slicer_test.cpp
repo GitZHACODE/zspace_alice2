@@ -13,7 +13,7 @@
 
 // End-to-end functional test for the HarmonicSlicer port
 // (zspace_toolsets/cpp/headers/zToolsets/ts3dp/zSlicer/HarmonicSlicer.h).
-// Loads a real OBJ mesh and runs the two-method comparison pipeline on it
+// Loads a USD input and runs the two-method comparison pipeline on it
 // (Methods 1-2 + cross-method metrics), not just a compile/link probe.
 #include <headers/zToolsets/ts3dp/zSlicer/HarmonicSlicer.h>
 #include <headers/zToolsets/ts3dp/zSlicer/TopologySlicer.h>
@@ -75,8 +75,7 @@ const char* displayModeName(int slicer, int mode)
     return slicer == kSlicerTopology ? topology[m] : harmonic[m];
 }
 
-// Built-in settings, used when no settings JSON is picked - the same values
-// as Downloads/ts3dp_settings.json (cabmesh scale).
+// Defaults for settings omitted from the USD stage.
 inline zSpace::SlicerSettings defaultSlicerSettings()
 {
     zSpace::SlicerSettings s;
@@ -191,7 +190,7 @@ inline bool openFileDialog(const char* filter, const char* title, std::string& o
 class HarmonicSlicerTestSketch : public ISketch {
 public:
     std::string getName() const override { return "Slicer End-to-End Test (Harmonic | Topology)"; }
-    std::string getDescription() const override { return "Loads a top/bottom-colored OBJ mesh and runs the HarmonicSlicer or TopologySlicer pipeline, then extracts paths and maps them directly to 3D."; }
+    std::string getDescription() const override { return "Loads a tagged USD mesh and runs the HarmonicSlicer or TopologySlicer pipeline, then extracts paths and maps them directly to 3D."; }
     std::string getAuthor() const override { return "alice2 + zspace_toolsets"; }
 
     void setup() override
@@ -203,7 +202,7 @@ public:
         setupUI();
 
         // No default geometry and no default import - the scene starts
-        // empty; press 'i' to pick an OBJ and run the pipeline on it.
+        // empty; press 'i' to pick a USD and run the pipeline on it.
     }
 
     // Sliders write straight into the bound variable on drag (SimpleUI has
@@ -225,6 +224,10 @@ public:
             rerun = true;
         }
         if (rerun && m_inputLoaded && m_slicerChoice != kSlicerNone) runSelectedSlicer();
+        if (m_exportAction == 0) {
+            m_exportAction = -1;
+            exportPrintPath();
+        }
     }
 
     bool onKeyPress(unsigned char key, int, int) override
@@ -233,31 +236,11 @@ public:
             std::string picked;
             // OPENFILENAMEA's filter is pairs of "label\0pattern\0", double-null
             // terminated - the trailing "" closes the last pattern string.
-#if defined(ZSPACE_TS3DP_OPENUSD)
-            const char* meshFilter = "Slicer inputs (*.obj;*.usd;*.usda;*.usdc)\0*.obj;*.usd;*.usda;*.usdc\0";
-#else
-            const char* meshFilter = "OBJ inputs (*.obj)\0*.obj\0";
-#endif
+            const char* meshFilter = "USD inputs (*.usd;*.usda;*.usdc)\0*.usd;*.usda;*.usdc\0";
             if (!openFileDialog(meshFilter, "Select slicer input", picked)) {
                 return true; // user cancelled - leave the current mesh/results alone
             }
             m_inputMeshPath = picked;
-
-            // Optional settings JSON ("slicer" +
-            // "printSyn" objects, e.g. Downloads/ts3dp_settings.json).
-            // Cancel = the built-in defaults (same values).
-#if defined(ZSPACE_TS3DP_OPENUSD)
-            if (isUSDInput()) {
-                m_settingsPath.clear();
-                loadInputs();
-                focusCameraOnInputMesh();
-                return true;
-            }
-#endif
-            std::string settingsPicked;
-            const char* jsonFilter = "JSON files (*.json)\0*.json\0All files (*.*)\0*.*\0";
-            m_settingsPath = openFileDialog(jsonFilter, "Select a settings JSON (optional, Cancel for built-in defaults)", settingsPicked)
-                ? settingsPicked : std::string();
 
             loadInputs(); // display only - pick a slicer button to compute
             focusCameraOnInputMesh();
@@ -332,10 +315,10 @@ public:
                      : m_slicerChoice == kSlicerTopology ? "[Topology] " : "[Harmonic] ")
                  << "'k'/'K' cycle display forward/back (" << (m_displayMode + 1) << "/"
                  << displayModeCount(m_slicerChoice) << ": " << displayModeName(m_slicerChoice, m_displayMode)
-                 << ") | 'i' load an OBJ";
+                 << ") | 'i' load a USD";
         renderer.drawString(modeLine.str(), 10, 50);
         if (!m_inputLoaded) {
-            renderer.drawString("Empty scene - press 'i' to load one OBJ: 00 mesh, 01 bracing graph, 02 slot anchor; then optional settings JSON.", 10, 68);
+            renderer.drawString("Empty scene - press 'i' to load USD: block, bracing, slotpoint and stage settings.", 10, 68);
         } else if (m_slicerChoice == kSlicerNone) {
             renderer.drawString("Inputs loaded - pick Harmonic or Topology below to run that slicer.", 10, 68);
         }
@@ -360,8 +343,52 @@ private:
         m_ui->addSlider("Probe U", Vec2{10.0f, 480.0f}, 220.0f, 0.0f, 1.0f, m_probeU);
         m_ui->addSlider("Probe V", Vec2{10.0f, 520.0f}, 220.0f, 0.0f, 1.0f, m_probeV);
         // Which slicer runSelectedSlicer() creates and runs; none lit until
-        // the user picks one (loading an OBJ clears the pick).
+        // the user picks one (loading a USD clears the pick).
         m_ui->addButtonGroup({"Harmonic", "Topology"}, Vec2{10.0f, 560.0f}, 106.0f, 26.0f, 8.0f, m_slicerChoice);
+        m_ui->addButtonGroup({"Export USD"}, Vec2{10.0f, 600.0f}, 220.0f, 26.0f, 0.0f, m_exportAction);
+    }
+
+    void exportPrintPath()
+    {
+        auto* slicer = activeSlicer();
+        if (!slicer) {
+            logFail("Export USD", "Run a slicer and PrintSyn before exporting.");
+            return;
+        }
+        const auto& path = slicer->getResultantPrintPath();
+        if (zSpace::zFnGraph(const_cast<zSpace::zObjGraph&>(path.graph)).numVertices() < 2) {
+            logFail("Export USD", "No combined print path is available; complete PrintSyn first.");
+            return;
+        }
+        if (!isUSDInput()) {
+            logFail("Export USD", "Load a USD input to export input geometry and printpath together.");
+            return;
+        }
+        char fileBuffer[MAX_PATH] = {};
+        if (m_inputMeshPath.size() >= MAX_PATH) {
+            logFail("Export USD", "Input path is too long for the save dialog.");
+            return;
+        }
+        std::copy(m_inputMeshPath.begin(), m_inputMeshPath.end(), fileBuffer);
+        OPENFILENAMEA dialog = {};
+        dialog.lStructSize = sizeof(dialog);
+        dialog.hwndOwner = GetActiveWindow();
+        dialog.lpstrFilter = "USD files (*.usda;*.usdc;*.usd)\0*.usda;*.usdc;*.usd\0";
+        dialog.lpstrFile = fileBuffer;
+        dialog.nMaxFile = MAX_PATH;
+        dialog.lpstrTitle = "Save input USD with printpath";
+        dialog.lpstrDefExt = "usda";
+        dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+        if (!GetSaveFileNameA(&dialog)) {
+            if (CommDlgExtendedError() != 0)
+                logFail("Export USD", "Could not open the save dialog.");
+            return;
+        }
+        std::string error;
+        if (!zSpace::zTsIO::exportPrintPathUSD(path, m_inputMeshPath, fileBuffer, &error))
+            logFail("Export USD", error);
+        else
+            logOk("Export USD", std::string("Saved ") + fileBuffer);
     }
 
     // Console status in the same style as the ts3dp library's own prints:
@@ -1186,9 +1213,7 @@ private:
         }
     }
 
-    // Reads named objects 00/01/02 from one OBJ and derives the
-    // vertex tags - input only: drops every previous slicer instance/result
-    // and clears the slicer pick, so nothing computes until one is chosen.
+    // Read named geometry and settings from the USD stage.
 #if defined(ZSPACE_TS3DP_OPENUSD)
     bool isUSDInput() const
     {
@@ -1244,8 +1269,8 @@ private:
             std::string groups;
             buildInputGroups(groups);
             logInput("block Mesh: vertices=" + std::to_string(source.numVertices()) + " faces=" + std::to_string(source.numPolygons()) + " | face groups:" + groups);
-            logInput("bracing Mesh: ribs=" + std::to_string(input.BracingCurves.size()) + " vertices=" + std::to_string(points.size()) + " edges=" + std::to_string(connects.size()/2));
-            logInput("slotpoint Mesh: vertices=1");
+            logInput("bracing Curves: ribs=" + std::to_string(input.BracingCurves.size()) + " vertices=" + std::to_string(points.size()) + " edges=" + std::to_string(connects.size()/2));
+            logInput("slotpoint Points: points=1");
             logOk("Settings", "Loaded stage customLayerData; coordinates and widths use authored stage units (metersPerUnit=" + std::to_string(input.MetersPerUnit) + ").");
             m_inputLoaded = true;
         } catch (const std::exception& e) {
@@ -1271,123 +1296,15 @@ private:
         zSpace::zFnMesh(m_inputMesh).clear();
 
 #if defined(ZSPACE_TS3DP_OPENUSD)
-        if (isUSDInput()) { loadUSDInputs(); return; }
-#endif
-
-        // zTsIO::readMeshFromOBJ() returns the mesh plus one tag and width
-        // group per face from the OBJ's "usemtl" names (bottom/top/side_<n>).
-        logInput("File: " + m_inputMeshPath);
-        std::string meshInfo, graphInfo, pointInfo;
-        std::string readError;
-        const bool loaded = zSpace::zTsIO::readMeshFromOBJ(m_inputMeshPath, m_inputMesh, m_faceTags,
-                                                           m_faceWidthIds, &readError, "00");
-        zSpace::zFnMesh fn(m_inputMesh);
-        if (!loaded || fn.numVertices() == 0) {
-            logFail("Input", "failed to load input mesh at " + m_inputMeshPath + ": " + readError);
+        if (!isUSDInput()) {
+            logFail("Input", "Only USD input is supported.");
             return;
         }
-        zSpace::zPoint minBB;
-        zSpace::zPoint maxBB;
-        fn.getBounds(minBB, maxBB);
-        {
-            std::ostringstream out;
-            out << "00 Mesh: vertices=" << fn.numVertices() << " faces=" << fn.numPolygons()
-                << " z-range=[" << minBB.z << ", " << maxBB.z << "]";
-            meshInfo = out.str();
-        }
-
-        // Both slicers take the face tags and derive the vertex tags
-        // themselves; derived here too, only to check them early. The display
-        // groups come later (buildInputGroups(), once the settings are read).
-        zSpace::zIntArray vertexTags;
-        std::string tagError;
-        if (zSpace::zTsUtils::vertexTagsFromFaceTags(m_inputMesh, m_faceTags, vertexTags, &tagError)) {
-            int bottom = 0, top = 0;
-            for (int tag : vertexTags) {
-                if (tag == static_cast<int>(zSpace::VertexTag::Bottom)) ++bottom;
-                else if (tag == static_cast<int>(zSpace::VertexTag::Top)) ++top;
-            }
-            meshInfo += " | vertex tags: bottom=" + std::to_string(bottom) + " top=" + std::to_string(top)
-                + " side=" + std::to_string(int(vertexTags.size()) - bottom - top);
-        } else {
-            logFail("Input", "face tags: " + tagError + " - both slicers will stop.");
-        }
-
-        // Object 01 carries bracing polylines in the same world coordinates.
-        {
-            const bool bracingOk = zSpace::zTsIO::readGraphFromOBJ(m_inputMeshPath, m_bracingGraph, "01");
-            zSpace::zFnGraph fnBracing(m_bracingGraph);
-            m_haveBracing = bracingOk && fnBracing.numVertices() > 0;
-            if (m_haveBracing)
-                graphInfo = "01 Graph: vertices=" + std::to_string(fnBracing.numVertices())
-                    + " edges=" + std::to_string(fnBracing.numEdges());
-            else
-                graphInfo = "01 Graph: unavailable; continuing without bracing.";
-        }
-
-        // Object 02 may contain a bare vertex without a p record (Blender).
-        {
-            zSpace::zPointArray anchorPoints;
-            if (zSpace::zTsIO::readPointsFromOBJ(m_inputMeshPath, anchorPoints, "02")) {
-                m_slotAnchor = anchorPoints[0];
-                m_haveSlotAnchor = true;
-                std::ostringstream out;
-                out << "02 Point: slot anchor=(" << m_slotAnchor.x << ", " << m_slotAnchor.y << ", "
-                    << m_slotAnchor.z << ")";
-                if (anchorPoints.size() > 1)
-                    out << " - object 02 has " << anchorPoints.size() << " points, only the first is used";
-                pointInfo = out.str();
-            } else {
-                pointInfo = "02 Point: unavailable; slot anchor defaults to (0, 0, 0).";
-            }
-        }
-
-        loadSettings();
-        std::string groupSummary;
-        buildInputGroups(groupSummary);
-        if (!groupSummary.empty()) meshInfo += " | face groups:" + groupSummary;
-        logInput(meshInfo);
-        logInput(graphInfo);
-        logInput(pointInfo);
-
-        m_inputLoaded = true;
+        loadUSDInputs();
+#else
+        logFail("Input", "USD input requires OpenUSD support in this build.");
+#endif
     }
-
-    // Reads m_settingsPath into m_settings/m_printSettings (built-in defaults
-    // when no file was picked or it can't be used), then moves the "Layer
-    // Spacing" slider to the loaded LayerSpacing without triggering a rerun.
-    void loadSettings()
-    {
-        m_settings = defaultSlicerSettings();
-        m_printSettings = defaultPrintSynSettings();
-        if (m_settingsPath.empty()) {
-            logOk("Settings", "no settings JSON picked - using the built-in defaults.");
-        } else {
-            std::ifstream file(m_settingsPath);
-            if (!file) {
-                logFail("Settings", "cannot open " + m_settingsPath + " - using the built-in defaults.");
-            } else {
-                try {
-                    const nlohmann::json root = nlohmann::json::parse(file);
-                    std::vector<std::string> unknown;
-                    for (const char* name : {"slicer", "SlicerSettings"})
-                        if (root.contains(name)) applySlicerJson(root.at(name), m_settings, unknown);
-                    for (const char* name : {"printSyn", "PrintSynSetting"})
-                        if (root.contains(name)) applyPrintSynJson(root.at(name), m_printSettings, unknown);
-                    for (const std::string& key : unknown)
-                        logFail("Settings", "ignoring unknown setting '" + key + "'");
-                    logOk("Settings", "Loaded " + m_settingsPath);
-                } catch (const std::exception& e) {
-                    m_settings = defaultSlicerSettings();
-                    m_printSettings = defaultPrintSynSettings();
-                    logFail("Settings", "failed to read " + m_settingsPath + " (" + e.what()
-                        + ") - using the built-in defaults.");
-                }
-            }
-        }
-        m_layerSpacing = m_lastLayerSpacing = m_settings.LayerSpacing;
-    }
-
     // Results cached for drawing, owned by the sketch rather than a slicer.
     void clearResults()
     {
@@ -1509,15 +1426,12 @@ private:
 
     std::string m_inputMeshPath;
     zSpace::zObjMesh m_inputMesh;
-    // Object 01 from the shared OBJ, in world coordinates.
+    // Bracing from the USD stage, in world coordinates.
     zSpace::zObjGraph m_bracingGraph;
     // First vertex of object 02; missing object defaults to the world origin.
     zSpace::zPoint m_slotAnchor;
     bool m_haveSlotAnchor = false;
-    // Optional settings JSON picked after the OBJ (empty = built-in
-    // defaults) and what loadSettings() read from it - one set for both
-    // slicers (see zSpace::SlicerSettings).
-    std::string m_settingsPath;
+    // Settings from stage customLayerData, shared by both slicers.
     zSpace::SlicerSettings m_settings = defaultSlicerSettings();
     zSpace::PrintSynSetting m_printSettings = defaultPrintSynSettings();
     zSpace::zObjGraph m_tetWireGraph;
@@ -1525,7 +1439,7 @@ private:
     // null until a slicer button is pressed after loading.
     std::unique_ptr<zSpace::HarmonicSlicer> m_slicer;
     std::unique_ptr<zSpace::TopologySlicer> m_topoSlicer;
-    zSpace::zIntArray m_faceTags;     // from the OBJ's "usemtl" names, shared by both slicers
+    zSpace::zIntArray m_faceTags;     // from USD FaceTag attributes, shared by both slicers
     zSpace::zIntArray m_faceWidthIds; // width group per face (side_<n> -> BoundaryWidth[n])
     bool m_haveBracing = false;
     bool m_inputLoaded = false; // mesh read by loadInputs()
@@ -1543,6 +1457,7 @@ private:
     int m_inspectLayer = 0; // layer shown by the layer inspector mode (up/down arrow)
 
     std::unique_ptr<SimpleUI> m_ui;
+    int m_exportAction = -1;
     float m_probeU = 0.5f; // slider-bound, drawUVProbe() query point (mode 2)
     float m_probeV = 0.5f; // slider-bound, drawUVProbe() query point (mode 2)
     // computeProcessedPrintPaths()'s cached result, replayed every frame by

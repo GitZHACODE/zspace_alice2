@@ -1029,26 +1029,11 @@ private:
   }
 
   bool loadBracingGraph() {
-    // zIO::readGraph does not register the .obj extension for graphs (only
-    // readMesh supports it), so .obj bracing graphs go through zTsUtils'
-    // dedicated OBJ graph importer instead.
-    std::filesystem::path srcPath(bracingGraphPath);
-    if (srcPath.extension() == ".obj" || srcPath.extension() == ".OBJ") {
-      if (!zSpace::zTsIO::readGraphFromOBJ(bracingGraphPath,
-                                              m_rawBracingGraph)) {
-        printError("[zSpaceSlicer][bracing] Could not parse OBJ graph: " +
-                   bracingGraphPath);
-        return false;
-      }
-    } else {
-      auto result = zSpace::zIO::readGraph(bracingGraphPath, m_rawBracingGraph);
-      if (!result) {
-        printError("[zSpaceSlicer][bracing] Could not load graph: " +
-                   result.message());
-        return false;
-      }
+    auto result = zSpace::zIO::readGraph(bracingGraphPath, m_rawBracingGraph);
+    if (!result) {
+      printError("[zSpaceSlicer][bracing] Could not load graph: " + result.message());
+      return false;
     }
-
     My3DP.setBracingGraph(m_rawBracingGraph);
     zSpace::zFnGraph fnGraph(m_rawBracingGraph);
     printSuccess("[zSpaceSlicer] Loaded graph: " +
