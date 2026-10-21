@@ -23,6 +23,7 @@
 #include <stdexcept>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <iostream>
@@ -1232,6 +1233,7 @@ private:
     void runSelectedSlicer()
     {
         clearResults();
+        const auto start = std::chrono::steady_clock::now();
         if (m_slicerChoice == kSlicerTopology) {
             m_slicer.reset();
             if (!m_topoSlicer) m_topoSlicer = std::make_unique<zSpace::TopologySlicer>();
@@ -1241,6 +1243,10 @@ private:
             if (!m_slicer) m_slicer = std::make_unique<zSpace::HarmonicSlicer>();
             runHarmonicPipeline();
         }
+        const auto elapsed = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - start);
+        std::cout << "[" << (m_slicerChoice == kSlicerTopology ? "TopologySlicer" : "HarmonicSlicer")
+                  << "] computation time: " << elapsed.count() << " ms" << std::endl;
     }
 
     void runHarmonicPipeline()
