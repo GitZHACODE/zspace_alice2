@@ -9,3 +9,7 @@
 /alice2/data/
 /alice2/src/screenshots/
 /ALICE_PLATFORM
+
+/alice2/build_modern/
+/alice2/build_modern_tests/
+/alice2/baseline-*.log

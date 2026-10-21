@@ -6,7 +6,7 @@ echo Alice2 3D Viewer - zSpace Run Script
 echo ========================================
 echo.
 
-set "BUILD_DIR=build_zspace"
+set "BUILD_DIR=build_modern"
 set "BIN_DIR=%BUILD_DIR%\bin\Release"
 if exist "%~dp0alice2.exe" set "BIN_DIR=."
 set "EXE_PATH=%BIN_DIR%\alice2.exe"
@@ -21,7 +21,7 @@ if errorlevel 1 goto :fail
 
 if not exist "%EXE_PATH%" (
     echo ERROR: alice2.exe not found!
-    echo Expected alice2.exe beside this script or in build_zspace\bin\Release.
+    echo Expected alice2.exe beside this script or in build_modern\bin\Release.
     echo Build the zSpace configuration first using build_with_zspace.bat.
     goto :fail_pop
 )
