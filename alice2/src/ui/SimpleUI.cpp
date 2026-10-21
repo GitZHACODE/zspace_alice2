@@ -54,7 +54,8 @@ namespace alice2 {
     }
 
     void SimpleUI::addSlider(const std::string& label, const Vec2& pos,
-                             float width, float minV, float maxV, float& bound) {
+                             float width, float minV, float maxV, float& bound,
+                             float step) {
         Slider s;
         s.label = label;
         s.pos = pos;
@@ -62,7 +63,20 @@ namespace alice2 {
         s.minV = minV;
         s.maxV = maxV;
         s.bound = &bound;
+        s.step = step;
         m_sliders.push_back(std::move(s));
+    }
+
+    void SimpleUI::addSliderInt(const std::string& label, const Vec2& pos,
+                                float width, int minV, int maxV, int& bound) {
+        IntSlider s;
+        s.label = label;
+        s.pos = pos;
+        s.width = width;
+        s.minV = minV;
+        s.maxV = maxV;
+        s.bound = &bound;
+        m_intSliders.push_back(std::move(s));
     }
 
     bool SimpleUI::onMousePress(int button, int state, int x, int y) {
@@ -90,8 +104,38 @@ namespace alice2 {
                     m_activeSlider = i;
                     // update immediately
                     float u = clampf((x - s.pos.x) / s.width, 0.0f, 1.0f);
-                    *s.bound = s.minV + u * (s.maxV - s.minV);
+                    float v = s.minV + u * (s.maxV - s.minV);
+                    if (s.step > 0.0f) {
+                        v = s.minV + std::round((v - s.minV) / s.step) * s.step;
+                        v = clampf(v, s.minV, s.maxV);
+                    }
+                    *s.bound = v;
                     consumed = true;
+                }
+            }
+
+            // Int sliders: same hit-test, always snapped to whole units
+            if (!consumed) {
+                for (int i = 0; i < static_cast<int>(m_intSliders.size()); ++i) {
+                    auto& s = m_intSliders[i];
+                    if (!s.bound) continue;
+                    float range = float(s.maxV - s.minV);
+                    float t = clampf((*s.bound - s.minV) / (range + 1e-12f), 0.0f, 1.0f);
+                    float knobX = s.pos.x + t * s.width;
+                    float knobY = s.pos.y;
+                    float dx = knobX - x;
+                    float dy = knobY - y;
+                    float dist2 = dx*dx + dy*dy;
+                    const float r = 8.0f; // pixels
+                    if (dist2 <= r*r || (x >= s.pos.x && x <= s.pos.x + s.width && std::abs(y - s.pos.y) <= 6.0f)) {
+                        s.dragging = true;
+                        m_activeIntSlider = i;
+                        float u = clampf((x - s.pos.x) / s.width, 0.0f, 1.0f);
+                        int v = s.minV + int(std::round(u * range));
+                        v = std::max(s.minV, std::min(s.maxV, v));
+                        *s.bound = v;
+                        consumed = true;
+                    }
                 }
             }
 
@@ -133,6 +177,10 @@ namespace alice2 {
                 m_sliders[m_activeSlider].dragging = false;
             }
             m_activeSlider = -1;
+            if (m_activeIntSlider >= 0 && m_activeIntSlider < (int)m_intSliders.size()) {
+                m_intSliders[m_activeIntSlider].dragging = false;
+            }
+            m_activeIntSlider = -1;
             for (auto& t : m_toggles) t.pressed = false;
         }
 
@@ -144,9 +192,26 @@ namespace alice2 {
             auto& s = m_sliders[m_activeSlider];
             if (s.bound) {
                 float u = clampf((x - s.pos.x) / s.width, 0.0f, 1.0f);
-                *s.bound = s.minV + u * (s.maxV - s.minV);
+                float v = s.minV + u * (s.maxV - s.minV);
+                if (s.step > 0.0f) {
+                    v = s.minV + std::round((v - s.minV) / s.step) * s.step;
+                    v = clampf(v, s.minV, s.maxV);
+                }
+                *s.bound = v;
             }
             // Keep camera neutralized while dragging
+            m_input.setMouseButton(MouseButton::Left, KeyState::Released);
+            return true;
+        }
+        if (m_activeIntSlider >= 0 && m_activeIntSlider < (int)m_intSliders.size()) {
+            auto& s = m_intSliders[m_activeIntSlider];
+            if (s.bound) {
+                float range = float(s.maxV - s.minV);
+                float u = clampf((x - s.pos.x) / s.width, 0.0f, 1.0f);
+                int v = s.minV + int(std::round(u * range));
+                v = std::max(s.minV, std::min(s.maxV, v));
+                *s.bound = v;
+            }
             m_input.setMouseButton(MouseButton::Left, KeyState::Released);
             return true;
         }
@@ -210,13 +275,38 @@ namespace alice2 {
                 drawLabel(r, buf, s.pos.x + s.width + 10.0f, s.pos.y + 4.0f, m_palette.text);
             }
         }
+
+        // Int sliders
+        for (const auto& s : m_intSliders) {
+            Vec2 a{s.pos.x, s.pos.y};
+            Vec2 b{s.pos.x + s.width, s.pos.y};
+            r.setColor(m_palette.sliderTrack);
+            r.setLineWidth(2.0f);
+            r.draw2dLine(a, b);
+
+            float t = 0.0f;
+            if (s.bound) t = clampf(float(*s.bound - s.minV) / float(s.maxV - s.minV + 1e-12f), 0.0f, 1.0f);
+            Vec2 k{ s.pos.x + t * s.width, s.pos.y };
+            r.draw2dPoint(k, m_palette.sliderKnob, 8.0f);
+
+            r.setColor(m_palette.textSecondary);
+            drawLabel(r, s.label, s.pos.x, s.pos.y - 8.0f, m_palette.textSecondary);
+
+            if (s.bound) {
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "%d", *s.bound);
+                drawLabel(r, buf, s.pos.x + s.width + 10.0f, s.pos.y + 4.0f, m_palette.text);
+            }
+        }
     }
 
     void SimpleUI::clear() {
         m_toggles.clear();
         m_groups.clear();
         m_sliders.clear();
+        m_intSliders.clear();
         m_activeSlider = -1;
+        m_activeIntSlider = -1;
     }
 
     // Helpers

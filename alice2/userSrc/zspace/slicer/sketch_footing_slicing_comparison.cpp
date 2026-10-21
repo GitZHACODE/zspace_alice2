@@ -1,4 +1,7 @@
-#define __MAIN__
+// Disabled: archived research sketch moved out of zspace_toolsets. It still
+// depends on alice2 slicer/zUnroller.h + zSlicingParameters.h, which were
+// removed from alice2/src - re-enable only after restoring those.
+//#define __MAIN__
 #ifdef __MAIN__
 
 #include <zspace/interface.h>

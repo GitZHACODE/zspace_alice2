@@ -414,6 +414,22 @@ namespace alice2 {
                 charKey = (mods & GLFW_MOD_SHIFT) ? ('A' + (key - GLFW_KEY_A)) : ('a' + (key - GLFW_KEY_A));
             } else if (key >= GLFW_KEY_0 && key <= GLFW_KEY_9) {
                 charKey = '0' + (key - GLFW_KEY_0);
+            } else if (key == GLFW_KEY_UP) {
+                charKey = 201; // Up arrow (避免与 ASCII 'e'=101 键冲突)
+            } else if (key == GLFW_KEY_DOWN) {
+                charKey = 203; // Down arrow (避免与 ASCII 'g'=103 键冲突)
+            } else if (key == GLFW_KEY_LEFT) {
+                charKey = 200; // Left arrow (避免与 ASCII 'd'=100 键冲突)
+            } else if (key == GLFW_KEY_RIGHT) {
+                charKey = 202; // Right arrow (避免与 ASCII 'f'=102 键冲突)
+            } else if (key == GLFW_KEY_LEFT_BRACKET) {
+                charKey = '[';
+            } else if (key == GLFW_KEY_RIGHT_BRACKET) {
+                charKey = ']';
+            } else if (key == GLFW_KEY_SPACE) {
+                charKey = ' ';
+            } else if (key >= 32 && key <= 126) {
+                charKey = static_cast<unsigned char>(key);
             }
 
             if (charKey != 0) {

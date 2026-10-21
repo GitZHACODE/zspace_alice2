@@ -25,6 +25,7 @@ namespace alice2 {
         zDisplayGraphSetting()
         {
             showFaces = false;
+            showVertices = false;
             edgeColor = Color(1.0f, 1.0f, 1.0f, 1.0f);
             vertexColor = Color(1.0f, 0.8f, 0.2f, 1.0f);
             edgeWidth = 2.0f;
@@ -56,6 +57,7 @@ namespace alice2 {
         inline zDisplayGraphSetting lines(const Color& color = Color(1.0f, 1.0f, 1.0f, 1.0f), float width = 2.0f)
         {
             zDisplayGraphSetting display;
+            display.showVertices = false;
             display.edgeColor = color;
             display.edgeWidth = width;
             return display;
