@@ -8,3 +8,7 @@
 /alice2/depends
 /alice2/data/
 /ALICE_PLATFORM
+
+/alice2/build_modern/
+/alice2/build_modern_tests/
+/alice2/baseline-*.log

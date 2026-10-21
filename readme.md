@@ -28,8 +28,10 @@ You can build and run alice2 either as a standalone 3D viewer or with full zSpac
 
 ### Option 1: Building with zSpace Integration (v3.0.0+)
 
-The zSpace integration supports two compilation modes:
-- **SDK Mode (Default fallback)**: If you do not have `zspace_core` cloned locally, the build system automatically downloads the precompiled zSpace SDK (`zspace.zip`) from GitHub Releases, extracts it to `depends/zspace/`, and links against it.
+The source build is the default for the modern slicer.
+
+The CMake integration supports two compilation modes:
+- **SDK Mode (explicit CMake option)**: If you do not have `zspace_core` cloned locally, the build system automatically downloads the precompiled zSpace SDK (`zspace.zip`) from GitHub Releases, extracts it to `depends/zspace/`, and links against it.
 - **Source Mode**: If you have the `zspace_core` repository cloned side-by-side (located at `../../zspace_core` relative to the `alice2/` subfolder), it builds the DLLs from source.
 
 To build and run:

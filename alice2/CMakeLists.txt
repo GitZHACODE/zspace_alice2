@@ -1,10 +1,10 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.21)
 
 project(alice2 VERSION 3.0.0 LANGUAGES C CXX)
 
 option(ALICE2_ENABLE_CUDA "Enable CUDA build of alice2" OFF)
 option(ALICE2_WITH_ZSPACE_CORE "Enable zSpace integration" ON)
-option(ALICE2_USE_ZSPACE_SOURCE "Build zSpace from a local source checkout" OFF)
+option(ALICE2_USE_ZSPACE_SOURCE "Build zSpace from a local source checkout" ON)
 set(ZSPACE_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../zspace_core" CACHE PATH "Path to local zspace_core checkout")
 set(ZSPACE_TOOLSETS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../zspace_toolsets" CACHE PATH "Path to local zspace_toolsets")
 set(ZSPACE_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/sdk/zspace" CACHE PATH "Path to installed zSpace binary SDK")
@@ -94,6 +94,8 @@ if(ALICE2_WITH_ZSPACE_CORE)
     endif()
 endif()
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Alice2Toolsets.cmake")
+
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "_deps/CMakeTargets")
 
@@ -170,6 +172,15 @@ endif()
 
 set(NLOHMANN_JSON_DIR "${ALICE2_DEPENDS_DIR}/nlohmann")
 set(NLOHMANN_JSON_INCLUDE_DIRS "${NLOHMANN_JSON_DIR}/include")
+# zSpace's public headers include JSON internals. All consumers must resolve
+# the same version, rather than mixing Alice's JSON 3.11 with core's JSON 3.9.
+if(ALICE2_WITH_ZSPACE_CORE)
+    if(ALICE2_USE_ZSPACE_SOURCE)
+        set(NLOHMANN_JSON_INCLUDE_DIRS "${ZSPACE_CORE_DIR}/third_party/depends")
+    else()
+        set(NLOHMANN_JSON_INCLUDE_DIRS "${ZSPACE_SDK_DIR}/include/depends")
+    endif()
+endif()
 if(NOT EXISTS ${NLOHMANN_JSON_INCLUDE_DIRS}/nlohmann/json.hpp)
     message(FATAL_ERROR "nlohmann/json headers not found at ${NLOHMANN_JSON_INCLUDE_DIRS}")
 endif()
@@ -217,7 +228,6 @@ endif()
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${ZSPACE_TOOLSETS_DIR}/cpp
     ${OPENGL_INCLUDE_DIRS}
     ${GLEW_INCLUDE_DIRS}
     ${GLFW_INCLUDE_DIRS}
@@ -226,33 +236,6 @@ include_directories(
     ${GL2PS_INCLUDE_DIRS}
 )
 
-# TetGen: vendored inside zspace_toolsets's igl depends tree (used by
-# zToolsets/ts3dp's harmonic tet-volume slicing). The header was
-# manually fetched to match the commit tetgen.lib was built from, since the
-# original CMake FetchContent source directory (_deps/tetgen-src) is not
-# checked into this repo - see cpp/depends/igl/build/_deps/tetgen-src/tetgen.h.
-set(TETGEN_INCLUDE_DIR "${ZSPACE_TOOLSETS_DIR}/cpp/depends/igl/build/_deps/tetgen-src")
-set(TETGEN_LIBRARY "${ZSPACE_TOOLSETS_DIR}/cpp/depends/igl/build/lib/tetgen.lib")
-# tetgen.lib is checked in; the matching 1.6 header is not, because the
-# FetchContent source tree was never committed.
-if(NOT EXISTS "${TETGEN_INCLUDE_DIR}/tetgen.h")
-    set(TETGEN_INCLUDE_DIR "${ALICE2_DEPENDS_DIR}/tetgen")
-    if(NOT EXISTS "${TETGEN_INCLUDE_DIR}/tetgen.h")
-        set(TETGEN_HEADER_URL "https://raw.githubusercontent.com/libigl/tetgen/master/tetgen.h")
-        message(STATUS "Downloading TetGen 1.6 header from ${TETGEN_HEADER_URL}")
-        file(MAKE_DIRECTORY "${TETGEN_INCLUDE_DIR}")
-        file(DOWNLOAD "${TETGEN_HEADER_URL}" "${TETGEN_INCLUDE_DIR}/tetgen.h" STATUS tetgen_dl_status)
-        list(GET tetgen_dl_status 0 tetgen_dl_code)
-        if(NOT tetgen_dl_code EQUAL 0)
-            message(WARNING "Failed to download tetgen.h: ${tetgen_dl_status}")
-        endif()
-    endif()
-endif()
-if(EXISTS "${TETGEN_INCLUDE_DIR}/tetgen.h" AND EXISTS "${TETGEN_LIBRARY}")
-    include_directories(${TETGEN_INCLUDE_DIR})
-else()
-    message(WARNING "TetGen not found at ${TETGEN_INCLUDE_DIR} / ${TETGEN_LIBRARY} - sketches using HarmonicSlicer will fail to build.")
-endif()
 if(ALICE2_WITH_ZSPACE_CORE AND ALICE2_USE_ZSPACE_SOURCE)
     include_directories(BEFORE
         "${ZSPACE_CORE_DIR}"
@@ -360,7 +343,7 @@ if(ALICE2_ENABLE_CUDA)
 else()
     target_compile_definitions(alice2 PRIVATE ALICE2_WITH_CUDA=0)
 endif()
-target_compile_definitions(alice2 PRIVATE JSON_SKIP_LIBRARY_VERSION_CHECK=1)
+
 
 target_link_libraries(alice2
     ${OPENGL_LIBRARIES}
@@ -372,6 +355,7 @@ if(ALICE2_WITH_ZSPACE_CORE)
         zspace::core
         zspace::interface
         zspace::io
+        zspace::toolsets
     )
     target_compile_definitions(alice2 PRIVATE ALICE2_WITH_ZSPACE_CORE=1)
 endif()
@@ -379,10 +363,7 @@ if(ALICE2_ENABLE_CUDA)
     target_link_libraries(alice2 CUDA::cublas CUDA::cudart)
 endif()
 
-if(EXISTS "${TETGEN_INCLUDE_DIR}/tetgen.h" AND EXISTS "${TETGEN_LIBRARY}")
-    target_compile_definitions(alice2 PRIVATE TETLIBRARY)
-    target_link_libraries(alice2 "${TETGEN_LIBRARY}")
-endif()
+
 
 if(WIN32)
     target_link_libraries(alice2 user32 gdi32 shell32)
@@ -444,7 +425,7 @@ if(WIN32)
     endif()
 
     if(ALICE2_WITH_ZSPACE_CORE)
-        foreach(zspace_target zspace::core zspace::interface zspace::io)
+        foreach(zspace_target zspace::core zspace::interface zspace::io zspace::toolsets)
             if(TARGET ${zspace_target})
                 add_custom_command(TARGET alice2 POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -506,7 +487,7 @@ if(WIN32)
         endif()
     endif()
     if(ALICE2_WITH_ZSPACE_CORE)
-        foreach(zspace_target zspace::core zspace::interface zspace::io)
+        foreach(zspace_target zspace::core zspace::interface zspace::io zspace::toolsets)
             if(TARGET ${zspace_target})
                 install(FILES $<TARGET_FILE:${zspace_target}> DESTINATION ${ALICE2_INSTALL_RUNTIME_DESTINATION})
             endif()
@@ -540,16 +521,32 @@ message(STATUS "  Eigen: ${EIGEN_DIR} (header-only)")
 message(STATUS "  nlohmann/json: ${NLOHMANN_JSON_INCLUDE_DIRS} (header-only)")
 message(STATUS "  gl2ps: ${GL2PS_INCLUDE_DIRS} (SVG export)")
 
-# Optional USD input; DLLs and schema resources are deployed beside alice2.
-# The minimal OpenUSD SDK is built separately and is not part of the toolsets checkout.
-option(ALICE2_WITH_TS3DP_USD "Enable OpenUSD slicer input" ON)
-if(ALICE2_WITH_ZSPACE_CORE AND ALICE2_WITH_TS3DP_USD)
-    set(ALICE2_OPENUSD_CMAKE "${ZSPACE_TOOLSETS_DIR}/cmake/OpenUSD.cmake")
-    set(ALICE2_OPENUSD_CONFIG "${ZSPACE_TOOLSETS_DIR}/cpp/depends/openusd-minimal/pxrConfig.cmake")
-    if(EXISTS "${ALICE2_OPENUSD_CMAKE}" AND EXISTS "${ALICE2_OPENUSD_CONFIG}")
-        include("${ALICE2_OPENUSD_CMAKE}")
-        zspace_toolsets_enable_usd(alice2)
-    else()
-        message(WARNING "OpenUSD slicer input disabled. Missing ${ALICE2_OPENUSD_CMAKE} or ${ALICE2_OPENUSD_CONFIG}")
+alice2_deploy_toolsets_runtime(alice2)
+
+if(ALICE2_BUILD_SLICING_TESTS)
+    if(NOT ALICE2_WITH_ZSPACE_CORE OR NOT ALICE2_WITH_TS3DP_USD OR NOT ZSPACE_TOOLSETS_WITH_TETGEN)
+        message(FATAL_ERROR "Desktop slicing tests require core, native USD and TetGen")
     endif()
+    add_executable(alice2_slicing_smoke verification/slicing_smoke.cpp)
+    target_link_libraries(alice2_slicing_smoke PRIVATE zspace::toolsets)
+    # Both executables share one runtime directory; deploy dependencies once.
+    add_dependencies(alice2_slicing_smoke alice2)
+    foreach(case block-topology block-harmonic legacy-mm-topology)
+        if(case STREQUAL "block-harmonic")
+            set(fixture block)
+            set(mode harmonic)
+        elseif(case STREQUAL "legacy-mm-topology")
+            set(fixture legacy-mm)
+            set(mode topology)
+        else()
+            set(fixture block)
+            set(mode topology)
+        endif()
+        add_test(NAME alice2.slicing.${case} COMMAND alice2_slicing_smoke
+            "${CMAKE_CURRENT_SOURCE_DIR}/verification/fixtures/slicing-${fixture}.usda"
+            "${CMAKE_BINARY_DIR}/verification/${case}.json" "${mode}")
+        set_tests_properties(alice2.slicing.${case} PROPERTIES
+            WORKING_DIRECTORY "$<TARGET_FILE_DIR:alice2_slicing_smoke>"
+            ENVIRONMENT "OMP_NUM_THREADS=4")
+    endforeach()
 endif()
