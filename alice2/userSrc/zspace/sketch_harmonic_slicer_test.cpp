@@ -233,7 +233,7 @@ public:
                  << ") | 'i' load a USD";
         renderer.drawString(modeLine.str(), 10, 50);
         if (!m_inputLoaded) {
-            renderer.drawString("Empty scene - press 'i' to load USD: block, bracing, slotpoint and stage settings.", 10, 68);
+            renderer.drawString("Empty scene - press 'i' to load USD: AG_block, Slicer_bracing, Slicer_slot and Slicer_setting.", 10, 68);
         } else if (m_slicerChoice == kSlicerNone) {
             renderer.drawString("Inputs loaded - pick Harmonic or Topology below to run that slicer.", 10, 68);
         }
@@ -252,7 +252,7 @@ private:
         // Placed below the widest possible status-line block (up to 16
         // lines starting at y=90, ~20px apart) so it never overlaps it.
         // The only layering input, shared by both slicers (same LayerSpacing -> same layers).
-        m_ui->addSlider("Layer Spacing", Vec2{10.0f, 440.0f}, 220.0f, 0.002f, 0.2f, m_layerSpacing);
+        m_ui->addSlider("Layer Spacing (mm)", Vec2{10.0f, 440.0f}, 220.0f, 0.1f, 200.0f, m_layerSpacing);
         // (u,v) probe - mode 3 only. Drag these to slide the drawUVProbe()
         // marker column through the model and check layer alignment live.
         m_ui->addSlider("Probe U", Vec2{10.0f, 480.0f}, 220.0f, 0.0f, 1.0f, m_probeU);
@@ -300,7 +300,7 @@ private:
             return;
         }
         std::string error;
-        if (!zSpace::zTsIO::exportPrintPathUSD(path, m_inputMeshPath, fileBuffer, &error))
+        if (!zSpace::zTsIO::exportPrintPathUSD(path, m_inputMeshPath, fileBuffer, static_cast<int>(slicer->getPrintPaths3D().size()), &error))
             logFail("Export USD", error);
         else
             logOk("Export USD", std::string("Saved ") + fileBuffer);
@@ -1186,7 +1186,7 @@ private:
             logInput("block Mesh: vertices=" + std::to_string(source.numVertices()) + " faces=" + std::to_string(source.numPolygons()) + " | face groups:" + groups);
             logInput("bracing Curves: ribs=" + std::to_string(input.BracingCurves.size()) + " vertices=" + std::to_string(points.size()) + " edges=" + std::to_string(connects.size()/2));
             logInput("slotpoint Points: points=1");
-            logOk("Settings", "Loaded stage customLayerData; coordinates and widths use authored stage units (metersPerUnit=" + std::to_string(input.MetersPerUnit) + ").");
+            logOk("Settings", "Loaded /Slicer_setting; geometry and dimensional settings normalized to mm (source metersPerUnit=" + std::to_string(input.MetersPerUnit) + ").");
             m_inputLoaded = true;
         } catch (const std::exception& e) {
             logFail("Input", e.what());
@@ -1346,7 +1346,7 @@ private:
     // First vertex of object 02; missing object defaults to the world origin.
     zSpace::zPoint m_slotAnchor;
     bool m_haveSlotAnchor = false;
-    // Settings from stage customLayerData, shared by both slicers.
+    // Settings from /Slicer_setting, normalized to millimetres, shared by both slicers.
     zSpace::SlicerSettings m_settings = defaultSlicerSettings();
     zSpace::PrintSynSetting m_printSettings = defaultPrintSynSettings();
     zSpace::zObjGraph m_tetWireGraph;
@@ -1366,8 +1366,8 @@ private:
     zSpace::zScalarArray m_widthPalette;
     int m_slicerChoice = kSlicerNone;     // "Harmonic | Topology" button group (-1 = none lit)
     int m_lastSlicerChoice = kSlicerNone; // last value seen by update()
-    float m_layerSpacing = 0.008f;     // "Layer Spacing" slider, shared by both slicers
-    float m_lastLayerSpacing = 0.008f; // last value seen by update()
+    float m_layerSpacing = 8.0f;     // "Layer Spacing" slider, shared by both slicers
+    float m_lastLayerSpacing = 8.0f; // last value seen by update()
     int m_displayMode = 0; // index into the active slicer's display modes - see displayModeName()
     int m_inspectLayer = 0; // layer shown by the layer inspector mode (up/down arrow)
 

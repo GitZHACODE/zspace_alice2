@@ -6,35 +6,34 @@
 #include <vector>
 
 namespace alice2::slicing {
-// Defaults for settings omitted from the USD stage.
+// Defaults in millimetres for settings omitted from the USD stage.
 inline zSpace::SlicerSettings defaultSlicerSettings()
 {
     zSpace::SlicerSettings s;
-    s.BoundaryWidth = {0.06f};
-    s.BracingWidth = 0.04f;
+    s.BoundaryWidth = {60.0f};
+    s.BracingWidth = 40.0f;
     s.OverlapWidth = 0.0f;
     s.DoubleBoundary = true;
-    s.BoundarySlotOffset = 1.0f;
-    s.BracingSlotEven = 0.45f;
-    s.BracingSlotOdd = 0.55f;
+    s.SlotOffset = 1.0f;
+    s.BracingSlot = 0.5f;
     s.FieldScaleUp = 1.1f;
-    s.FieldCellSize = 0.005f;
-    s.LayerSpacing = 0.008f;
-    s.HTraceStepFraction = 0.2;
-    s.HTraceMaxSteps = 100000;
-    s.HEqualiseIterations = 2;
-    s.HArapIterations = 10;
-    s.HUnrollStart = 0;
+    s.FieldCellSize = 5.0f;
+    s.LayerSpacing = 8.0f;
+    s._HTraceStepFraction = 0.2;
+    s._HTraceMaxSteps = 100000;
+    s._HEqualiseIterations = 2;
+    s._HArapIterations = 10;
+    s._HUnrollStart = 0;
     return s;
 }
 
 inline zSpace::PrintSynSetting defaultPrintSynSettings()
 {
     zSpace::PrintSynSetting s;
-    s.ResampleLength = 0.005f;
+    s.ResampleLength = 5.0f;
     s.FeatureAngleTol = 120.0f;
-    s.SeamOffset = 0.04f;
-    s.SeamSize = 0.02f;
+    s.SeamOffset = 40.0f;
+    s.SeamSize = 20.0f;
     return s;
 }
 
@@ -45,6 +44,8 @@ inline zSpace::PrintSynSetting defaultPrintSynSettings()
 // on a value of the wrong type.
 inline void applySlicerJson(const nlohmann::json& obj, zSpace::SlicerSettings& s, std::vector<std::string>& unknown)
 {
+    if (obj.contains("BracingSlotEven") || obj.contains("BracingSlotOdd"))
+        throw std::runtime_error("Use BracingSlot and SlotOffset; separate even/odd bracing slots are no longer supported.");
     for (auto it = obj.begin(); it != obj.end(); ++it) {
         std::string key = it.key();
         if (key == "TLayerSpacing")
@@ -65,17 +66,16 @@ inline void applySlicerJson(const nlohmann::json& obj, zSpace::SlicerSettings& s
         }
         else if (key == "OverlapWidth") s.OverlapWidth = v.get<float>();
         else if (key == "DoubleBoundary") s.DoubleBoundary = v.get<bool>();
-        else if (key == "BoundarySlotOffset") s.BoundarySlotOffset = v.get<float>();
-        else if (key == "BracingSlotEven") s.BracingSlotEven = v.get<float>();
-        else if (key == "BracingSlotOdd") s.BracingSlotOdd = v.get<float>();
+        else if (key == "SlotOffset" || key == "BoundarySlotOffset") s.SlotOffset = v.get<float>();
+        else if (key == "BracingSlot") s.BracingSlot = v.get<float>();
         else if (key == "FieldScaleUp") s.FieldScaleUp = v.get<float>();
         else if (key == "FieldCellSize") s.FieldCellSize = v.get<float>();
         else if (key == "LayerSpacing") s.LayerSpacing = v.get<float>();
-        else if (key == "HTraceStepFraction") s.HTraceStepFraction = v.get<double>();
-        else if (key == "HTraceMaxSteps") s.HTraceMaxSteps = v.get<int>();
-        else if (key == "HEqualiseIterations") s.HEqualiseIterations = v.get<int>();
-        else if (key == "HArapIterations") s.HArapIterations = v.get<int>();
-        else if (key == "HUnrollStart") s.HUnrollStart = v.get<int>();
+        else if (key == "_HTraceStepFraction" || key == "HTraceStepFraction") s._HTraceStepFraction = v.get<double>();
+        else if (key == "_HTraceMaxSteps" || key == "HTraceMaxSteps") s._HTraceMaxSteps = v.get<int>();
+        else if (key == "_HEqualiseIterations" || key == "HEqualiseIterations") s._HEqualiseIterations = v.get<int>();
+        else if (key == "_HArapIterations" || key == "HArapIterations") s._HArapIterations = v.get<int>();
+        else if (key == "_HUnrollStart" || key == "HUnrollStart") s._HUnrollStart = v.get<int>();
         else unknown.push_back("slicer." + it.key());
     }
 }

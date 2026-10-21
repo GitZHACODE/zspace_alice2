@@ -1,0 +1,48 @@
+#usda 1.0
+(
+    upAxis = "Z"
+    metersPerUnit = 1
+
+)
+def Mesh "AG_block"
+{
+    point3f[] points = [(0,0,0), (0.0040000000000000001,0,0), (0.0040000000000000001,0.0040000000000000001,0), (0,0.0040000000000000001,0), (0,0,0.001), (0.0040000000000000001,0,0.001), (0.0040000000000000001,0.0040000000000000001,0.001), (0,0.0040000000000000001,0.001), (0,0,0.002), (0.0040000000000000001,0,0.002), (0.0040000000000000001,0.0040000000000000001,0.002), (0,0.0040000000000000001,0.002)]
+    int[] faceVertexCounts = [4,4,4,4,4,4,4,4,4,4]
+    int[] faceVertexIndices = [0,3,2,1, 8,9,10,11, 0,1,5,4, 1,2,6,5, 2,3,7,6, 3,0,4,7, 4,5,9,8, 5,6,10,9, 6,7,11,10, 7,4,8,11]
+
+
+    uniform token subdivisionScheme = "none"
+}
+def BasisCurves "Slicer_bracing"
+{
+    uniform token type = "linear"
+    uniform token wrap = "nonperiodic"
+    int[] curveVertexCounts = [2]
+    point3f[] points = [(0.002,0,0), (0.002,0.0040000000000000001,0)]
+
+}
+def Points "Slicer_slot"
+{
+    point3f[] points = [(0,0,0)]
+}
+
+
+def Scope "Slicer_setting"
+{
+    custom float slicer:LayerSpacing = 0.00050000000000000001
+    custom float[] slicer:BoundaryWidth = [0.00040000000000000002, 0.00059999999999999995]
+    custom float[] slicer:BracingWidth = [0.00029999999999999997]
+    custom float slicer:FieldCellSize = 0.0001
+    custom bool slicer:DoubleBoundary = false
+    custom float slicer:BracingSlot = 0.5
+    custom float printSyn:ResampleLength = 0.00020000000000000001
+    custom float printSyn:SeamOffset = 4.0000000000000003E-05
+    custom float printSyn:SeamSize = 2.0000000000000002E-05
+}
+
+def Scope "Slicer_data"
+{
+    custom int[] block:FaceTag = [1,2,3,3,3,3,3,3,3,3]
+    custom int[] block:widthid = [-1,-1,0,1,0,1,0,1,0,1]
+    custom int[] bracing:widthid = [0]
+}
