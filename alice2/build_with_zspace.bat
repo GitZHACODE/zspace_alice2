@@ -43,6 +43,17 @@ if errorlevel 1 goto :fail
 
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
 
+REM A cache created without -A stores an empty generator platform. CMake then
+REM refuses -A x64 even when that build is already the x64 host default.
+if exist "%BUILD_DIR%\CMakeCache.txt" (
+    findstr /R /C:"^CMAKE_GENERATOR_PLATFORM:INTERNAL=x64$" "%BUILD_DIR%\CMakeCache.txt" >nul
+    if errorlevel 1 (
+        echo [alice2] Resetting CMake cache; generator platform is not x64.
+        if exist "%BUILD_DIR%\CMakeFiles" rmdir /s /q "%BUILD_DIR%\CMakeFiles"
+        del /f /q "%BUILD_DIR%\CMakeCache.txt"
+    )
+)
+
 "%CMAKE_EXE%" -A x64 -S . -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%CONFIG% -DALICE2_WITH_ZSPACE_CORE=ON -DALICE2_USE_ZSPACE_SOURCE=OFF -DZSPACE_SDK_DIR="%ZSPACE_SDK_DIR%"
 if errorlevel 1 goto :fail_pop
 
