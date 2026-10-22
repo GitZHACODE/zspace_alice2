@@ -4,8 +4,6 @@ param(
   [string]$ToolsetsDir = "$PSScriptRoot/../../../zspace_toolsets",
   [string]$TetgenIncludeDir = "$PSScriptRoot/../../../zspace_toolsets/wasm/cache/tetgen",
   [string]$TetgenLibrary = "",
-  [string]$OpenUSDRoot = '',
-  [string]$OpenUSDPackage = '',
   [ValidateRange(1,32)][int]$Jobs = 6,
   [switch]$WithoutUSD,
   [switch]$Test
@@ -17,10 +15,6 @@ try {
   $ToolsetsDir = [IO.Path]::GetFullPath($ToolsetsDir)
   $TetgenIncludeDir = [IO.Path]::GetFullPath($TetgenIncludeDir)
   if ($TetgenLibrary) { $TetgenLibrary = [IO.Path]::GetFullPath($TetgenLibrary) }
-  if (!$WithoutUSD) {
-    $OpenUSDRoot = & "$PSScriptRoot/resolve-openusd-sdk.ps1" -OpenUSDRoot $OpenUSDRoot -OpenUSDPackage $OpenUSDPackage
-    Write-Host "Using native OpenUSD SDK: $OpenUSDRoot"
-  }
   $cmake = Get-Command cmake -ErrorAction SilentlyContinue
   if ($cmake) { $cmake = $cmake.Source }
   else {
@@ -49,7 +43,7 @@ try {
     -DALICE2_USE_ZSPACE_SOURCE=ON "-DZSPACE_CORE_DIR=$CoreDir" "-DZSPACE_TOOLSETS_DIR=$ToolsetsDir" `
     -DZSPACE_TOOLSETS_WITH_TETGEN=ON -DZSPACE_TOOLSETS_SLICING_OPENMP=ON `
     "-DZSPACE_TETGEN_INCLUDE_DIR=$TetgenIncludeDir" "-DZSPACE_TETGEN_LIBRARY=$TetgenLibrary" `
-    "-DALICE2_WITH_TS3DP_USD=$usd" "-DZSPACE_OPENUSD_ROOT=$OpenUSDRoot" `
+    "-DALICE2_WITH_TS3DP_USD=$usd" `
     "-DALICE2_BUILD_SLICING_TESTS=$tests" "-DZSPACE_TOOLSETS_BUILD_TESTS=$tests"
   if ($LASTEXITCODE) { throw 'CMake configuration failed.' }
   & $cmake --build $BuildDir --config Release --parallel $Jobs -- /nr:false /clp:ErrorsOnly

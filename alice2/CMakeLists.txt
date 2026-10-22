@@ -35,6 +35,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_deps/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_deps/lib)
 
+option(ALICE2_WITH_TS3DP_USD "Enable Core USD IO for slicer input/export" ON)
+set(ZSPACE_IO_WITH_OPENUSD ${ALICE2_WITH_TS3DP_USD} CACHE BOOL "Core USD IO" FORCE)
 set(ALICE2_USING_ZSPACE_SDK OFF)
 if(ALICE2_WITH_ZSPACE_CORE)
     if(ALICE2_USE_ZSPACE_SOURCE)
@@ -285,6 +287,11 @@ else()
     if(NOT ALICE2_USER_SOURCES)
         list(APPEND ALICE2_USER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/base/sketch_base.cpp")
     endif()
+    if("${CMAKE_CURRENT_SOURCE_DIR}/userSrc/zspace/slicer/sketch_slicer.cpp" IN_LIST ALICE2_USER_SOURCES)
+        list(APPEND ALICE2_USER_SOURCES
+            "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/zspace/slicer/SlicerIO.cpp"
+            "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/zspace/slicer/SlicerDisplay.cpp")
+    endif()
     list(APPEND ALICE2_SOURCES ${ALICE2_USER_SOURCES})
 endif()
 
@@ -527,10 +534,16 @@ if(ALICE2_BUILD_SLICING_TESTS)
     if(NOT ALICE2_WITH_ZSPACE_CORE OR NOT ALICE2_WITH_TS3DP_USD OR NOT ZSPACE_TOOLSETS_WITH_TETGEN)
         message(FATAL_ERROR "Desktop slicing tests require core, native USD and TetGen")
     endif()
-    add_executable(alice2_slicing_smoke verification/slicing_smoke.cpp)
-    target_link_libraries(alice2_slicing_smoke PRIVATE zspace::toolsets)
-    # Both executables share one runtime directory; deploy dependencies once.
-    add_dependencies(alice2_slicing_smoke alice2)
+    add_executable(alice2_slicing_smoke verification/slicing_smoke.cpp
+        userSrc/zspace/slicer/SlicerIO.cpp)
+    target_link_libraries(alice2_slicing_smoke PRIVATE zspace::toolsets zspace::io)
+    # Test the same IO translation unit without depending on the UI executable.
+    zspace_deploy_runtime(TARGET alice2_slicing_smoke COMPONENTS io)
+    foreach(runtime core interface io toolsets)
+        add_custom_command(TARGET alice2_slicing_smoke POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:zspace::${runtime}> $<TARGET_FILE_DIR:alice2_slicing_smoke>)
+    endforeach()
     foreach(case block-topology block-harmonic block-metres-topology block-metres-harmonic legacy-mm-topology)
         if(case MATCHES "^block-metres-")
             set(fixture block-metres)

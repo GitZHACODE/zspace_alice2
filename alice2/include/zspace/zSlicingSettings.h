@@ -1,9 +1,5 @@
 #pragma once
 #include <zspace/slicing.h>
-#include <nlohmann/json.hpp>
-#include <stdexcept>
-#include <string>
-#include <vector>
 
 namespace alice2::slicing {
 // Defaults in millimetres for settings omitted from the USD stage.
@@ -36,63 +32,5 @@ inline zSpace::PrintSynSetting defaultPrintSynSettings()
     s.SeamSize = 20.0f;
     return s;
 }
-
-// Applies a settings JSON's "slicer" object onto s. TLayerSpacing maps to
-// the shared LayerSpacing; keys that match nothing (e.g. the removed
-// TTopoSplit / TAngleSplit / TAngleSplitTol) are appended to unknown.
-// LayerSpacing is the only layering setting. Throws nlohmann::json::exception
-// on a value of the wrong type.
-inline void applySlicerJson(const nlohmann::json& obj, zSpace::SlicerSettings& s, std::vector<std::string>& unknown)
-{
-    if (obj.contains("BracingSlotEven") || obj.contains("BracingSlotOdd"))
-        throw std::runtime_error("Use BracingSlot and SlotOffset; separate even/odd bracing slots are no longer supported.");
-    for (auto it = obj.begin(); it != obj.end(); ++it) {
-        std::string key = it.key();
-        if (key == "TLayerSpacing")
-            key = "LayerSpacing"; // was Topology-only before LayerSpacing became shared
-        const nlohmann::json& v = it.value();
-        if (key == "BoundaryWidth") {
-            s.BoundaryWidth.clear();
-            if (v.is_array())
-                for (const nlohmann::json& w : v) s.BoundaryWidth.push_back(w.get<float>());
-            else
-                s.BoundaryWidth.push_back(v.get<float>());
-        }
-        else if (key == "BracingWidth") {
-            if (v.is_array()) {
-                if (v.empty()) throw std::runtime_error("BracingWidth cannot be empty");
-                s.BracingWidth = v.at(0).get<float>(); // Per-edge widths resolved by USD input.
-            } else s.BracingWidth = v.get<float>();
-        }
-        else if (key == "OverlapWidth") s.OverlapWidth = v.get<float>();
-        else if (key == "DoubleBoundary") s.DoubleBoundary = v.get<bool>();
-        else if (key == "SlotOffset" || key == "BoundarySlotOffset") s.SlotOffset = v.get<float>();
-        else if (key == "BracingSlot") s.BracingSlot = v.get<float>();
-        else if (key == "FieldScaleUp") s.FieldScaleUp = v.get<float>();
-        else if (key == "FieldCellSize") s.FieldCellSize = v.get<float>();
-        else if (key == "LayerSpacing") s.LayerSpacing = v.get<float>();
-        else if (key == "_HTraceStepFraction" || key == "HTraceStepFraction") s._HTraceStepFraction = v.get<double>();
-        else if (key == "_HTraceMaxSteps" || key == "HTraceMaxSteps") s._HTraceMaxSteps = v.get<int>();
-        else if (key == "_HEqualiseIterations" || key == "HEqualiseIterations") s._HEqualiseIterations = v.get<int>();
-        else if (key == "_HArapIterations" || key == "HArapIterations") s._HArapIterations = v.get<int>();
-        else if (key == "_HUnrollStart" || key == "HUnrollStart") s._HUnrollStart = v.get<int>();
-        else unknown.push_back("slicer." + it.key());
-    }
-}
-
-// Same for the "printSyn" object.
-inline void applyPrintSynJson(const nlohmann::json& obj, zSpace::PrintSynSetting& s, std::vector<std::string>& unknown)
-{
-    for (auto it = obj.begin(); it != obj.end(); ++it) {
-        const std::string& key = it.key();
-        const nlohmann::json& v = it.value();
-        if (key == "ResampleLength") s.ResampleLength = v.get<float>();
-        else if (key == "FeatureAngleTol") s.FeatureAngleTol = v.get<float>();
-        else if (key == "SeamOffset") s.SeamOffset = v.get<float>();
-        else if (key == "SeamSize") s.SeamSize = v.get<float>();
-        else unknown.push_back("printSyn." + key);
-    }
-}
-
 
 } // namespace alice2::slicing

@@ -16,11 +16,9 @@ From inside the `alice2` folder:
 build_with_zspace.bat
 ```
 
-The first build downloads the pinned native OpenUSD SDK from a public GitHub
-Release and verifies its SHA-256. It caches the SDK locally, so subsequent
-builds do not need the download. If the download is unavailable, use
-`build_with_zspace.bat -OpenUSDRoot "<native SDK path>"` or
-`-OpenUSDPackage "<matching ZIP path>"`. Keep downloaded SDK files out of git.
+Core owns OpenUSD SDK resolution and runtime deployment. Set a local SDK in
+Core's `cmake/OpenUSD.local.cmake` or environment once; no Alice SDK path
+argument is needed. See Core `docs/development/openusd-sdk.md`.
 
 ## Responsibilities
 

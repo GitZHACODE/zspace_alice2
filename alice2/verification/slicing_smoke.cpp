@@ -1,3 +1,5 @@
+#define ALICE2_SLICER_IO_ONLY
+#include "../userSrc/zspace/slicer/slicer.h"
 #include <zspace/slicing.h>
 #include <zspace/zSlicingSettings.h>
 #include <nlohmann/json.hpp>
@@ -77,15 +79,12 @@ int main(int argc,char** argv) {
     require(argc==4,"Usage: alice2_slicing_smoke fixture.usda output.json topology|harmonic");
     const std::string modeName=argv[3]; require(modeName=="topology"||modeName=="harmonic","Invalid mode");
     const int mode=modeName=="harmonic";
-    zTsIO::SlicerUSDInput input; std::string error;
-    const bool imported=zTsIO::readSlicerInputUSD(argv[1],input,&error);
+    aliceSlicingUSD::SlicerUSDInput input; std::string error;
+    const bool imported=aliceSlicingUSD::importUSD(argv[1],input,&error);
     require(imported,"USD import: "+error);
-    const Json authored=Json::parse(input.SettingsJSON);
-    auto settings=alice2::slicing::defaultSlicerSettings();
-    auto print=alice2::slicing::defaultPrintSynSettings(); std::vector<std::string> unknown;
-    alice2::slicing::applySlicerJson(authored.at("slicer"),settings,unknown);
-    alice2::slicing::applyPrintSynJson(authored.at("printSyn"),print,unknown);
-    require(unknown.empty(),"Unknown fixture settings");
+    auto settings=input.Settings;
+    auto print=input.PrintSettings;
+    require(input.UnknownSettings.empty(),"Unknown fixture settings");
     require(!input.BracingPrintWidths.empty(),"Missing bracing widths");
     settings.BracingCurveWidths=input.BracingPrintWidths; settings.BracingWidth=input.BracingPrintWidths.front();
     const bool legacy=std::filesystem::path(argv[1]).filename().string().find("legacy-mm")!=std::string::npos;
@@ -99,7 +98,7 @@ int main(int argc,char** argv) {
         require(std::abs(hi.x-lo.x-4)<1e-5 && std::abs(hi.y-lo.y-4)<1e-5 && std::abs(hi.z-lo.z-2)<1e-5,"Input geometry not normalized to mm");
         require(std::abs(settings.BracingWidth-.3)<1e-6 && std::abs(print.SeamOffset-.04)<1e-6 && std::abs(print.SeamSize-.02)<1e-6,"Lengths not normalized to mm");
     }
-    zObjGraph bracing; zTsUtils::combineGraphObjects(input.BracingCurves,bracing);
+    auto& bracing = input.Bracing;
     Json wasmSettings={{"layerSpacing",settings.LayerSpacing},{"boundaryWidths",settings.BoundaryWidth},
       {"bracingWidth",settings.BracingWidth},{"bracingCurveWidths",settings.BracingCurveWidths},
       {"overlapWidth",settings.OverlapWidth},{"doubleBoundary",settings.DoubleBoundary},
@@ -128,7 +127,7 @@ int main(int argc,char** argv) {
     const std::filesystem::path output=argv[2];
     if(!output.parent_path().empty()) std::filesystem::create_directories(output.parent_path());
     const auto exported=output.parent_path()/(output.stem().string()+"-export.usda");
-    const bool didExport=zTsIO::exportPrintPathUSD(slicer.getResultantPrintPath(),argv[1],exported.string(),static_cast<int>(first["layers"].size()),&error);
+    const bool didExport=aliceSlicingUSD::exportUSD(slicer.getResultantPrintPath(),argv[1],exported.string(),static_cast<int>(first["layers"].size()),&error);
     require(didExport,"USD export: "+error);
     std::ifstream exportedFile(exported);
     const std::string exportedText((std::istreambuf_iterator<char>(exportedFile)),std::istreambuf_iterator<char>());
@@ -139,10 +138,10 @@ int main(int argc,char** argv) {
     exportedArray(exportedText,"printWidths",first["combined"]["widths"],toSourceUnits);
     exportedArray(exportedText,"printHeight",first["combined"]["heights"],toSourceUnits);
     exportedArray(exportedText,"printNormals",first["combined"]["normals"],1.0);
-    zTsIO::SlicerUSDInput reread;
-    const bool reimported=zTsIO::readSlicerInputUSD(exported.string(),reread,&error);
+    aliceSlicingUSD::SlicerUSDInput reread;
+    const bool reimported=aliceSlicingUSD::importUSD(exported.string(),reread,&error);
     require(reimported,"USD exported input reimport: "+error);
-    require(reread.FaceTags==input.FaceTags&&reread.SettingsJSON==input.SettingsJSON,"Export changed source settings/tags");
+    require(reread.FaceTags==input.FaceTags&&reread.Settings==input.Settings,"Export changed source settings/tags");
     require(mesh(reread.Block)==mesh(input.Block),"Export changed source mesh");
     require(reread.MetersPerUnit==input.MetersPerUnit,"Export changed source units");
     // A failed read must clear an earlier successful import and report why.
@@ -152,10 +151,10 @@ int main(int argc,char** argv) {
         std::ofstream bad(malformed); require(bool(bad),"Cannot create malformed USD fixture");
         bad<<"not a USD stage\n"; require(bool(bad),"Cannot write malformed USD fixture");
     }
-    const bool acceptedMalformed=zTsIO::readSlicerInputUSD(malformed.string(),reread,&error);
+    const bool acceptedMalformed=aliceSlicingUSD::importUSD(malformed.string(),reread,&error);
     std::filesystem::remove(malformed);
     require(!acceptedMalformed && !error.empty(),"Malformed USD must fail with a diagnostic");
-    require(zFnMesh(reread.Block).numVertices()==0 && reread.FaceTags.empty() && reread.SettingsJSON.empty(),
+    require(zFnMesh(reread.Block).numVertices()==0 && reread.FaceTags.empty() && reread.Settings.empty(),
             "Failed USD import retained stale input");
     Json report={{"input",request},{"result",first},{"metersPerUnit",input.MetersPerUnit},{"repeated",true},{"printLength",slicer.getPrintLength()},{"printVolume",slicer.getPrintVolume()},{"exported",exported.string()}};
     std::ofstream file(output); require(bool(file),"Cannot open report"); file<<report.dump(); require(bool(file),"Cannot write report");
@@ -163,4 +162,3 @@ int main(int argc,char** argv) {
     return 0;
   } catch(const std::exception& e) { std::cerr<<"FAIL: "<<e.what()<<"\n"; return 1; }
 }
-
