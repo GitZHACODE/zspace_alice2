@@ -6,22 +6,22 @@ echo Alice2 3D Viewer - zSpace Run Script
 echo ========================================
 echo.
 
-set "BUILD_DIR=build_modern"
+set "BUILD_DIR=build_zspace_v3"
 set "BIN_DIR=%BUILD_DIR%\bin\Release"
-if exist "%~dp0alice2.exe" set "BIN_DIR=."
 set "EXE_PATH=%BIN_DIR%\alice2.exe"
 set "DLL_GLEW=%BIN_DIR%\glew32.dll"
 set "DLL_GLFW=%BIN_DIR%\glfw3.dll"
 set "DLL_ZSPACE_CORE=%BIN_DIR%\zSpace_Core.dll"
 set "DLL_ZSPACE_INTERFACE=%BIN_DIR%\zSpace_Interface.dll"
 set "DLL_ZSPACE_IO=%BIN_DIR%\zSpace_IO.dll"
+set "DLL_ZSPACE_TOOLSETS=%BIN_DIR%\zSpace_Toolsets.dll"
 
 pushd "%~dp0"
 if errorlevel 1 goto :fail
 
 if not exist "%EXE_PATH%" (
     echo ERROR: alice2.exe not found!
-    echo Expected alice2.exe beside this script or in build_modern\bin\Release.
+    echo Expected alice2.exe in build_zspace_v3\bin\Release.
     echo Build the zSpace configuration first using build_with_zspace.bat.
     goto :fail_pop
 )
@@ -42,18 +42,20 @@ if not exist "%DLL_ZSPACE_INTERFACE%" (
 if not exist "%DLL_ZSPACE_IO%" (
     echo WARNING: zSpace_IO.dll not found in %BIN_DIR%. The program may not run correctly.
 )
+if not exist "%DLL_ZSPACE_TOOLSETS%" (
+    echo WARNING: zSpace_Toolsets.dll not found in %BIN_DIR%. The program may not run correctly.
+)
 
 echo.
-echo Launching Alice2 3D Viewer (zSpace)...
+echo Launching Alice2 3D Viewer (zSpace) from %BIN_DIR%...
 cd /d "%BIN_DIR%"
-start "" alice2.exe
+alice2.exe
+set "ALICE2_EXIT_CODE=%ERRORLEVEL%"
 cd /d "%~dp0"
-echo Alice2 launched successfully!
 echo.
 
 popd
-endlocal
-exit /b 0
+endlocal & exit /b %ALICE2_EXIT_CODE%
 
 :fail_pop
 popd

@@ -24,7 +24,7 @@ Optionally the library may also be pre-compiled into a statically  or dynamicall
 
 # Launching
 
-You can build and run alice2 either as a standalone 3D viewer or with full zSpace geometry & topology integration.
+The default Alice2 build includes zSpace and the modern slicer.
 
 ### Option 1: Building with zSpace Integration (v3.0.0+)
 
@@ -46,24 +46,36 @@ To build and run:
    .\run_with_zspace.bat
    ```
 
+`build.bat` and `run.bat` without arguments use these same commands. The
+executable and its zSpace DLLs are in `build_zspace_v3\bin\Release`. The run
+script launches that executable in the current command window, so slicer
+timings and errors appear there.
+
+The build downloads the pinned native OpenUSD 26.08 SDK from a public GitHub
+Release on first use, verifies its SHA-256, and caches it under the ignored
+`alice2/sdk/openusd/` directory. An existing installation or an alternate
+package location can be supplied with:
+
+```powershell
+.\build_with_zspace.bat -OpenUSDRoot "D:\SDKs\OpenUSD\native-26.08"
+.\build_with_zspace.bat -OpenUSDPackage "D:\Downloads\openusd-native-26.08-windows-x64.zip"
+```
+
+`ZSPACE_OPENUSD_ROOT` and `ALICE2_OPENUSD_PACKAGE` provide the same overrides
+as environment variables. A supplied package must match the SHA-256 in
+`alice2/scripts/openusd-sdk.lock.json`.
+
+To update the pinned SDK, use `scripts/package-openusd-sdk.ps1` with a native
+SDK install, its OpenUSD and oneTBB source directories, the OpenUSD commit, and
+a new ZIP output path. The script bundles licenses and rewrites the two CMake
+and pkg-config references to the original install path. Publish the ZIP in a
+new versioned GitHub Release, record its hash and provenance, then update
+`scripts/openusd-sdk.lock.json` with the release asset URL and SHA-256. Test a
+clean download, extraction, and build before sharing the new lock file.
+
 ---
 
-### Option 2: Standalone Viewer (No zSpace)
-
-To build and run without zSpace dependencies:
-1. Go to the `alice2` directory.
-2. Double-click `build.bat` or run it in PowerShell:
-   ```sh
-   .\build.bat
-   ```
-3. Run the application:
-   ```sh
-   .\run.bat
-   ```
-
----
-
-### Option 3: Building with GPU Support (CUDA)
+### Building with GPU Support (CUDA)
 
 If you want to run alice2 with CUDA acceleration:
 1. Go to the `alice2` directory.

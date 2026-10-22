@@ -16,6 +16,12 @@ From inside the `alice2` folder:
 build_with_zspace.bat
 ```
 
+The first build downloads the pinned native OpenUSD SDK from a public GitHub
+Release and verifies its SHA-256. It caches the SDK locally, so subsequent
+builds do not need the download. If the download is unavailable, use
+`build_with_zspace.bat -OpenUSDRoot "<native SDK path>"` or
+`-OpenUSDPackage "<matching ZIP path>"`. Keep downloaded SDK files out of git.
+
 ## Responsibilities
 
 - Run the zSpace-enabled alice2 build after code changes.
@@ -30,10 +36,11 @@ build_with_zspace.bat
 A clean build should produce:
 
 ```text
-alice2/build_zspace/bin/Release/alice2.exe
-alice2/build_zspace/bin/Release/zSpace_Core.dll
-alice2/build_zspace/bin/Release/zSpace_Interface.dll
-alice2/build_zspace/bin/Release/zSpace_IO.dll
+alice2/build_zspace_v3/bin/Release/alice2.exe
+alice2/build_zspace_v3/bin/Release/zSpace_Core.dll
+alice2/build_zspace_v3/bin/Release/zSpace_Interface.dll
+alice2/build_zspace_v3/bin/Release/zSpace_IO.dll
+alice2/build_zspace_v3/bin/Release/zSpace_Toolsets.dll
 ```
 
 After success, tell the user:

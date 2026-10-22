@@ -6,7 +6,13 @@ echo Alice2 3D Viewer - Run Script
 echo ========================================
 echo.
 
-:: Default build folder
+if not "%~1"=="" goto :alternate_run
+call "%~dp0run_with_zspace.bat"
+exit /b %ERRORLEVEL%
+
+:alternate_run
+
+:: CUDA and test builds use their own folders.
 set "BUILD_DIR=build"
 set "MODE_HINT=standard"
 

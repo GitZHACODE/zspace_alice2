@@ -6,9 +6,17 @@ REM set "Path=%Path%"
 REM set "PATH="
 
 REM Usage:
-REM   build.bat        -> normal build in "build"
+REM   build.bat        -> zSpace source build in "build_zspace_v3"
 REM   build.bat cuda   -> CUDA build in "build_cuda"
 REM   build.bat test   -> test build in "build_tests"
+
+REM The default Alice build is the same zSpace source build used by
+REM build_with_zspace.bat, so both launchers use one executable.
+if not "%~1"=="" goto :alternate_build
+call "%~dp0build_with_zspace.bat"
+exit /b %ERRORLEVEL%
+
+:alternate_build
 
 set "CONFIG=Release"
 set "BUILD_DIR=build"

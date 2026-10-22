@@ -3,6 +3,7 @@
 /alice2/build_cuda
 /alice2/build_tests
 /alice2/sdk/zspace
+/alice2/sdk/openusd/
 /alice2/sdk/*.zip
 /alice2/dist
 /alice2/depends
@@ -12,4 +13,5 @@
 
 /alice2/build_modern/
 /alice2/build_modern_tests/
+/alice2/build_zspace_v3/
 /alice2/baseline-*.log
