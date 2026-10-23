@@ -142,7 +142,7 @@ bool boundedFit(const FitMatrix& A, const Vector& b, const std::vector<TnaEdge>&
             refitSeed = refitSeed || passive[i];
         }
     }
-    const double tolerance = 1e-10 * std::max(1.0, (B.transpose() * rhs).lpNorm<Eigen::Infinity>());
+    const double tolerance = 1e-10 * std::max(1.0, (B.transpose() * rhs).template lpNorm<Eigen::Infinity>());
     if (!std::isfinite(tolerance)) return false;
     if constexpr (std::is_same_v<FitMatrix, SparseMatrix>) {
         // Block principal pivots: solve a free set, then swap all primal/dual
