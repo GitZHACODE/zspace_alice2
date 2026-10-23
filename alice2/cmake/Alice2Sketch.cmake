@@ -1,5 +1,31 @@
-# SOURCES may contain one sketch, a collection, and any experiment-local classes.
-# Keep sketch sources on the executable so static registration is not discarded.
+function(alice2_runtime target group)
+    set(output "${CMAKE_BINARY_DIR}/$<CONFIG>/${group}")
+    set_target_properties(${target} PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${output}"
+        VS_DEBUGGER_WORKING_DIRECTORY "${output}")
+    set(dlls "")
+    if(WIN32)
+        list(APPEND dlls "$<JOIN:$<TARGET_RUNTIME_DLLS:${target}>,|>")
+        if(BUILD_SHARED_LIBS AND EXISTS "${GLFW_DIR}/bin/glfw3.dll")
+            list(APPEND dlls "${GLFW_DIR}/bin/glfw3.dll")
+        endif()
+        get_target_property(libraries ${target} LINK_LIBRARIES)
+        if("alice2_remeshing" IN_LIST libraries AND TARGET CoMISo)
+            get_target_property(comiso_dir CoMISo SOURCE_DIR)
+            file(GLOB blas_dlls "${comiso_dir}/ext/OpenBLAS-v0.2.14-Win64-int64/bin/*.dll")
+            list(APPEND dlls ${blas_dlls})
+        endif()
+    endif()
+    list(JOIN dlls "|" dll_paths)
+    set(stage_command ${CMAKE_COMMAND}
+        "-DOUTPUT=${output}"
+        "-DDLLS=${dll_paths}" -P "${PROJECT_SOURCE_DIR}/cmake/StageRuntime.cmake")
+    # Direct executable builds stage on link; folder builds also stage without relinking.
+    add_custom_command(TARGET ${target} POST_BUILD COMMAND ${stage_command} VERBATIM)
+    add_custom_target(${target}_runtime COMMAND ${stage_command} DEPENDS ${target} VERBATIM)
+endfunction()
+
+# SOURCES can contain several sketches and experiment-local custom classes.
 function(alice2_add_sketch target)
     cmake_parse_arguments(APP "DEFAULT" "" "SOURCES;LIBRARIES" ${ARGN})
     if(APP_UNPARSED_ARGUMENTS OR NOT APP_SOURCES)
@@ -12,26 +38,22 @@ function(alice2_add_sketch target)
     endif()
     target_link_libraries(${target} PRIVATE alice2_viewer ${APP_LIBRARIES})
     target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-    set_target_properties(${target} PROPERTIES
-        FOLDER "Sketches"
-        VS_DEBUGGER_WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
-    if(WIN32 AND BUILD_SHARED_LIBS AND EXISTS "${GLFW_DIR}/bin/glfw3.dll")
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${GLFW_DIR}/bin/glfw3.dll" "$<TARGET_FILE_DIR:${target}>" VERBATIM)
-    endif()
-    if(WIN32 AND ALICE2_ENABLE_MIQ_REMESH AND TARGET CoMISo)
-        get_target_property(comiso_dir CoMISo SOURCE_DIR)
-        file(GLOB blas_dlls "${comiso_dir}/ext/OpenBLAS-v0.2.14-Win64-int64/bin/*.dll")
-        if(blas_dlls)
-            add_custom_command(TARGET ${target} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    ${blas_dlls} "$<TARGET_FILE_DIR:${target}>" VERBATIM)
-        endif()
-    endif()
-    if(APP_DEFAULT)
-        install(TARGETS ${target} RUNTIME DESTINATION bin)
+    set_target_properties(${target} PROPERTIES FOLDER "Sketches")
+    file(RELATIVE_PATH relative "${PROJECT_SOURCE_DIR}/userSrc" "${CMAKE_CURRENT_SOURCE_DIR}")
+    if(relative MATCHES "^[.][.]/")
+        set(group tests)
     else()
-        install(TARGETS ${target} RUNTIME DESTINATION bin COMPONENT ${target} EXCLUDE_FROM_ALL)
+        string(REGEX MATCH "^[^/]+" group "${relative}")
     endif()
+    if(NOT group)
+        message(FATAL_ERROR "Declare sketch targets inside a userSrc/<folder>/CMakeLists.txt")
+    endif()
+    set_property(GLOBAL APPEND PROPERTY ALICE2_SKETCH_GROUPS "${group}")
+    set_property(GLOBAL APPEND PROPERTY ALICE2_SKETCHES_${group} "${target}")
+    alice2_runtime(${target} "${group}")
+    if(NOT TARGET user_${group})
+        add_custom_target(user_${group})
+    endif()
+    add_dependencies(user_${group} ${target}_runtime)
+    add_dependencies(user_all ${target}_runtime)
 endfunction()

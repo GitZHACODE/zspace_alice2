@@ -6,8 +6,6 @@ option(ALICE2_ENABLE_CUDA "Enable CUDA build of alice2" OFF)
 option(ALICE2_ENABLE_MIQ_REMESH "Enable libigl/CoMiSo MIQ remeshing" OFF)
 option(ALICE2_ENABLE_DIRECTIONAL "Enable Directional integration" OFF)
 option(ALICE2_USE_SYSTEM_DEPS "Prefer system-installed dependencies" ON)
-set(ALICE2_BUILD_MODE "default" CACHE STRING "Default app: default or test")
-set_property(CACHE ALICE2_BUILD_MODE PROPERTY STRINGS default test)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,6 +18,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "Dependencies")
 include(CTest)
+include(cmake/Alice2Sketch.cmake)
 
 function(alice2_library target)
     add_library(${target} STATIC EXCLUDE_FROM_ALL ${ARGN})
@@ -37,7 +36,7 @@ endfunction()
 
 # This target has no windowing, OpenGL, Eigen, or viewer dependency.
 alice2_library(alice2_core
-    src/utils/Vector.cpp src/utils/Matrix.cpp src/utils/Quaternion.cpp
+    src/utils/Vector.cpp src/utils/Matrix.cpp src/utils/Quaternion.cpp src/utils/Runtime.cpp
     src/core/Transform.cpp
     src/geometry/MeshData.cpp src/geometry/GraphData.cpp
     src/computeGeom/TensorField.cpp)
@@ -46,6 +45,7 @@ add_library(alice2::core ALIAS alice2_core)
 if(BUILD_TESTING)
     add_executable(alice2_core_checks EXCLUDE_FROM_ALL checks/core.cpp)
     target_link_libraries(alice2_core_checks PRIVATE alice2_core)
+    alice2_runtime(alice2_core_checks checks)
     add_test(NAME core COMMAND alice2_core_checks)
 endif()
 if(NOT ALICE2_BUILD_VIEWER)
@@ -145,15 +145,37 @@ target_compile_definitions(alice2_fields PUBLIC ALICE2_WITH_CUDA=$<BOOL:${ALICE2
 # Compile the common entry point once, including when several sketch apps are built.
 add_library(alice2_entry OBJECT EXCLUDE_FROM_ALL src/main.cpp)
 target_link_libraries(alice2_entry PRIVATE alice2_viewer)
-target_compile_definitions(alice2_entry PRIVATE ALICE2_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
-include(cmake/Alice2Sketch.cmake)
-add_subdirectory(usrSrc)
+
+# All configured research apps and interactive test apps, including future folders.
+add_custom_target(user_all)
+add_subdirectory(userSrc)
+# Empty lists remain valid folder targets, including newly added folders.
+get_property(folders DIRECTORY "${PROJECT_SOURCE_DIR}/userSrc" PROPERTY SUBDIRECTORIES)
+foreach(folder IN LISTS folders)
+    get_filename_component(group "${folder}" NAME)
+    if(NOT TARGET user_${group})
+        add_custom_target(user_${group})
+    endif()
+    set_property(GLOBAL APPEND PROPERTY ALICE2_SKETCH_GROUPS "${group}")
+endforeach()
 add_subdirectory(tests)
 
 if(BUILD_TESTING)
     add_executable(alice2_checks EXCLUDE_FROM_ALL checks/main.cpp
         src/fdm/ProjectedMixedFDMChecks.cpp src/tna/BestFitTnaChecks.cpp src/tna/TnaOffsetChecks.cpp)
     target_link_libraries(alice2_checks PRIVATE alice2_tna alice2_fdm)
+    alice2_runtime(alice2_checks checks)
+    add_dependencies(user_all alice2_checks_runtime alice2_core_checks_runtime)
+
     add_test(NAME projected_mixed_fdm COMMAND alice2_checks --check-projected-mixed-fdm)
     add_test(NAME bestfit_tna COMMAND alice2_checks --check-bestfit-tna)
 endif()
+
+# Run scripts read the configured app list instead of stale executable files.
+get_property(sketch_groups GLOBAL PROPERTY ALICE2_SKETCH_GROUPS)
+list(REMOVE_DUPLICATES sketch_groups)
+foreach(group IN LISTS sketch_groups)
+    get_property(apps GLOBAL PROPERTY ALICE2_SKETCHES_${group})
+    list(JOIN apps "\n" app_lines)
+    file(WRITE "${CMAKE_BINARY_DIR}/groups/${group}.txt" "${app_lines}\n")
+endforeach()

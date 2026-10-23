@@ -1,0 +1,11 @@
+# Each folder is a build group; its CMakeLists declares its apps and custom classes.
+add_subdirectory(base)
+add_subdirectory(field)
+add_subdirectory(bestfit)
+add_subdirectory(gauss_thinning)
+add_subdirectory(miq)
+add_subdirectory(planarise)
+add_subdirectory(tna)
+add_subdirectory(stack)
+add_subdirectory(waveLatent)
+add_subdirectory(minimal)

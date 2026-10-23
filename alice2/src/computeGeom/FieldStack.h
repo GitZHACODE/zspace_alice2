@@ -28,9 +28,9 @@ public:
         bool contoursVisible = true;
         std::string meshObjectName = "WaveStackIsoMesh";
         std::string bboxObjectName = "WaveStackBounds";
-        std::string exportMeshPath = "waveStackMesh.obj";
-        std::string exportContoursPath = "waveStackContours.obj";
-        std::string exportFieldsPath = "waveStackFields.json";
+        std::string exportMeshPath = "data/waveStackMesh.obj";
+        std::string exportContoursPath = "data/waveStackContours.obj";
+        std::string exportFieldsPath = "data/waveStackFields.json";
     };
 
     struct UIConfig {

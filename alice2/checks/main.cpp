@@ -3,12 +3,14 @@
 
 
 #include <iostream>
+#include "utils/Runtime.h"
 #include <string>
 #include "tna/BestFitTnaChecks.h"
 #include "tna/TnaOffsetSolver.h"
 #include "fdm/ProjectedMixedFDM.h"
 
 int main(int argc, char** argv) {
+    alice2::initializeRuntime(argv[0]);
     if (argc > 1 && std::string(argv[1]) == "--check-projected-mixed-fdm")
         return alice2::fdm::runProjectedMixedFDMChecks();
     if (argc > 1 && std::string(argv[1]) == "--check-tna-offset")

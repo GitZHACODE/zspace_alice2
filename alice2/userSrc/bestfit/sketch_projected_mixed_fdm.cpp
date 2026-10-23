@@ -109,9 +109,7 @@ private:
         }
     }
     static std::filesystem::path dataPath() {
-        auto path = std::filesystem::current_path() / "data" / "tna.obj";
-        if (std::filesystem::exists(path)) return path;
-        return std::filesystem::current_path() / "alice2" / "data" / "tna.obj";
+        return std::filesystem::path("data") / "tna.obj";
     }
     void reload() {
         m_lastOffset = m_offset;

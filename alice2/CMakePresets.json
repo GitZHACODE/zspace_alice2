@@ -1,10 +1,6 @@
 {
   "version": 3,
-  "cmakeMinimumRequired": {
-    "major": 3,
-    "minor": 21,
-    "patch": 0
-  },
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
   "configurePresets": [
     {
       "name": "clang-debug",
@@ -33,30 +29,10 @@
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "ALICE2_USE_SYSTEM_DEPS": "ON"
       }
-    },
-    {
-      "name": "clang-test-debug",
-      "displayName": "Clang Test Debug",
-      "description": "Clang/Ninja debug build using alice2 test sketches.",
-      "inherits": "clang-debug",
-      "binaryDir": "${sourceDir}/build/clang-test-debug",
-      "cacheVariables": {
-        "ALICE2_BUILD_MODE": "test"
-      }
     }
   ],
   "buildPresets": [
-    {
-      "name": "clang-debug",
-      "configurePreset": "clang-debug"
-    },
-    {
-      "name": "clang-release",
-      "configurePreset": "clang-release"
-    },
-    {
-      "name": "clang-test-debug",
-      "configurePreset": "clang-test-debug"
-    }
+    { "name": "clang-debug", "configurePreset": "clang-debug" },
+    { "name": "clang-release", "configurePreset": "clang-release" }
   ]
 }

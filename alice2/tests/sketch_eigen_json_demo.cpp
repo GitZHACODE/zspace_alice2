@@ -153,12 +153,12 @@ private:
             }
 
             // Save to file
-            std::ofstream file("config/eigen_matrix.json");
+            std::ofstream file("data/eigen_matrix.json");
             if (file.is_open()) {
                 file << j.dump(4); // Pretty print with 4 spaces
                 matrixSaved = true;
                 statusMessage = "Matrix saved successfully";
-                std::cout << "Matrix saved to config/eigen_matrix.json" << std::endl;
+                std::cout << "Matrix saved to data/eigen_matrix.json" << std::endl;
             } else {
                 statusMessage = "Failed to save matrix";
                 std::cout << "Could not open file for writing" << std::endl;
@@ -171,7 +171,7 @@ private:
 
     void loadMatrixFromJson() {
         try {
-            std::ifstream file("config/eigen_matrix.json");
+            std::ifstream file("data/eigen_matrix.json");
             if (file.is_open()) {
                 json j;
                 file >> j;
@@ -187,14 +187,14 @@ private:
                     }
                     matrixLoaded = true;
                     statusMessage = "Matrix loaded successfully";
-                    std::cout << "Matrix loaded from config/eigen_matrix.json" << std::endl;
+                    std::cout << "Matrix loaded from data/eigen_matrix.json" << std::endl;
                 } else {
                     statusMessage = "Invalid JSON format";
                     std::cout << "Invalid JSON format" << std::endl;
                 }
             } else {
                 statusMessage = "Could not open matrix file";
-                std::cout << "Could not open config/eigen_matrix.json" << std::endl;
+                std::cout << "Could not open data/eigen_matrix.json" << std::endl;
             }
         } catch (const std::exception& e) {
             statusMessage = "Error loading matrix: " + std::string(e.what());

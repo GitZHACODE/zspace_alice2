@@ -147,10 +147,10 @@ private:
     void loadBuildingData() {
         try {
             std::ifstream file(
-                "C://Users//taizhong_chen//source//repos//GitZHCODE//zspace_alice2//alice2//data//mlp_building (7).json");
+                "data/mlp_building (7).json");
             if (!file.is_open()) {
                 m_loadStatus = "Failed to open JSON file";
-                std::cerr << "Failed to open alice2/data/mlp_building (7).json" << std::endl;
+                std::cerr << "Failed to open data/mlp_building (7).json" << std::endl;
                 return;
             }
             

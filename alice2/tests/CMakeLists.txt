@@ -7,6 +7,3 @@ foreach(name IN ITEMS camera geometry heGraph heMesh mesh particles ui field3d s
     endif()
     alice2_add_sketch(test_${name} SOURCES sketch_${name}.cpp LIBRARIES ${libraries})
 endforeach()
-if(ALICE2_BUILD_MODE STREQUAL "test")
-    alice2_add_sketch(alice2 DEFAULT SOURCES sketch_field3d.cpp LIBRARIES alice2_fields)
-endif()

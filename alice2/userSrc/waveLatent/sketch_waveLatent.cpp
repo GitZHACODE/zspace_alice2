@@ -181,8 +181,8 @@ private:
     }
 
 private:
-    std::string datasetPath_ = "inShapes.json";
-    std::string modelPath_   = "WaveLatentModel.json";
+    std::string datasetPath_ = "data/inShapes.json";
+    std::string modelPath_   = "data/WaveLatentModel.json";
 
     WaveLatentDatasetOptions datasetOptions_{128, 128, -1.2f, 1.2f, -1.2f, 1.2f};
     WaveLatentDataset dataset_{};

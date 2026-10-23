@@ -224,11 +224,11 @@ private:
     std::shared_ptr<GraphObject> spineGraph;
 
     std::string statusMessage_ = "Idle";
-    std::string modelPath_ = "WaveLatentModel.json";
-    std::string exportMeshName_ = "waveStackMesh.obj";
-    std::string exportContoursName_ = "waveStackContours.obj";
-    std::string exportStackFieldsName_ = "waveStackFields.json";
-    std::string spineGraphPath = "inSpine.obj";
+    std::string modelPath_ = "data/WaveLatentModel.json";
+    std::string exportMeshName_ = "data/waveStackMesh.obj";
+    std::string exportContoursName_ = "data/waveStackContours.obj";
+    std::string exportStackFieldsName_ = "data/waveStackFields.json";
+    std::string spineGraphPath = "data/inSpine.obj";
 
     float totalHeight_ = 200.0f;
     float isoLevel_ = 0.0f;

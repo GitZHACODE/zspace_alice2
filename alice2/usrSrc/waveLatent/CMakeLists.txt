@@ -1,2 +1,0 @@
-alice2_add_sketch(sketch_waveLatent SOURCES sketch_waveLatent.cpp LIBRARIES alice2_wave_latent)
-alice2_add_sketch(sketch_waveLatent_stack SOURCES sketch_waveLatent_stack.cpp LIBRARIES alice2_wave_latent)

@@ -1,10 +1,12 @@
 #include <alice2/core.h>
+#include "utils/Runtime.h"
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
 
-int main() {
+int main(int, char** argv) {
     try {
+        alice2::initializeRuntime(argv[0]);
         const auto require = [](bool condition, const char* message) {
             if (!condition) throw std::runtime_error(message);
         };

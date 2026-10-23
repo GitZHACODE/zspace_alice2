@@ -110,8 +110,7 @@ private:
         const std::filesystem::path requested(file);
         if (requested.is_absolute() || std::filesystem::exists(requested)) return requested;
         const std::filesystem::path local = std::filesystem::path("data") / file;
-        if (std::filesystem::exists(local)) return local;
-        return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() / "data" / file;
+        return local;
     }
 
     void reload() {

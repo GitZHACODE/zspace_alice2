@@ -30,7 +30,7 @@ private:
     bool b_compute;
     bool b_export;
 
-    std::string m_path_export = "C:/Users/Taizh/source/repos/zspace_alice2/alice2/data/nodal_srf.obj";
+    std::string m_path_export = "data/nodal_srf.obj";
 
     // Draw toggles
     bool d_drawField;
