@@ -1,9 +1,6 @@
 // alice2 Scalar Field Educational Sketch 1: Basic Field Construction
 // Demonstrates basic circle and rectangle scalar field generation with animations
 
-// #define __MAIN__
-#ifdef __MAIN__
-
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
 #include <computeGeom/scalarField.h>
@@ -236,5 +233,3 @@ public:
 
 // Register the sketch with alice2
 ALICE2_REGISTER_SKETCH_AUTO(ScalarField01BasicSketch)
-
-#endif // __MAIN__

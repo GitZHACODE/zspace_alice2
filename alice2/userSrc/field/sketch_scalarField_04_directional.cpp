@@ -1,9 +1,6 @@
 // alice2 Scalar Field Educational Sketch 4: Directional Boolean Operations with Sun Vector
 // Demonstrates dynamic boolean operations based on sun direction and exposure calculation
 
-// #define __MAIN__
-#ifdef __MAIN__
-
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
 #include <computeGeom/scalarField.h>
@@ -707,12 +704,4 @@ public:
 };
 
 // Register the sketch with alice2
-// ALICE2_REGISTER_SKETCH_AUTO(ScalarField04DirectionalSketch)
-
-#endif // __MAIN__
-
-
-
-
-
-
+ALICE2_REGISTER_SKETCH_AUTO(ScalarField04DirectionalSketch)

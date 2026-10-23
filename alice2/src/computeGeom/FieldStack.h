@@ -6,7 +6,8 @@
 #include <string>
 #include <vector>
 
-#include <alice2.h>
+#include "../core/Scene.h"
+#include "../ui/SimpleUI.h"
 
 #include <objects/MeshObject.h>
 #include <objects/GraphObject.h>
@@ -27,9 +28,9 @@ public:
         bool contoursVisible = true;
         std::string meshObjectName = "WaveStackIsoMesh";
         std::string bboxObjectName = "WaveStackBounds";
-        std::string exportMeshPath = "waveStackMesh.obj";
-        std::string exportContoursPath = "waveStackContours.obj";
-        std::string exportFieldsPath = "waveStackFields.json";
+        std::string exportMeshPath = "data/waveStackMesh.obj";
+        std::string exportContoursPath = "data/waveStackContours.obj";
+        std::string exportFieldsPath = "data/waveStackFields.json";
     };
 
     struct UIConfig {

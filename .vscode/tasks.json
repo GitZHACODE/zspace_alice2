@@ -1,48 +1,46 @@
 {
-    "version": "2.0.0",
-    "tasks": [
-        {
-            "label": "Build Alice2",
-            "type": "shell",
-            "command": "${workspaceFolder}/alice2/build.sh",
-            "args": [
-                "release"
-            ],
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
-            "options": {
-                "cwd": "${workspaceFolder}/alice2"
-            },
-            "problemMatcher": [
-                "$gcc"
-            ]
-        },
-        {
-            "label": "Run Alice2",
-            "type": "shell",
-            "command": "${workspaceFolder}/alice2/run.sh",
-            "args": [
-                "release"
-            ],
-            "dependsOn": "Build Alice2",
-            "options": {
-                "cwd": "${workspaceFolder}/alice2"
-            },
-            "problemMatcher": []
-        },
-        {
-            "label": "Build and Run Alice2",
-            "dependsOrder": "sequence",
-            "dependsOn": [
-                "Build Alice2",
-                "Run Alice2"
-            ],
-            "group": {
-                "kind": "build",
-                "isDefault": false
-            }
-        }
-    ]
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build Alice2",
+      "type": "shell",
+      "command": "${workspaceFolder}/alice2/build.sh",
+      "windows": {
+        "command": "${workspaceFolder}/alice2/build.bat",
+        "problemMatcher": ["$msCompile"]
+      },
+      "args": ["--base"],
+      "group": { "kind": "build", "isDefault": true },
+      "options": { "cwd": "${workspaceFolder}/alice2" },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Build Alice2 Debug",
+      "type": "shell",
+      "command": "${workspaceFolder}/alice2/build.sh",
+      "windows": {
+        "command": "${workspaceFolder}/alice2/build.bat",
+        "problemMatcher": ["$msCompile"]
+      },
+      "args": ["--base", "--debug"],
+      "group": "build",
+      "options": { "cwd": "${workspaceFolder}/alice2" },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Run Alice2",
+      "type": "shell",
+      "command": "${workspaceFolder}/alice2/run.sh",
+      "windows": { "command": "${workspaceFolder}/alice2/run.bat" },
+      "args": ["--base"],
+      "dependsOn": "Build Alice2",
+      "options": { "cwd": "${workspaceFolder}/alice2" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build and Run Alice2",
+      "dependsOn": "Run Alice2",
+      "group": { "kind": "build", "isDefault": false }
+    }
+  ]
 }

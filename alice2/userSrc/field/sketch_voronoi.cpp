@@ -1,5 +1,3 @@
-//#define __MAIN__
-#ifdef __MAIN__
 
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
@@ -628,7 +626,4 @@ private:
         printf("\n JSON exported");
     }
 };
-
-// ALICE2_REGISTER_SKETCH_AUTO(VoronoiFullSketch)
-
-#endif // __MAIN__
+ALICE2_REGISTER_SKETCH_AUTO(VoronoiFullSketch)

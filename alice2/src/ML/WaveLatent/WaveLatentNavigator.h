@@ -8,7 +8,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <alice2.h>
+#include <alice2/viewer.h>
 
 #include "ML/WaveLatent/WaveLatent.h"
 #include <computeGeom/scalarField.h>
@@ -18,7 +18,7 @@ namespace alice2 {
 class WaveLatentNavigator {
 public:
     struct Config {
-        std::string modelPath = "WaveLatentModel.json";
+        std::string modelPath = "data/WaveLatentModel.json";
         Vec2 detailOrigin{20.0f, 300.0f};
         Vec2 panelOrigin{20.0f, 636.0f};
         float detailSize = 300.0f;

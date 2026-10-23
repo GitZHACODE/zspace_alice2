@@ -1,5 +1,3 @@
-// #define __MAIN__
-#ifdef __MAIN__
 
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
@@ -183,8 +181,8 @@ private:
     }
 
 private:
-    std::string datasetPath_ = "inShapes.json";
-    std::string modelPath_   = "WaveLatentModel.json";
+    std::string datasetPath_ = "data/inShapes.json";
+    std::string modelPath_   = "data/WaveLatentModel.json";
 
     WaveLatentDatasetOptions datasetOptions_{128, 128, -1.2f, 1.2f, -1.2f, 1.2f};
     WaveLatentDataset dataset_{};
@@ -223,5 +221,3 @@ private:
 };
 
 ALICE2_REGISTER_SKETCH_AUTO(Sketch_WaveLatent_Trainer)
-
-#endif // __MAIN__

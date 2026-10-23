@@ -1,7 +1,7 @@
 # Best-fit shape and fixed-plan TNA
 
-This document describes the v1 sketch `alice2/userSrc/geometry/sketch_bestfit_tna.cpp`.
-Its `__MAIN__` define is currently commented out; the enabled offset-cable v2 sketch
+This document describes the v1 sketch `alice2/userSrc/bestfit/sketch_bestfit_tna.cpp`.
+Build it with target `sketch_bestfit_tna`. The separate `sketch_bestfit_tna_v2` app
 is documented in [OffsetCableNetwork.md](OffsetCableNetwork.md), with the mathematical
 reference in [OffsetCableComputationalReference.md](OffsetCableComputationalReference.md).
 It loads and welds `<working directory>/data/tna.obj`, retaining the original as a grey reference.
@@ -95,7 +95,7 @@ From the repository root:
 ```powershell
 cmake -S alice2 -B alice2/build
 cmake --build alice2/build --config Release --parallel
-./alice2/build/bin/Release/alice2.exe --check-bestfit-tna ./alice2/data/tna.obj
+./alice2/build/Release/checks/alice2_checks.exe --check-bestfit-tna ./alice2/build/Release/bestfit/data/tna.obj
 ```
 
 The check runs without an OpenGL context. It covers known equilibrium, mixed
@@ -111,9 +111,9 @@ background-worker restart without stale results.
 To time step 1 using the current sketch defaults (including sliding penalty 50):
 
 ```powershell
-./alice2/build/bin/Release/alice2.exe --benchmark-bestfit-tna ./alice2/data/tna.obj
+./alice2/build/Release/checks/alice2_checks.exe --benchmark-bestfit-tna ./alice2/build/Release/bestfit/data/tna.obj
 # Optional reference comparison with the previous dense algorithm:
-./alice2/build/bin/Release/alice2.exe --benchmark-bestfit-tna ./alice2/data/tna.obj --dense
+./alice2/build/Release/checks/alice2_checks.exe --benchmark-bestfit-tna ./alice2/build/Release/bestfit/data/tna.obj --dense
 ```
 
 The benchmark reports each outer iteration, total solve time, cumulative density

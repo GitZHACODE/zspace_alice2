@@ -1,9 +1,6 @@
 // alice2 Scalar Field Educational Sketch 5: Tower Set Visualization
 // Demonstrates JSON data loading and 3D bounding box visualization with tower switching interface
 
-// #define __MAIN__
-#ifdef __MAIN__
-
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
 #include <computeGeom/scalarField.h>
@@ -150,10 +147,10 @@ private:
     void loadBuildingData() {
         try {
             std::ifstream file(
-                "C://Users//taizhong_chen//source//repos//GitZHCODE//zspace_alice2//alice2//data//mlp_building (7).json");
+                "data/mlp_building (7).json");
             if (!file.is_open()) {
                 m_loadStatus = "Failed to open JSON file";
-                std::cerr << "Failed to open alice2/data/mlp_building (7).json" << std::endl;
+                std::cerr << "Failed to open data/mlp_building (7).json" << std::endl;
                 return;
             }
             
@@ -454,6 +451,4 @@ public:
 };
 
 // Register the sketch with alice2
-//ALICE2_REGISTER_SKETCH_AUTO(ScalarField05TowerSetSketch)
-
-#endif // __MAIN__
+ALICE2_REGISTER_SKETCH_AUTO(ScalarField05TowerSetSketch)

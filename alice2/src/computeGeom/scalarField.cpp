@@ -1,4 +1,5 @@
 #include <computeGeom/scalarField.h>
+#include "../core/Renderer.h"
 #include "../objects/GraphObject.h"
 #include <unordered_map>
 #include <cmath>

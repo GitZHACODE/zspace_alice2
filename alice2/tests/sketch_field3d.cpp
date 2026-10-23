@@ -1,8 +1,6 @@
 // sketch_field3d.cpp
 // alice2 3D Scalar Field with Marching Cubes Sketch
 // Now demonstrates the 6-term nodal surface
-#define __MAIN__
-#ifdef __MAIN__
 
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
@@ -32,7 +30,7 @@ private:
     bool b_compute;
     bool b_export;
 
-    std::string m_path_export = "C:/Users/Taizh/source/repos/zspace_alice2/alice2/data/nodal_srf.obj";
+    std::string m_path_export = "data/nodal_srf.obj";
 
     // Draw toggles
     bool d_drawField;
@@ -489,5 +487,3 @@ public:
 
 // Register the sketch
 ALICE2_REGISTER_SKETCH_AUTO(ScalarField3DSketch)
-
-#endif // __MAIN__

@@ -1,5 +1,3 @@
-// #define __MAIN__
-#ifdef __MAIN__
 
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
@@ -134,8 +132,7 @@ private:
         const std::filesystem::path requested(file);
         if (requested.is_absolute() || std::filesystem::exists(requested)) return requested;
         const auto local = std::filesystem::path("data") / file;
-        if (std::filesystem::exists(local)) return local;
-        return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() / "data" / file;
+        return local;
     }
     std::array<float, 5> fitControls() const { return {m_fitIterations, m_attraction, m_verticalLoad, m_density, m_slidingPenalty}; }
     std::array<float, 3> tnaControls() const { return {m_horizontalIterations, m_angleTolerance, m_tensionDistance}; }
@@ -739,4 +736,3 @@ private:
 };
 
 ALICE2_REGISTER_SKETCH_AUTO(BestFitTnaSketch)
-#endif

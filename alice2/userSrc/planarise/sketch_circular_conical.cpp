@@ -1,5 +1,3 @@
-// #define __MAIN__
-#ifdef __MAIN__
 
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
@@ -142,7 +140,7 @@ public:
 
 private:
     static std::filesystem::path dataPath(const std::string& file) {
-        return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() / "data" / file;
+        return std::filesystem::path("data") / file;
     }
 
     enum class CurvatureView {
@@ -443,5 +441,3 @@ private:
 };
 
 ALICE2_REGISTER_SKETCH_AUTO(CircularConicalSketch)
-
-#endif

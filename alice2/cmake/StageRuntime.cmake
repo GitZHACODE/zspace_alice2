@@ -1,0 +1,15 @@
+# Runtime data and settings belong to the app folder and are never copied or overwritten.
+file(MAKE_DIRECTORY "${OUTPUT}/data" "${OUTPUT}/.user")
+file(LOCK "${OUTPUT}/.user/.stage.lock" GUARD PROCESS TIMEOUT 30)
+string(REPLACE "|" ";" dlls "${DLLS}")
+foreach(dll IN LISTS dlls)
+    get_filename_component(name "${dll}" NAME)
+    string(TOLOWER "${name}" name)
+    # Microsoft runtimes are machine prerequisites, not app-local dependencies.
+    if(name MATCHES "^(msvcp[0-9].*|msvcr[0-9].*|vcruntime[0-9].*|concrt[0-9].*|ucrtbased?|api-ms-win-.*|ext-ms-win-.*)[.]dll$")
+        continue()
+    endif()
+    if(EXISTS "${dll}")
+        file(COPY "${dll}" DESTINATION "${OUTPUT}")
+    endif()
+endforeach()

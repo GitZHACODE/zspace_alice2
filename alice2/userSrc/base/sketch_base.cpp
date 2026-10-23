@@ -1,11 +1,8 @@
 // alice2 Base Sketch Template
 // This is a template for creating user sketches in alice2
 
-// #define __MAIN__
-#ifdef __MAIN__
 
-
-#include <alice2.h>
+#include <alice2/viewer.h>
 #include <sketches/SketchRegistry.h>
 
 using namespace alice2;
@@ -168,5 +165,3 @@ private:
 
 // Register the sketch with alice2 (both old and new systems)
 ALICE2_REGISTER_SKETCH_AUTO(BaseSketch)
-
-#endif // __MAIN__

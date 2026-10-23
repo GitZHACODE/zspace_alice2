@@ -1,4 +1,5 @@
 #include "WaveLatent.h"
+#include "../../core/Renderer.h"
 
 #include <nlohmann/json.hpp>
 

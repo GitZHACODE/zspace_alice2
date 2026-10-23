@@ -1,5 +1,3 @@
-// #define __MAIN__
-#ifdef __MAIN__
 
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
@@ -117,12 +115,7 @@ private:
     static constexpr double kPi = 3.14159265358979323846;
 
     static std::filesystem::path dataPath(const char* filename) {
-        const std::filesystem::path workingDirectoryPath = std::filesystem::path("data") / filename;
-        if (std::filesystem::exists(workingDirectoryPath)) return workingDirectoryPath;
-
-        // __FILE__ is userSrc/geometry/sketch_gauss_thinning.cpp, so this resolves
-        // the repository's alice2/data directory even when launched from build/bin.
-        return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() / "data" / filename;
+        return std::filesystem::path("data") / filename;
     }
 
     void loadBoxHollow() {
@@ -442,5 +435,3 @@ private:
 };
 
 ALICE2_REGISTER_SKETCH_AUTO(GaussThinningSketch)
-
-#endif

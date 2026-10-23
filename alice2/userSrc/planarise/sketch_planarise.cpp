@@ -1,5 +1,3 @@
-// #define __MAIN__
-#ifdef __MAIN__
 
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
@@ -158,7 +156,7 @@ private:
         renderer.drawMeshEdges(vertices.data(), edgeIndices.data(), edgeColors.data(), static_cast<int>(edgeColors.size()));
     }
 
-    std::string m_objPath = "tunnel.obj";
+    std::string m_objPath = "data/tunnel.obj";
     std::shared_ptr<MeshObject> m_mesh;
     std::shared_ptr<MeshObject> m_originalMesh;
     MeshAnalyzer m_analyzer;
@@ -175,5 +173,3 @@ private:
 };
 
 ALICE2_REGISTER_SKETCH_AUTO(PlanariseSketch)
-
-#endif

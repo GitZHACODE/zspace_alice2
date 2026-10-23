@@ -1,6 +1,4 @@
-// #define __MAIN__
 
-#ifdef __MAIN__
 
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
@@ -405,5 +403,3 @@ private:
 };
 
 ALICE2_REGISTER_SKETCH_AUTO(StressAlignedMiqSketch)
-
-#endif

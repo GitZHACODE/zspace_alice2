@@ -22,8 +22,7 @@ namespace alice2 {
         std::string description;
         std::string author;
         std::string version;
-        std::string filePath;
-        bool isLoaded;
+
     };
 
     class SketchManager {
@@ -35,7 +34,7 @@ namespace alice2 {
         void initialize(Scene* scene, Renderer* renderer, Camera* camera, InputManager* inputManager);
 
         // Sketch discovery and loading
-        void scanUserSrcDirectory(const std::string& directory = "userSrc");
+        void refreshSketches();
         void loadSketch(const std::string& name);
         void unloadCurrentSketch();
         void reloadCurrentSketch();
@@ -66,11 +65,6 @@ namespace alice2 {
         bool forwardMousePress(int button, int state, int x, int y);
         bool forwardMouseMove(int x, int y);
 
-        // Hot reload
-        void enableHotReload(bool enable) { m_hotReloadEnabled = enable; }
-        bool isHotReloadEnabled() const { return m_hotReloadEnabled; }
-        void checkForChanges(); // Call periodically to check for file changes
-
         // Error handling
         bool hasError() const { return !m_lastError.empty(); }
         const std::string& getLastError() const { return m_lastError; }
@@ -95,16 +89,11 @@ namespace alice2 {
         // Current sketch
         std::unique_ptr<ISketch> m_currentSketch;
         std::string m_currentSketchName;
-        std::string m_currentSketchPath;
+
         int m_currentSketchIndex;
 
         // Available sketches
         std::vector<SketchInfo> m_availableSketches;
-        std::string m_userSrcDirectory;
-
-        // Hot reload
-        bool m_hotReloadEnabled;
-        std::vector<std::pair<std::string, long long>> m_fileTimestamps; // file path, last modified time
 
         // Error handling
         std::string m_lastError;
@@ -114,21 +103,7 @@ namespace alice2 {
         SketchUnloadedCallback m_sketchUnloadedCallback;
         SketchErrorCallback m_sketchErrorCallback;
 
-        // Internal methods
-        void scanDirectory(const std::string& directory);
-        bool compileSketch(const std::string& filePath, std::string& outputPath);
-        bool loadCompiledSketch(const std::string& libraryPath);
-        void updateFileTimestamps();
-        bool hasFileChanged(const std::string& filePath) const;
-        long long getFileModificationTime(const std::string& filePath) const;
         void setError(const std::string& error);
-
-        // Platform-specific dynamic loading
-        void* loadLibrary(const std::string& path);
-        void unloadLibrary(void* handle);
-        void* getSymbol(void* handle, const std::string& name);
-
-        void* m_currentLibraryHandle;
     };
 
 } // namespace alice2

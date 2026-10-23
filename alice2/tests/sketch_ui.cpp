@@ -1,9 +1,6 @@
  // alice2 Empty Sketch Template
 // Minimal template for creating a new user sketch in alice2
 
-//#define __MAIN__
-#ifdef __MAIN__
-
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
 
@@ -79,6 +76,4 @@ private:
 };
 
 // Register the sketch with alice2 (both old and new systems)
-// ALICE2_REGISTER_SKETCH_AUTO(UISketch)
-
-#endif // __MAIN__
+ALICE2_REGISTER_SKETCH_AUTO(UISketch)

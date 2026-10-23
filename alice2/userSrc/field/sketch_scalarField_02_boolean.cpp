@@ -1,9 +1,6 @@
 // alice2 Scalar Field Educational Sketch 2: Boolean Operations
 // Demonstrates boolean operations between rectangle and corner circles
 
-// #define __MAIN__
-#ifdef __MAIN__
-
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
 #include <computeGeom/scalarField.h>
@@ -319,6 +316,4 @@ public:
 };
 
 // Register the sketch with alice2
-//ALICE2_REGISTER_SKETCH_AUTO(ScalarField02BooleanSketch)
-
-#endif // __MAIN__
+ALICE2_REGISTER_SKETCH_AUTO(ScalarField02BooleanSketch)

@@ -1,5 +1,3 @@
-// #define __MAIN__
-#ifdef __MAIN__
 
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
@@ -327,6 +325,4 @@ public:
 };
 
 // Register the sketch
-// ALICE2_REGISTER_SKETCH_AUTO(HeMeshSketch)
-
-#endif // __MAIN__
+ALICE2_REGISTER_SKETCH_AUTO(HeMeshSketch)
