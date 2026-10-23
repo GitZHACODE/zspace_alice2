@@ -22,12 +22,13 @@ using namespace alice2;
 class OffsetCableNetworkSketch : public ISketch {
 public:
     std::string getName() const override { return "Offset Cable Network (3D)"; }
-    std::string getDescription() const override { return "Colored mesh + normal-offset cable network, spatial force-density fitting"; }
+    std::string getDescription() const override { return "Colored mesh + height-scaled cable network, spatial force-density fitting"; }
     std::string getAuthor() const override { return "alice2 User"; }
     ~OffsetCableNetworkSketch() override { stop(); }
     void setup() override {
         scene().setBackgroundColor(Color(.96f, .96f, .96f, 1));
         scene().setShowGrid(false);
+        scene().setShowAxes(false);
         m_ui = std::make_unique<SimpleUI>(input());
         m_ui->setTheme(SimpleUI::UITheme::Dark);
         m_ui->addSlider("Cable offset", Vec2{10, 200}, 230, -10, -.001f, m_offset);
@@ -178,6 +179,17 @@ private:
             inputMesh.readFromObj(dataPath("tna.obj").string());
             const auto welded = weldOffsetCableMesh(*inputMesh.getMeshData());
             m_network = makeOffsetCableNetwork(welded, m_offset, true);
+            float highestZ = welded.vertices.front().position.z;
+            for (const auto& vertex : welded.vertices)
+                highestZ = std::max(highestZ, vertex.position.z);
+            const float factor = highestZ == 0.f ? 0.f : -m_offset / highestZ;
+            for (int v = 0; v < m_network.surfaceVertexCount; ++v) {
+                const int cable = m_network.cableNode[v];
+                if (cable < m_network.surfaceVertexCount) continue; // Boundary yellow vertices stay shared.
+                const auto& source = welded.vertices[v].position;
+                m_network.form.mesh.vertices[cable].position =
+                    Vec3(source.x, source.y, source.z == 0.f ? 0.f : source.z * (1.f - factor));
+            }
             m_settings = offsetCableSettings(m_network, m_load, m_density);
             m_settings.maximumIterations = std::max(1, int(std::lround(m_iterations)));
             m_settings.designAttraction = m_attraction;
