@@ -47,7 +47,8 @@ cd alice2
 .\run.bat --bestfit
 ```
 
-`build.bat` with no arguments selects `base`. Each folder build compiles its enabled
+`build.bat` and `run.bat` with no arguments both default to `--last`. For the first
+build, select a folder explicitly, such as `--base`. Each folder build compiles its enabled
 apps and reuses the common libraries in the regular `alice2/build/` directory.
 `bestfit` currently enables only `sketch_bestfit_tna_v2`.
 
@@ -170,7 +171,7 @@ with `ALICE2_REGISTER_SKETCH_AUTO(MySketch)`.
 
 For manual setup, add the folder with `add_subdirectory(my_study)` in
 [`userSrc/CMakeLists.txt`](alice2/userSrc/CMakeLists.txt), and give its app target a
-unique name. See the [research workflow](alice2/userSrc/README.md) for more detail.
+unique name and use the sketch-list template above.
 
 ## Runtime data and settings
 
