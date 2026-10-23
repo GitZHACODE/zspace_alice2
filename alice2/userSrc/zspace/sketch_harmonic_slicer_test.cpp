@@ -4,6 +4,7 @@
 #include <zspace/interface.h>
 #include <zspace/slicing.h>
 #include <zspace/zSlicingSettings.h>
+#include <zspace/zSlicerViewValidation.h>
 
 // clang-format off
 #include <windows.h>
@@ -45,8 +46,8 @@ namespace {
 constexpr int kSlicerNone = -1;
 constexpr int kSlicerHarmonic = 0;
 constexpr int kSlicerTopology = 1;
-constexpr int kHarmonicModeCount = 7;
-constexpr int kTopologyModeCount = 6;
+constexpr int kHarmonicModeCount = 8;
+constexpr int kTopologyModeCount = 7;
 
 inline int displayModeCount(int slicer)
 {
@@ -61,12 +62,12 @@ const char* displayModeName(int slicer, int mode)
         "Input mesh (colored top/bottom)", "Tetrahedra volume mesh",
         "Method 2 (u,v) check",
         "Tracing curves (failed red, top success green)",
-        "Print paths (inner blue, outer pink) + layer-0 field",
+        "Print paths (inner blue, outer pink) + layer-0 field", "Print mesh (rectangle lofts)",
         "Layer inspector (up/down: layer) - 3D paths + 2D paths on the layer's field"};
     static const char* topology[kTopologyModeCount] = {
         "Input preview (transparent block, bracing, slot point)",
         "Input mesh (colored top/bottom)", "V-loops + vertex value t (blue 0 -> red 1)",
-        "Section meshes", "Print paths (inner blue, outer pink) + layer-0 field",
+        "Section meshes", "Print paths (inner blue, outer pink) + layer-0 field", "Print mesh (rectangle lofts)",
         "Layer inspector (up/down: layer) - 3D paths + 2D paths on the layer's field"};
     if (slicer == kSlicerNone) return "Input preview (transparent block, bracing, slot point)";
     const int count = displayModeCount(slicer);
@@ -117,6 +118,30 @@ public:
 
         setupUI();
 
+        m_viewValidation = alice2::slicing::SlicerViewValidation::read();
+        if (!m_viewValidation.Input.empty()) {
+            m_inputMeshPath = m_viewValidation.Input;
+            loadInputs();
+            if (!m_inputLoaded) throw std::runtime_error("Validation input did not load.");
+            m_settings._HIsoRelaxIterations = m_viewValidation.RelaxIterations;
+            m_slicerChoice = m_lastSlicerChoice = m_viewValidation.Topology ? kSlicerTopology : kSlicerHarmonic;
+            runSelectedSlicer();
+            zSpace::zSlicer* slicer = m_viewValidation.Topology ? static_cast<zSpace::zSlicer*>(m_topoSlicer.get()) : static_cast<zSpace::zSlicer*>(m_slicer.get());
+            if (!slicer || zSpace::zFnGraph(const_cast<zSpace::PrintPath&>(slicer->getResultantPrintPath()).graph).numEdges() == 0)
+                throw std::runtime_error("Validation pipeline did not produce a complete print path.");
+            auto* app = Application::getInstance();
+            if (!app->getCameraController().hasSavedCamera(0)) throw std::runtime_error("Validation requires the user's saved F1 camera.");
+            app->getCameraController().loadCamera(0);
+            m_displayMode = (std::min)(m_viewValidation.DisplayMode, displayModeCount(m_slicerChoice) - 1);
+            // Use Alice's existing '6' render mode to reveal the loft geometry
+            // in validation captures; interactive launch defaults are unchanged.
+            const int printMeshMode = m_viewValidation.Topology ? 5 : 6;
+            if (m_displayMode == printMeshMode) app->getRenderer().setSceneRenderMode(SceneRenderMode::MeshGray);
+            m_validationCaptureFrame = app->getFrameCount() + 4;
+            std::cout << "[SlicerViewValidation] mode=" << (m_viewValidation.Topology ? "topology" : "harmonic")
+                      << " relaxIterations=" << m_viewValidation.RelaxIterations << " view=F1 printLayers=" << slicer->getPrintPaths3D().size() << std::endl;
+        }
+
         // No default geometry and no default import - the scene starts
         // empty; press 'i' to pick a USD and run the pipeline on it.
     }
@@ -143,6 +168,13 @@ public:
         if (m_exportAction == 0) {
             m_exportAction = -1;
             exportPrintPath();
+        }
+        if (m_validationCaptureFrame >= 0 && Application::getInstance()->getFrameCount() >= m_validationCaptureFrame) {
+            m_validationCaptureFrame = -1;
+            // Invoke Alice's own saved-camera framebuffer capture after real
+            // frames have rendered. No report/mock renderer substitutes for it.
+            Application::getInstance()->takeScreenshotAllCameras();
+            Application::getInstance()->quit();
         }
     }
 
@@ -206,7 +238,8 @@ public:
                 case 2: drawInputColored(); drawVLoops(); break;
                 case 3: drawGhostInputMesh(); drawSectionMeshes(); break;
                 case 4: drawGhostInputMesh(); drawFieldPrintPaths(renderer); drawTopologyFieldMinimap(renderer); break;
-                case 5: drawGhostInputMesh(); drawLayerInspector(renderer); break;
+                case 5: drawPrintMesh(); break;
+                case 6: drawGhostInputMesh(); drawLayerInspector(renderer); break;
                 default: break;
             }
         } else {
@@ -217,7 +250,8 @@ public:
                 case 3: drawGhostInputMesh(); drawHarmonicIsoUV(); drawUVProbe(renderer); drawUVGradientLegend(renderer); break;
                 case 4: drawGhostInputMesh(); drawFailedTraces(renderer); drawTopSuccessTraces(renderer); break;
                 case 5: drawGhostInputMesh(); drawFieldPrintPaths(renderer); drawHarmonicFieldMinimap(renderer); break;
-                case 6: drawGhostInputMesh(); drawLayerInspector(renderer); break;
+                case 6: drawPrintMesh(); break;
+                case 7: drawGhostInputMesh(); drawLayerInspector(renderer); break;
                 default: break;
             }
         }
@@ -292,7 +326,7 @@ private:
         dialog.lpstrFilter = "USD files (*.usda;*.usdc;*.usd)\0*.usda;*.usdc;*.usd\0";
         dialog.lpstrFile = fileBuffer;
         dialog.nMaxFile = MAX_PATH;
-        dialog.lpstrTitle = "Save input USD with printpath";
+        dialog.lpstrTitle = "Save input USD with printpath and print mesh";
         dialog.lpstrDefExt = "usda";
         dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
         if (!GetSaveFileNameA(&dialog)) {
@@ -301,7 +335,7 @@ private:
             return;
         }
         std::string error;
-        if (!zSpace::zTsIO::exportPrintPathUSD(path, m_inputMeshPath, fileBuffer, static_cast<int>(slicer->getPrintPaths3D().size()), &error))
+        if (!zSpace::zTsIO::exportPrintPathUSD(path, m_inputMeshPath, fileBuffer, static_cast<int>(slicer->getPrintPaths3D().size()), &error, 0, &slicer->getPrintPaths3D()))
             logFail("Export USD", error);
         else
             logOk("Export USD", std::string("Saved ") + fileBuffer);
@@ -388,6 +422,16 @@ private:
         meshDisplay.edgeColor = Color(0.75f, 0.8f, 0.9f, 0.45f);
         meshDisplay.edgeWidth = 1.0f;
         return meshDisplay;
+    }
+
+    void drawPrintMesh()
+    {
+        zDisplayMeshSetting display;
+        display.showVertices = false;
+        display.showEdges = false;
+        display.showFaces = true;
+        display.faceColor = Color(0.15f, 0.6f, 0.75f, 1.0f);
+        scene().draw(m_printMesh, display);
     }
 
     void drawVLoops()
@@ -1104,6 +1148,9 @@ private:
             logFail("PrintSyn", slicer.getStatus());
 
         const auto& layers = slicer.getPrintPaths3D();
+        std::string meshError;
+        if (!zSpace::zTsUtils::buildPrintMesh(layers, m_printMesh, &meshError))
+            logFail("Print mesh", meshError);
         m_fieldPathSegments.assign(layers.size(), std::vector<PathSegment>());
         for (size_t k = 0; k < layers.size(); ++k) {
             for (const zSpace::PrintPath& path : layers[k]) {
@@ -1224,6 +1271,7 @@ private:
     // Results cached for drawing, owned by the sketch rather than a slicer.
     void clearResults()
     {
+        zSpace::zFnMesh(m_printMesh).clear();
         m_fieldPathSegments.clear();
         zSpace::zFnGraph(m_tetWireGraph).clear();
     }
@@ -1347,6 +1395,7 @@ private:
 
     std::string m_inputMeshPath;
     zSpace::zObjMesh m_inputMesh;
+    zSpace::zObjMesh m_printMesh;
     // Bracing from the USD stage, in world coordinates.
     zSpace::zObjGraph m_bracingGraph;
     // First vertex of object 02; missing object defaults to the world origin.
@@ -1354,6 +1403,8 @@ private:
     bool m_haveSlotAnchor = false;
     // Settings from /Slicer_setting, normalized to millimetres, shared by both slicers.
     zSpace::SlicerSettings m_settings = defaultSlicerSettings();
+    alice2::slicing::SlicerViewValidation m_viewValidation;
+    int m_validationCaptureFrame = -1;
     zSpace::PrintSynSetting m_printSettings = defaultPrintSynSettings();
     zSpace::zObjGraph m_tetWireGraph;
     // Only the picked slicer exists (created by runSelectedSlicer()); both

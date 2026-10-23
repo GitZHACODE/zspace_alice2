@@ -529,6 +529,7 @@ if(ALICE2_BUILD_SLICING_TESTS)
     endif()
     add_executable(alice2_slicing_smoke verification/slicing_smoke.cpp)
     target_link_libraries(alice2_slicing_smoke PRIVATE zspace::toolsets)
+    zspace_link_openusd(alice2_slicing_smoke)
     # Both executables share one runtime directory; deploy dependencies once.
     add_dependencies(alice2_slicing_smoke alice2)
     foreach(case block-topology block-harmonic block-metres-topology block-metres-harmonic legacy-mm-topology)
