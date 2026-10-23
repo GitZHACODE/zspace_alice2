@@ -1,9 +1,6 @@
 // alice2 Eigen & JSON Integration Demo
 // Simple demo: Export Eigen matrix to JSON, then read it back
 
-// #define __MAIN__
-#ifdef __MAIN__
-
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
 
@@ -208,6 +205,4 @@ private:
 };
 
 // Register the sketch
-//ALICE2_REGISTER_SKETCH_AUTO(EigenJsonDemo)
-
-#endif // __MAIN__
+ALICE2_REGISTER_SKETCH_AUTO(EigenJsonDemo)

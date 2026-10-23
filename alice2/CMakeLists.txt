@@ -1,20 +1,56 @@
-cmake_minimum_required(VERSION 3.16)
-
+cmake_minimum_required(VERSION 3.21)
 project(alice2 VERSION 1.0.0 LANGUAGES C CXX)
 
+option(ALICE2_BUILD_VIEWER "Build the viewer and research apps" ON)
 option(ALICE2_ENABLE_CUDA "Enable CUDA build of alice2" OFF)
-option(ALICE2_ENABLE_MIQ_REMESH "Enable the GPL-licensed libigl/CoMiSo MIQ remeshing experiment" ON)
-option(ALICE2_ENABLE_DIRECTIONAL "Enable the Directional face-field processing integration" ON)
-option(ALICE2_USE_SYSTEM_DEPS "Prefer system-installed CMake packages for third-party dependencies" ON)
-set(ALICE2_BUILD_MODE "default" CACHE STRING "Select alice2 build mode (default or test)")
+option(ALICE2_ENABLE_MIQ_REMESH "Enable libigl/CoMiSo MIQ remeshing" OFF)
+option(ALICE2_ENABLE_DIRECTIONAL "Enable Directional integration" OFF)
+option(ALICE2_USE_SYSTEM_DEPS "Prefer system-installed dependencies" ON)
+set(ALICE2_BUILD_MODE "default" CACHE STRING "Default app: default or test")
 set_property(CACHE ALICE2_BUILD_MODE PROPERTY STRINGS default test)
-set(ALICE2_USING_TEST_MODE OFF)
-if(ALICE2_BUILD_MODE STREQUAL "test")
-    set(ALICE2_USING_TEST_MODE ON)
-endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "Dependencies")
+include(CTest)
+
+function(alice2_library target)
+    add_library(${target} STATIC EXCLUDE_FROM_ALL ${ARGN})
+    target_include_directories(${target} PUBLIC
+        "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+    target_compile_features(${target} PUBLIC cxx_std_20)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /wd4100 /wd4244)
+        target_compile_options(${target} PUBLIC /EHsc)
+        target_compile_definitions(${target} PUBLIC _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endfunction()
+
+# This target has no windowing, OpenGL, Eigen, or viewer dependency.
+alice2_library(alice2_core
+    src/utils/Vector.cpp src/utils/Matrix.cpp src/utils/Quaternion.cpp
+    src/core/Transform.cpp
+    src/geometry/MeshData.cpp src/geometry/GraphData.cpp
+    src/computeGeom/TensorField.cpp)
+add_library(alice2::core ALIAS alice2_core)
+
+if(BUILD_TESTING)
+    add_executable(alice2_core_checks EXCLUDE_FROM_ALL checks/core.cpp)
+    target_link_libraries(alice2_core_checks PRIVATE alice2_core)
+    add_test(NAME core COMMAND alice2_core_checks)
+endif()
+if(NOT ALICE2_BUILD_VIEWER)
+    return()
+endif()
 
 if(ALICE2_ENABLE_CUDA)
     enable_language(CUDA)
@@ -24,509 +60,100 @@ if(ALICE2_ENABLE_CUDA)
         set(CMAKE_CUDA_ARCHITECTURES 75)
     endif()
 endif()
+include(cmake/Dependencies.cmake)
 
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release)
-endif()
-
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_deps/lib)
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_deps/lib)
-
-set_property(GLOBAL PROPERTY USE_FOLDERS ON)
-set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "_deps/CMakeTargets")
-
-set(ALICE2_DEPENDS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/depends")
-set(GL2PS_URL "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/gl2ps-1.4.2.zip")
-set(LIBIGL_URL "https://github.com/libigl/libigl/archive/refs/tags/v2.5.0.zip")
-
-function(alice2_download_dependency url)
-    get_filename_component(name "${url}" NAME)
-    message(STATUS "Downloading ${name} from ${url}...")
-    file(DOWNLOAD "${url}" "${ALICE2_DEPENDS_DIR}/${name}" SHOW_PROGRESS STATUS dl_status)
-    list(GET dl_status 0 dl_code)
-    if(NOT dl_code EQUAL 0)
-        message(FATAL_ERROR "Failed to download ${name}: ${dl_status}")
-    endif()
-
-    execute_process(
-        COMMAND ${CMAKE_COMMAND} -E tar xzf "${ALICE2_DEPENDS_DIR}/${name}"
-        WORKING_DIRECTORY "${ALICE2_DEPENDS_DIR}"
-        RESULT_VARIABLE unpack_ret
-    )
-    if(NOT unpack_ret EQUAL 0)
-        message(FATAL_ERROR "Failed to unpack ${name}")
-    endif()
-
-    file(REMOVE "${ALICE2_DEPENDS_DIR}/${name}")
-    message(STATUS "Extracted and removed ${name}")
-endfunction()
-
-find_package(OpenGL REQUIRED)
-if(ALICE2_ENABLE_CUDA)
-    find_package(CUDAToolkit REQUIRED)
-endif()
-
-set(ALICE2_HAS_SYSTEM_DEPS OFF)
-set(ALICE2_HAS_SYSTEM_LIBIGL OFF)
-if(ALICE2_USE_SYSTEM_DEPS)
-    find_package(glfw3 CONFIG QUIET)
-    find_package(Eigen3 CONFIG QUIET)
-    find_package(nlohmann_json CONFIG QUIET)
-    find_package(igl CONFIG QUIET)
-    find_path(STB_INCLUDE_DIR
-        NAMES stb_image_write.h stb_truetype.h
-        PATH_SUFFIXES stb
-    )
-
-    if(TARGET glfw AND TARGET Eigen3::Eigen AND TARGET nlohmann_json::nlohmann_json AND STB_INCLUDE_DIR)
-        set(ALICE2_HAS_SYSTEM_DEPS ON)
-    else()
-        if(MSVC)
-            message(STATUS "System dependencies incomplete; falling back to alice2/depends")
-        else()
-            message(STATUS "System dependencies incomplete")
-        endif()
-    endif()
-
-    if(TARGET igl::core)
-        set(ALICE2_HAS_SYSTEM_LIBIGL ON)
-    endif()
-endif()
-
-if(NOT ALICE2_HAS_SYSTEM_DEPS AND ALICE2_USE_SYSTEM_DEPS AND NOT MSVC)
-    message(FATAL_ERROR
-        "System dependencies are required for non-MSVC builds. "
-        "Install glfw, Eigen3, nlohmann_json, and STB for your toolchain "
-        "(for Windows/MSYS2 clang64: pacman -S --needed "
-        "mingw-w64-clang-x86_64-glfw mingw-w64-clang-x86_64-eigen3 "
-        "mingw-w64-clang-x86_64-nlohmann-json "
-        "mingw-w64-clang-x86_64-stb)."
-    )
-endif()
-
-if(NOT ALICE2_HAS_SYSTEM_DEPS)
-    file(GLOB DEP_FILES "${ALICE2_DEPENDS_DIR}/*")
-    if(NOT DEP_FILES)
-        file(MAKE_DIRECTORY "${ALICE2_DEPENDS_DIR}")
-
-        set(ASSET_URLS
-            "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/eigen.zip"
-            "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/glfw.zip"
-            "${GL2PS_URL}"
-            "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/nlohmann.zip"
-            "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/stb.zip"
-        )
-
-        foreach(url IN LISTS ASSET_URLS)
-            alice2_download_dependency("${url}")
-        endforeach()
-    endif()
+add_library(alice2_eigen INTERFACE)
+if(TARGET Eigen3::Eigen)
+    target_link_libraries(alice2_eigen INTERFACE Eigen3::Eigen)
 else()
-    file(MAKE_DIRECTORY "${ALICE2_DEPENDS_DIR}")
+    target_include_directories(alice2_eigen SYSTEM INTERFACE "${EIGEN_DIR}")
 endif()
-
-if(ALICE2_HAS_SYSTEM_LIBIGL)
-    set(LIBIGL_INCLUDE_DIRS "")
-    set(ALICE2_LIBIGL_TARGETS igl::core)
+add_library(alice2_json INTERFACE)
+if(TARGET nlohmann_json::nlohmann_json)
+    target_link_libraries(alice2_json INTERFACE nlohmann_json::nlohmann_json)
 else()
-    set(LIBIGL_DIR "${ALICE2_DEPENDS_DIR}/libigl")
-if(NOT EXISTS "${LIBIGL_DIR}/include/igl/igl_inline.h")
-        alice2_download_dependency("${LIBIGL_URL}")
-        if(EXISTS "${ALICE2_DEPENDS_DIR}/libigl-2.5.0")
-            file(RENAME "${ALICE2_DEPENDS_DIR}/libigl-2.5.0" "${LIBIGL_DIR}")
-        endif()
-    endif()
-    if(NOT EXISTS "${LIBIGL_DIR}/include/igl/igl_inline.h")
-        message(FATAL_ERROR "libigl headers not found at ${LIBIGL_DIR}/include")
-    endif()
-    set(LIBIGL_INCLUDE_DIRS "${LIBIGL_DIR}/include")
-    set(ALICE2_LIBIGL_TARGETS "")
+    target_include_directories(alice2_json SYSTEM INTERFACE "${NLOHMANN_JSON_INCLUDE_DIRS}")
 endif()
+add_library(alice2_igl INTERFACE)
+target_link_libraries(alice2_igl INTERFACE alice2_eigen ${ALICE2_LIBIGL_TARGETS})
+target_include_directories(alice2_igl SYSTEM INTERFACE ${LIBIGL_INCLUDE_DIRS})
 
-set(ALICE2_DIRECTIONAL_INCLUDE_DIRS "")
-if(ALICE2_ENABLE_DIRECTIONAL)
-    set(DIRECTIONAL_DIR "${ALICE2_DEPENDS_DIR}/directional")
-    if(NOT EXISTS "${DIRECTIONAL_DIR}/include/directional/PCFaceTangentBundle.h")
-        include(FetchContent)
-        FetchContent_Declare(
-            directional
-            GIT_REPOSITORY https://github.com/avaxman/Directional.git
-            GIT_TAG 25738730958f0bfa68289ae628a5cd3c4b719d61
-            GIT_SHALLOW TRUE
-        )
-        FetchContent_Populate(directional)
-        set(DIRECTIONAL_DIR "${directional_SOURCE_DIR}")
-    endif()
-    if(NOT EXISTS "${DIRECTIONAL_DIR}/include/directional/PCFaceTangentBundle.h")
-        message(FATAL_ERROR "Directional headers not found at ${DIRECTIONAL_DIR}/include")
-    endif()
-    set(ALICE2_DIRECTIONAL_INCLUDE_DIRS "${DIRECTIONAL_DIR}/include")
+alice2_library(alice2_viewer
+    src/core/Application.cpp src/core/Camera.cpp src/core/FontRenderer.cpp
+    src/core/Renderer.cpp src/core/Scene.cpp
+    src/input/InputManager.cpp src/input/CameraController.cpp
+    src/ui/SimpleUI.cpp src/sketches/SketchManager.cpp
+    src/objects/SceneObject.cpp src/objects/PrimitiveObject.cpp
+    src/objects/ZSpaceObject.cpp src/objects/MeshObject.cpp src/objects/GraphObject.cpp
+    src/computeGeom/ComputeMesh.cpp src/computeGeom/ComputeGraph.cpp
+    ${GL2PS_SOURCE})
+add_library(alice2::viewer ALIAS alice2_viewer)
+target_link_libraries(alice2_viewer PUBLIC alice2_core ${OPENGL_LIBRARIES} ${GLEW_LIBRARIES}
+    PRIVATE alice2_json)
+if(TARGET glfw)
+    target_link_libraries(alice2_viewer PUBLIC glfw)
+else()
+    target_link_libraries(alice2_viewer PUBLIC "${GLFW_LIBRARIES}")
 endif()
-
-# MIQ is provided by libigl's GPL/copyleft CoMiSo module. Keep it explicit so
-# core libigl users do not acquire the dependency accidentally.
-set(ALICE2_MIQ_TARGET "")
-if(ALICE2_ENABLE_MIQ_REMESH)
-    if(ALICE2_HAS_SYSTEM_LIBIGL)
-        if(NOT TARGET igl_copyleft::comiso)
-            message(FATAL_ERROR
-                "ALICE2_ENABLE_MIQ_REMESH requires a system libigl with igl_copyleft::comiso. "
-                "Configure with -DALICE2_ENABLE_MIQ_REMESH=OFF to omit this experiment.")
-        endif()
-    else()
-        set(LIBIGL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-        set(LIBIGL_BUILD_TUTORIALS OFF CACHE BOOL "" FORCE)
-        set(LIBIGL_COPYLEFT_CORE ON CACHE BOOL "" FORCE)
-        set(LIBIGL_COPYLEFT_COMISO ON CACHE BOOL "" FORCE)
-        add_subdirectory("${LIBIGL_DIR}" "${CMAKE_BINARY_DIR}/libigl-miq" EXCLUDE_FROM_ALL)
-    endif()
-    if(NOT TARGET igl_copyleft::comiso)
-        message(FATAL_ERROR "libigl MIQ support was requested but igl_copyleft::comiso was not created")
-    endif()
-    # CoMiSo's bundled GMM 4.2 still uses the C++17-removed `register`
-    # keyword. Clang promotes that diagnostic to an error in C++20 mode.
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND TARGET CoMISo)
-        target_compile_options(CoMISo PRIVATE -Wno-register)
-    endif()
-    if(MSVC AND TARGET CoMISo)
-        # GMM 4.2 uses std::divides/multiplies without including <functional>.
-        target_compile_options(CoMISo PRIVATE /FIfunctional)
-        # This obsolete storage qualifier is rejected by MSVC in C++20 mode.
-        # Patch the fetched header so the fix also covers libigl's MIQ adapter.
-        get_target_property(ALICE2_COMISO_SOURCE_DIR CoMISo SOURCE_DIR)
-        set(ALICE2_GMM_DOMAIN_HEADER "${ALICE2_COMISO_SOURCE_DIR}/ext/gmm-4.2/include/gmm/gmm_domain_decomp.h")
-        if(EXISTS "${ALICE2_GMM_DOMAIN_HEADER}")
-            file(READ "${ALICE2_GMM_DOMAIN_HEADER}" ALICE2_GMM_DOMAIN_SOURCE)
-            string(REPLACE "register double a" "double a" ALICE2_GMM_DOMAIN_PATCHED "${ALICE2_GMM_DOMAIN_SOURCE}")
-            if(NOT ALICE2_GMM_DOMAIN_SOURCE STREQUAL ALICE2_GMM_DOMAIN_PATCHED)
-                file(WRITE "${ALICE2_GMM_DOMAIN_HEADER}" "${ALICE2_GMM_DOMAIN_PATCHED}")
-            endif()
-        endif()
-    endif()
-    set(ALICE2_MIQ_TARGET igl_copyleft::comiso)
-endif()
-
+target_include_directories(alice2_viewer SYSTEM PUBLIC
+    ${OPENGL_INCLUDE_DIRS} ${GLEW_INCLUDE_DIRS} ${GLFW_INCLUDE_DIRS})
+target_include_directories(alice2_viewer SYSTEM PRIVATE ${STB_INCLUDE_DIRS} ${GL2PS_INCLUDE_DIRS})
 if(WIN32)
-    set(GLEW_DIR "${ALICE2_DEPENDS_DIR}/glew")
-    set(GLEW_INCLUDE_DIRS "${GLEW_DIR}/include")
-    set(GLEW_LIBRARIES "${GLEW_DIR}/lib/glew32s.lib")
-    if(NOT EXISTS "${GLEW_INCLUDE_DIRS}/GL/glew.h")
-        message(FATAL_ERROR "GLEW headers not found at ${GLEW_INCLUDE_DIRS}")
-    endif()
-    if(NOT EXISTS "${GLEW_LIBRARIES}")
-        message(FATAL_ERROR "GLEW static library not found at ${GLEW_LIBRARIES}")
-    endif()
-else()
-    set(GLEW_INCLUDE_DIRS "")
-    set(GLEW_LIBRARIES "")
+    target_compile_definitions(alice2_viewer PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX GLEW_STATIC)
+    target_link_libraries(alice2_viewer PRIVATE user32 gdi32 shell32)
 endif()
 
-if(ALICE2_HAS_SYSTEM_DEPS)
-    set(ALICE2_DEPENDENCY_MODE "system")
-    set(GLFW_INCLUDE_DIRS "")
-    set(EIGEN_DIR "")
-    set(NLOHMANN_JSON_INCLUDE_DIRS "")
-    set(STB_INCLUDE_DIRS "${STB_INCLUDE_DIR}")
-    set(ALICE2_DEPENDENCY_TARGETS ${OPENGL_LIBRARIES} glfw Eigen3::Eigen nlohmann_json::nlohmann_json)
-else()
-    set(GLFW_DIR "${ALICE2_DEPENDS_DIR}/glfw")
-    set(GLFW_INCLUDE_DIRS "${GLFW_DIR}/include")
-    if(BUILD_SHARED_LIBS)
-        set(GLFW_LIBRARIES "${GLFW_DIR}/lib/glfw3dll.lib")
-    else()
-        set(GLFW_LIBRARIES "${GLFW_DIR}/lib/glfw3.lib")
-    endif()
-    if(NOT EXISTS ${GLFW_INCLUDE_DIRS}/GLFW/glfw3.h)
-        message(FATAL_ERROR "GLFW headers not found at ${GLFW_INCLUDE_DIRS}")
-    endif()
-    if(NOT EXISTS ${GLFW_LIBRARIES})
-        message(FATAL_ERROR "GLFW library not found at ${GLFW_LIBRARIES}")
-    endif()
-
-    set(EIGEN_DIR "${ALICE2_DEPENDS_DIR}/eigen")
-    if(NOT EXISTS ${EIGEN_DIR}/eigen)
-        message(FATAL_ERROR "Eigen headers not found at ${EIGEN_DIR}")
-    endif()
-
-    set(NLOHMANN_JSON_DIR "${ALICE2_DEPENDS_DIR}/nlohmann")
-    set(NLOHMANN_JSON_INCLUDE_DIRS "${NLOHMANN_JSON_DIR}/include")
-    if(NOT EXISTS ${NLOHMANN_JSON_INCLUDE_DIRS}/nlohmann/json.hpp)
-        message(FATAL_ERROR "nlohmann/json headers not found at ${NLOHMANN_JSON_INCLUDE_DIRS}")
-    endif()
-
-    set(STB_INCLUDE_DIRS "${ALICE2_DEPENDS_DIR}/stb")
-    if(NOT EXISTS ${STB_INCLUDE_DIRS}/stb_image_write.h OR NOT EXISTS ${STB_INCLUDE_DIRS}/stb_truetype.h)
-        message(FATAL_ERROR "STB headers not found at ${STB_INCLUDE_DIRS}")
-    endif()
-
-    set(ALICE2_DEPENDENCY_TARGETS ${OPENGL_LIBRARIES} ${GLFW_LIBRARIES})
-    set(ALICE2_DEPENDENCY_MODE "alice2/depends")
-endif()
-
-if(ALICE2_ENABLE_MIQ_REMESH AND TARGET Eigen3::Eigen)
-    # Use the same Eigen as libigl/CoMiSo. The legacy bundled Eigen 3.3
-    # shadows its fetched 3.4 headers and lacks MIQ's indexed-vector API.
-    set(EIGEN_DIR "")
-    list(APPEND ALICE2_DEPENDENCY_TARGETS Eigen3::Eigen)
-endif()
-
-set(GL2PS_DIR "${ALICE2_DEPENDS_DIR}/gl2ps-1.4.2")
-if(NOT EXISTS "${GL2PS_DIR}/gl2ps.h")
-    set(GL2PS_DIR "${ALICE2_DEPENDS_DIR}/gl2ps")
-endif()
-if(NOT EXISTS "${GL2PS_DIR}/gl2ps.h")
-    alice2_download_dependency("${GL2PS_URL}")
-
-    set(GL2PS_DIR "${ALICE2_DEPENDS_DIR}/gl2ps-1.4.2")
-    if(NOT EXISTS "${GL2PS_DIR}/gl2ps.h")
-        set(GL2PS_DIR "${ALICE2_DEPENDS_DIR}/gl2ps")
-    endif()
-endif()
-if(NOT EXISTS "${GL2PS_DIR}/gl2ps.h")
-    message(FATAL_ERROR "gl2ps header not found at ${ALICE2_DEPENDS_DIR}/gl2ps-1.4.2 or ${ALICE2_DEPENDS_DIR}/gl2ps")
-endif()
-set(GL2PS_INCLUDE_DIRS "${GL2PS_DIR}")
-set(GL2PS_SOURCE "${GL2PS_DIR}/gl2ps.c")
-if(NOT EXISTS "${GL2PS_SOURCE}")
-    message(FATAL_ERROR "gl2ps source not found at ${GL2PS_SOURCE}")
-endif()
-
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-if(ALICE2_USING_TEST_MODE)
-    include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tests)
-else()
-    include_directories(${CMAKE_CURRENT_SOURCE_DIR}/userSrc)
-endif()
-if(ALICE2_ENABLE_CUDA)
-    include_directories(${CUDAToolkit_INCLUDE_DIRS})
-endif()
-
-file(GLOB_RECURSE ALICE2_CORE_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
-)
-set(ALICE2_SOURCES ${ALICE2_CORE_SOURCES})
-list(APPEND ALICE2_SOURCES ${GL2PS_SOURCE})
-
+# Existing algorithms remain in their source folders; only requested modules build.
+alice2_library(alice2_fields src/computeGeom/scalarField.cpp
+    src/computeGeom/ScalarField3D.cpp src/computeGeom/FieldStack.cpp)
+target_link_libraries(alice2_fields PUBLIC alice2_viewer alice2_json)
+alice2_library(alice2_projection src/solvers/ProjectionSolver.cpp src/solvers/ProjectionConstraints.cpp)
+target_link_libraries(alice2_projection PUBLIC alice2_viewer alice2_eigen)
+alice2_library(alice2_analysis src/analysis/MeshAnalyzer.cpp src/analysis/StressAnalyzer.cpp)
+target_link_libraries(alice2_analysis PUBLIC alice2_viewer alice2_eigen)
+alice2_library(alice2_tna src/tna/TnaSolver.cpp src/tna/BestFitForceDensitySolver.cpp
+    src/tna/BestFitTnaSolver.cpp src/tna/TnaOffsetSolver.cpp)
+target_link_libraries(alice2_tna PUBLIC alice2_viewer alice2_eigen)
+alice2_library(alice2_fdm src/fdm/ProjectedMixedFDM.cpp)
+target_link_libraries(alice2_fdm PUBLIC alice2_core alice2_eigen)
+alice2_library(alice2_stacking src/stack/RuledSurfaceStackGeometry.cpp
+    src/stack/RuledSurfaceStackIntervals.cpp src/stack/RuledSurfaceStackSolver.cpp)
+target_link_libraries(alice2_stacking PUBLIC alice2_core alice2_eigen)
+alice2_library(alice2_stereotomy src/geometry/Stereotomy.cpp)
+target_link_libraries(alice2_stereotomy PUBLIC alice2_viewer)
+alice2_library(alice2_remeshing src/remeshing/MiqFieldRemesher.cpp)
+target_link_libraries(alice2_remeshing PUBLIC alice2_viewer PRIVATE alice2_igl ${ALICE2_MIQ_TARGET})
+target_compile_definitions(alice2_remeshing PUBLIC
+    ALICE2_WITH_MIQ=$<BOOL:${ALICE2_ENABLE_MIQ_REMESH}>
+    ALICE2_WITH_DIRECTIONAL=$<BOOL:${ALICE2_ENABLE_DIRECTIONAL}>)
+target_include_directories(alice2_remeshing SYSTEM PRIVATE ${ALICE2_DIRECTIONAL_INCLUDE_DIRS})
 if(ALICE2_ENABLE_MIQ_REMESH AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    # libigl's header-only MIQ implementation includes the same legacy GMM
-    # headers while compiling this adapter.
-    set_source_files_properties(
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/remeshing/MiqFieldRemesher.cpp"
-        PROPERTIES COMPILE_OPTIONS "-Wno-register"
-    )
+    target_compile_options(alice2_remeshing PRIVATE -Wno-register)
 endif()
-
-if(ALICE2_USING_TEST_MODE)
-    file(GLOB_RECURSE ALICE2_TEST_SOURCES
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp"
-    )
-    list(APPEND ALICE2_SOURCES ${ALICE2_TEST_SOURCES})
-else()
-    file(GLOB_RECURSE ALICE2_USER_SOURCES
-        "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/*.cpp"
-    )
-    list(APPEND ALICE2_SOURCES ${ALICE2_USER_SOURCES})
-endif()
+alice2_library(alice2_wave_latent src/ML/WaveLatent/WaveLatent.cpp src/ML/WaveLatent/WaveLatentNavigator.cpp)
+target_link_libraries(alice2_wave_latent PUBLIC alice2_fields)
 
 if(ALICE2_ENABLE_CUDA)
-    file(GLOB_RECURSE ALICE2_CORE_CUDA_SOURCES
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cu"
-    )
-    set(ALICE2_CUDA_SOURCES ${ALICE2_CORE_CUDA_SOURCES})
-    if(ALICE2_USING_TEST_MODE)
-        file(GLOB_RECURSE ALICE2_TEST_CUDA_SOURCES
-            "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cu"
-        )
-        list(APPEND ALICE2_CUDA_SOURCES ${ALICE2_TEST_CUDA_SOURCES})
-    else()
-        file(GLOB_RECURSE ALICE2_USER_CUDA_SOURCES
-            "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/*.cu"
-        )
-        list(APPEND ALICE2_CUDA_SOURCES ${ALICE2_USER_CUDA_SOURCES})
+    file(GLOB_RECURSE ALICE2_CUDA_SOURCES CONFIGURE_DEPENDS src/*.cu)
+    if(ALICE2_CUDA_SOURCES)
+        target_sources(alice2_fields PRIVATE ${ALICE2_CUDA_SOURCES})
     endif()
-    list(APPEND ALICE2_SOURCES ${ALICE2_CUDA_SOURCES})
+    target_link_libraries(alice2_fields PUBLIC CUDA::cublas CUDA::cudart)
 endif()
+target_compile_definitions(alice2_fields PUBLIC ALICE2_WITH_CUDA=$<BOOL:${ALICE2_ENABLE_CUDA}>)
 
-file(GLOB_RECURSE ALICE2_HEADERS
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
-)
-if(ALICE2_USING_TEST_MODE)
-    file(GLOB_RECURSE ALICE2_TEST_HEADERS
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.h"
-    )
-    list(APPEND ALICE2_HEADERS ${ALICE2_TEST_HEADERS})
-else()
-    file(GLOB_RECURSE ALICE2_USER_HEADERS
-        "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/*.h"
-    )
-    list(APPEND ALICE2_HEADERS ${ALICE2_USER_HEADERS})
+# Compile the common entry point once, including when several sketch apps are built.
+add_library(alice2_entry OBJECT EXCLUDE_FROM_ALL src/main.cpp)
+target_link_libraries(alice2_entry PRIVATE alice2_viewer)
+target_compile_definitions(alice2_entry PRIVATE ALICE2_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+include(cmake/Alice2Sketch.cmake)
+add_subdirectory(usrSrc)
+add_subdirectory(tests)
+
+if(BUILD_TESTING)
+    add_executable(alice2_checks EXCLUDE_FROM_ALL checks/main.cpp
+        src/fdm/ProjectedMixedFDMChecks.cpp src/tna/BestFitTnaChecks.cpp src/tna/TnaOffsetChecks.cpp)
+    target_link_libraries(alice2_checks PRIVATE alice2_tna alice2_fdm)
+    add_test(NAME projected_mixed_fdm COMMAND alice2_checks --check-projected-mixed-fdm)
+    add_test(NAME bestfit_tna COMMAND alice2_checks --check-bestfit-tna)
 endif()
-
-macro(group_sources_by_folder prefix files)
-    foreach(file ${files})
-        file(RELATIVE_PATH rel_file "${CMAKE_CURRENT_SOURCE_DIR}" "${file}")
-        get_filename_component(folder "${rel_file}" PATH)
-        string(REPLACE "/" "\\" group "${folder}")
-        source_group("${prefix}\\${group}" FILES "${file}")
-    endforeach()
-endmacro()
-group_sources_by_folder("Source Files" "${ALICE2_SOURCES}")
-group_sources_by_folder("Header Files" "${ALICE2_HEADERS}")
-
-add_executable(alice2 ${ALICE2_SOURCES} ${ALICE2_HEADERS})
-
-# Keep diagnostics from our sources enabled, but treat dependency headers as
-# system headers. libigl is header-only, so its template implementation is
-# otherwise diagnosed every time an alice2 translation unit includes it.
-target_include_directories(alice2 SYSTEM PRIVATE
-    ${OPENGL_INCLUDE_DIRS}
-    ${GLEW_INCLUDE_DIRS}
-    ${GLFW_INCLUDE_DIRS}
-    ${EIGEN_DIR}
-    ${NLOHMANN_JSON_INCLUDE_DIRS}
-    ${LIBIGL_INCLUDE_DIRS}
-    ${ALICE2_DIRECTIONAL_INCLUDE_DIRS}
-    ${GL2PS_INCLUDE_DIRS}
-    ${STB_INCLUDE_DIRS}
-)
-
-if(ALICE2_ENABLE_CUDA)
-    target_compile_definitions(alice2 PRIVATE ALICE2_WITH_CUDA=1)
-else()
-    target_compile_definitions(alice2 PRIVATE ALICE2_WITH_CUDA=0)
-endif()
-
-if(ALICE2_ENABLE_MIQ_REMESH)
-    target_compile_definitions(alice2 PRIVATE ALICE2_WITH_MIQ=1)
-    if(WIN32 AND TARGET CoMISo)
-        get_target_property(ALICE2_COMISO_SOURCE_DIR CoMISo SOURCE_DIR)
-        file(GLOB ALICE2_MIQ_BLAS_DLLS "${ALICE2_COMISO_SOURCE_DIR}/ext/OpenBLAS-v0.2.14-Win64-int64/bin/*.dll")
-        if(ALICE2_MIQ_BLAS_DLLS)
-            add_custom_command(TARGET alice2 POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    ${ALICE2_MIQ_BLAS_DLLS} "$<TARGET_FILE_DIR:alice2>"
-                COMMENT "Copying MIQ OpenBLAS and Fortran runtimes to output directory"
-                VERBATIM)
-        endif()
-    endif()
-else()
-    target_compile_definitions(alice2 PRIVATE ALICE2_WITH_MIQ=0)
-endif()
-
-if(ALICE2_ENABLE_DIRECTIONAL)
-    target_compile_definitions(alice2 PRIVATE ALICE2_WITH_DIRECTIONAL=1)
-else()
-    target_compile_definitions(alice2 PRIVATE ALICE2_WITH_DIRECTIONAL=0)
-endif()
-
-target_link_libraries(alice2
-    ${ALICE2_DEPENDENCY_TARGETS}
-    ${ALICE2_LIBIGL_TARGETS}
-    ${ALICE2_MIQ_TARGET}
-    ${GLEW_LIBRARIES}
-)
-if(ALICE2_ENABLE_CUDA)
-    target_link_libraries(alice2 CUDA::cublas CUDA::cudart)
-endif()
-
-if(WIN32)
-    target_link_libraries(alice2 user32 gdi32 shell32)
-endif()
-
-if(MSVC)
-    target_compile_options(alice2 PRIVATE
-        $<$<COMPILE_LANGUAGE:CXX>:/W4>
-        $<$<COMPILE_LANGUAGE:CXX>:/wd4100>
-        $<$<COMPILE_LANGUAGE:CXX>:/wd4244>
-    )
-    target_compile_definitions(alice2 PRIVATE _CRT_SECURE_NO_WARNINGS)
-else()
-    target_compile_options(alice2 PRIVATE -Wall -Wextra -Wpedantic)
-endif()
-
-if(WIN32)
-    target_compile_definitions(alice2 PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX GLEW_STATIC)
-
-    set(GLFW_DLL_PATH "${ALICE2_DEPENDS_DIR}/glfw/bin/glfw3.dll")
-    if(BUILD_SHARED_LIBS OR NOT DEFINED BUILD_SHARED_LIBS)
-        if(EXISTS ${GLFW_DLL_PATH})
-            add_custom_command(TARGET alice2 POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                        ${GLFW_DLL_PATH} $<TARGET_FILE_DIR:alice2>
-                COMMENT "Copying glfw3.dll to output directory")
-        else()
-            message(WARNING "glfw3.dll not found at ${GLFW_DLL_PATH}")
-        endif()
-    else()
-        message(STATUS "Using static GLFW library - no DLL copy needed")
-    endif()
-endif()
-
-set(ALICE2_INSTALL_RUNTIME_DESTINATION "bin")
-if(ALICE2_USING_TEST_MODE)
-    set(ALICE2_INSTALL_RUNTIME_DESTINATION "build_tests")
-endif()
-
-install(TARGETS alice2
-    RUNTIME DESTINATION ${ALICE2_INSTALL_RUNTIME_DESTINATION}
-    LIBRARY DESTINATION _deps/lib
-    ARCHIVE DESTINATION _deps/lib
-)
-if(ALICE2_USING_TEST_MODE)
-    install(DIRECTORY tests/
-        DESTINATION build_tests
-        FILES_MATCHING PATTERN "*.cpp" PATTERN "*.h"
-    )
-else()
-    install(DIRECTORY userSrc/
-        DESTINATION userSrc/examples
-        FILES_MATCHING PATTERN "*.cpp" PATTERN "*.h"
-    )
-endif()
-install(DIRECTORY include/
-    DESTINATION include/alice2
-    FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp"
-)
-if(NOT ALICE2_HAS_SYSTEM_DEPS)
-    install(DIRECTORY ${GLFW_INCLUDE_DIRS}/
-        DESTINATION include/dependencies/GLFW
-        FILES_MATCHING PATTERN "*.h"
-    )
-endif()
-install(DIRECTORY ${GL2PS_INCLUDE_DIRS}/
-    DESTINATION include/dependencies/gl2ps
-    FILES_MATCHING PATTERN "*.h"
-)
-
-if(WIN32)
-    if(BUILD_SHARED_LIBS OR NOT DEFINED BUILD_SHARED_LIBS)
-        if(EXISTS ${GLFW_DLL_PATH})
-            install(FILES ${GLFW_DLL_PATH} DESTINATION bin)
-        endif()
-    endif()
-endif()
-
-install(FILES CMakeLists.txt DESTINATION .)
-
-message(STATUS "alice2 Configuration Summary:")
-message(STATUS "  Build mode: ${ALICE2_BUILD_MODE}")
-message(STATUS "  Build type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "  C++ standard: ${CMAKE_CXX_STANDARD}")
-message(STATUS "  CUDA enabled: ${ALICE2_ENABLE_CUDA}")
-if(ALICE2_ENABLE_CUDA)
-    message(STATUS "  CUDA standard: ${CMAKE_CUDA_STANDARD}")
-    message(STATUS "  CUDA archs: ${CMAKE_CUDA_ARCHITECTURES}")
-endif()
-message(STATUS "  OpenGL: ${OPENGL_LIBRARIES}")
-message(STATUS "  Dependency mode: ${ALICE2_DEPENDENCY_MODE}")
-message(STATUS "  GLFW: ${GLFW_LIBRARIES}")
-message(STATUS "  Eigen: ${EIGEN_DIR}")
-message(STATUS "  nlohmann/json: ${NLOHMANN_JSON_INCLUDE_DIRS}")
-message(STATUS "  libigl: ${LIBIGL_INCLUDE_DIRS}")
-message(STATUS "  STB: ${STB_INCLUDE_DIRS}")
-message(STATUS "  gl2ps: ${GL2PS_INCLUDE_DIRS} (SVG export)")

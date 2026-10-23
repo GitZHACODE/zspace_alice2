@@ -1,6 +1,6 @@
 #pragma once
 
-#include <alice2.h>
+#include "../utils/Math.h"
 #include <computeGeom/ComputeMesh.h>
 
 #include <memory>

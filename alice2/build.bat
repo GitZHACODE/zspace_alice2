@@ -1,51 +1,25 @@
 @echo off
 setlocal
-
-REM Usage:
-REM   build.bat        -> normal build in "build"
-REM   build.bat clang  -> Clang/Ninja build in "build/clang-release"
-REM   build.bat cuda   -> CUDA build in "build_cuda"
-REM   build.bat test   -> test build in "build_tests"
-
+cd /d "%~dp0"
 set "CONFIG=Release"
 set "BUILD_DIR=build"
 set "EXTRA_FLAGS="
-
+set "TARGET=%~2"
+if "%TARGET%"=="" set "TARGET=alice2"
 if /I "%~1"=="clang" (
     cmake --preset clang-release
-    if errorlevel 1 goto :fail
-    cmake --build --preset clang-release
-    if errorlevel 1 goto :fail
-    goto :success
+    if errorlevel 1 exit /b 1
+    cmake --build --preset clang-release --target "%TARGET%"
+    exit /b
 )
 if /I "%~1"=="cuda" (
-    set BUILD_DIR=build_cuda
-    set EXTRA_FLAGS=-DALICE2_ENABLE_CUDA=ON
+    set "BUILD_DIR=build_cuda"
+    set "EXTRA_FLAGS=-DALICE2_ENABLE_CUDA=ON"
 )
 if /I "%~1"=="test" (
-    set BUILD_DIR=build_tests
-    set EXTRA_FLAGS=-DALICE2_BUILD_MODE=test
+    set "BUILD_DIR=build_tests"
+    set "EXTRA_FLAGS=-DALICE2_BUILD_MODE=test"
 )
-
-echo.
-echo [alice2] Configuring into "%BUILD_DIR%" (%CONFIG%) %EXTRA_FLAGS%
-if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
-
-REM Configure (generator-agnostic)
 cmake -S . -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%CONFIG% %EXTRA_FLAGS%
-if errorlevel 1 goto :fail
-
-echo.
-echo [alice2] Building...
-cmake --build "%BUILD_DIR%" --config %CONFIG% --parallel
-if errorlevel 1 goto :fail
-
-:success
-echo.
-echo [alice2] Build finished successfully.
-goto :eof
-
-:fail
-echo.
-echo [alice2] Build failed.
-exit /b 1
+if errorlevel 1 exit /b 1
+cmake --build "%BUILD_DIR%" --config %CONFIG% --target "%TARGET%" --parallel

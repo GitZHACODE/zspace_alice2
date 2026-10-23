@@ -8,7 +8,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <alice2.h>
+#include <alice2/viewer.h>
 
 #include "ML/WaveLatent/WaveLatent.h"
 #include <computeGeom/scalarField.h>

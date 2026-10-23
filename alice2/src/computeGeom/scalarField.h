@@ -8,7 +8,10 @@
 #include <iomanip>
 #include <memory>
 #include <stdexcept>
-#include <alice2.h>
+#include "../utils/Math.h"
+#include "../objects/GraphObject.h"
+
+namespace alice2 { class Renderer; }
 
 namespace alice2 {
     class GraphObject;

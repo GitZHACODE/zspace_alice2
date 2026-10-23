@@ -10,7 +10,7 @@ namespace alice2
 {
 
     SketchManager::SketchManager()
-        : m_scene(nullptr), m_renderer(nullptr), m_camera(nullptr), m_inputManager(nullptr), m_currentSketch(nullptr), m_currentSketchIndex(-1), m_userSrcDirectory("userSrc"), m_hotReloadEnabled(false), m_currentLibraryHandle(nullptr)
+        : m_scene(nullptr), m_renderer(nullptr), m_camera(nullptr), m_inputManager(nullptr), m_currentSketch(nullptr), m_currentSketchIndex(-1)
     {
     }
 
@@ -27,9 +27,9 @@ namespace alice2
         m_inputManager = inputManager;
     }
 
-    void SketchManager::scanUserSrcDirectory(const std::string &directory)
+    void SketchManager::refreshSketches()
     {
-        m_userSrcDirectory = directory;
+
         m_availableSketches.clear();
 
         // Get sketches from the registry
@@ -42,24 +42,8 @@ namespace alice2
             sketchInfo.description = regSketch.description;
             sketchInfo.author = regSketch.author;
             sketchInfo.version = regSketch.version;
-            sketchInfo.filePath = directory + "/" + regSketch.name + ".cpp"; // Placeholder path
-            sketchInfo.isLoaded = false;
 
             m_availableSketches.push_back(sketchInfo);
-        }
-
-        // Also add the legacy base sketch if it exists
-        if (!SketchRegistry::getInstance().hasSketch("Base Sketch"))
-        {
-            SketchInfo baseSketch;
-            baseSketch.name = "Base Sketch";
-            baseSketch.description = "Basic template sketch";
-            baseSketch.author = "alice2";
-            baseSketch.version = "1.0";
-            baseSketch.filePath = directory + "/sketch_base.cpp";
-            baseSketch.isLoaded = false;
-
-            m_availableSketches.push_back(baseSketch);
         }
 
         std::cout << "\nFound " << m_availableSketches.size() << " sketches available" << std::endl;
@@ -270,11 +254,6 @@ namespace alice2
         return false;
     }
 
-    void SketchManager::checkForChanges()
-    {
-        // Hot reload not implemented yet
-    }
-
     void SketchManager::setError(const std::string &error)
     {
         m_lastError = error;
@@ -284,22 +263,6 @@ namespace alice2
         {
             m_sketchErrorCallback(m_currentSketchName, error);
         }
-    }
-
-    // Platform-specific stubs (not implemented yet)
-    void *SketchManager::loadLibrary(const std::string &path)
-    {
-        return nullptr;
-    }
-
-    void SketchManager::unloadLibrary(void *handle)
-    {
-        // Not implemented
-    }
-
-    void *SketchManager::getSymbol(void *handle, const std::string &name)
-    {
-        return nullptr;
     }
 
     void SketchManager::switchToNextSketch()

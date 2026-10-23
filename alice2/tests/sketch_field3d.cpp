@@ -1,8 +1,6 @@
 // sketch_field3d.cpp
 // alice2 3D Scalar Field with Marching Cubes Sketch
 // Now demonstrates the 6-term nodal surface
-#define __MAIN__
-#ifdef __MAIN__
 
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
@@ -489,5 +487,3 @@ public:
 
 // Register the sketch
 ALICE2_REGISTER_SKETCH_AUTO(ScalarField3DSketch)
-
-#endif // __MAIN__

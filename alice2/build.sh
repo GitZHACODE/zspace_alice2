@@ -4,10 +4,11 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 mode="${1:-release}"
+target="${2:-alice2}"
 
 usage() {
     cat <<'EOF'
-Usage:
+Usage: ./build.sh [release|debug|test|cuda] [target]
   ./build.sh           Build release with Clang/Ninja
   ./build.sh release   Build release with Clang/Ninja
   ./build.sh debug     Build debug with Clang/Ninja
@@ -22,28 +23,28 @@ case "$mode" in
         echo "[alice2] Configuring preset: ${preset}"
         cmake --preset "${preset}"
         echo "[alice2] Building preset: ${preset}"
-        cmake --build --preset "${preset}"
+        cmake --build --preset "${preset}" --target "${target}"
         ;;
     debug)
         preset="clang-debug"
         echo "[alice2] Configuring preset: ${preset}"
         cmake --preset "${preset}"
         echo "[alice2] Building preset: ${preset}"
-        cmake --build --preset "${preset}"
+        cmake --build --preset "${preset}" --target "${target}"
         ;;
     test)
         preset="clang-test-debug"
         echo "[alice2] Configuring preset: ${preset}"
         cmake --preset "${preset}"
         echo "[alice2] Building preset: ${preset}"
-        cmake --build --preset "${preset}"
+        cmake --build --preset "${preset}" --target "${target}"
         ;;
     cuda)
         build_dir="build_cuda"
         echo "[alice2] Configuring CUDA build: ${build_dir}"
         cmake -S . -B "${build_dir}" -DCMAKE_BUILD_TYPE=Release -DALICE2_ENABLE_CUDA=ON
         echo "[alice2] Building CUDA configuration"
-        cmake --build "${build_dir}" --parallel
+        cmake --build "${build_dir}" --target "${target}" --parallel
         ;;
     -h|--help|help)
         usage

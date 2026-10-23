@@ -6,7 +6,8 @@
 #include <string>
 #include <vector>
 
-#include <alice2.h>
+#include "../core/Scene.h"
+#include "../ui/SimpleUI.h"
 
 #include <objects/MeshObject.h>
 #include <objects/GraphObject.h>

@@ -6,6 +6,9 @@
 // alice2 - A robust 3D scene viewer for zSpace objects
 // Namespace: alice2
 
+// Compatibility umbrella. New code can include <alice2/core.h> or
+// <alice2/viewer.h> and the specific algorithm headers it uses.
+
 // Core includes
 #include "../src/core/Application.h"
 #include "../src/core/Scene.h"

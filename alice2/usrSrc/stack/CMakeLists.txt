@@ -1,0 +1,4 @@
+alice2_add_sketch(sketch_ruled_surface_stacking SOURCES sketch_ruled_surface_stacking.cpp
+    LIBRARIES alice2_stacking)
+alice2_add_sketch(sketch_stereotomy_stacking SOURCES sketch_stereotomy_stacking.cpp
+    LIBRARIES alice2_stacking alice2_stereotomy)

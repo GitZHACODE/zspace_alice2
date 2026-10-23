@@ -1,6 +1,7 @@
 #pragma once
 
-#include <alice2.h>
+#include "../../utils/Math.h"
+namespace alice2 { class Renderer; }
 
 #include <string>
 #include <utility>

@@ -110,7 +110,7 @@ namespace alice2 {
 
         // Initialize sketch manager
         m_sketchManager->initialize(m_scene.get(), m_renderer.get(), m_camera.get(), m_inputManager.get());
-        m_sketchManager->scanUserSrcDirectory();
+        m_sketchManager->refreshSketches();
 
         // Setup callbacks
         setupCallbacks();

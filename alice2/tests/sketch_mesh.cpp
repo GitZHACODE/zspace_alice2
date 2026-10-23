@@ -1,9 +1,6 @@
 // alice2 Mesh Rendering Sketch
 // Demonstrates basic mesh rendering with MeshObject class
 
-// #define __MAIN__
-#ifdef __MAIN__
-
 #include <alice2.h>
 #include <sketches/SketchRegistry.h>
 #include <objects/MeshObject.h>
@@ -157,6 +154,4 @@ public:
 };
 
 // Register the sketch with alice2
-// ALICE2_REGISTER_SKETCH_AUTO(MeshSketch)
-
-#endif // __MAIN__
+ALICE2_REGISTER_SKETCH_AUTO(MeshSketch)

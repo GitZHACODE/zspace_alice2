@@ -4,10 +4,11 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 mode="${1:-release}"
+target="${2:-alice2}"
 
 usage() {
     cat <<'EOF'
-Usage:
+Usage: ./run.sh [release|debug|test|cuda] [target]
   ./run.sh           Run release Clang/Ninja build
   ./run.sh release   Run release Clang/Ninja build
   ./run.sh debug     Run debug Clang/Ninja build
@@ -18,16 +19,16 @@ EOF
 
 case "$mode" in
     release|clang)
-        exe="build/clang-release/bin/alice2"
+        exe="build/clang-release/bin/${target}"
         ;;
     debug)
-        exe="build/clang-debug/bin/alice2"
+        exe="build/clang-debug/bin/${target}"
         ;;
     test)
-        exe="build/clang-test-debug/bin/alice2"
+        exe="build/clang-test-debug/bin/${target}"
         ;;
     cuda)
-        exe="build_cuda/bin/alice2"
+        exe="build_cuda/bin/${target}"
         ;;
     -h|--help|help)
         usage
