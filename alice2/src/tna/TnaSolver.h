@@ -13,6 +13,8 @@ namespace alice2 {
 struct TnaEdge {
     int vertexA{-1};
     int vertexB{-1};
+    // COMPAS FormDiagram edge attribute _is_tension.
+    bool isTension{false};
 };
 
 // Stage 1 of TNA: the planar input mesh with one exterior polygon appended
@@ -23,12 +25,15 @@ struct TnaFormDiagram {
     std::string diagnostic;
 
     MeshData mesh;
-    // Source vertex IDs accepted as supports. If the caller supplies none,
-    // all topological boundary vertices are used.
+    // Source vertex IDs accepted as supports. An empty list deliberately
+    // means no supports unless fallbackToAllBoundarySupports is requested.
     std::vector<int> supportVertices;
     // One chain per support-to-support boundary walk, inclusive of both
     // support endpoints. A boundary loop without supports is one group.
     std::vector<std::vector<int>> boundaryGroups;
+    // Original boundary edges, including hole loops and their closing edges,
+    // recorded before exterior faces change the boundary topology.
+    std::vector<TnaEdge> boundaryEdges;
     // Original form edges participating in equilibrium. The closing chord of
     // every appended outside face is intentionally excluded.
     std::vector<TnaEdge> activeFormEdges;
@@ -54,6 +59,9 @@ struct TnaForceDiagram {
     // Undirected angle between each force edge and its corresponding form
     // edge, in degrees. Displayed reciprocal diagrams target 90 degrees.
     std::vector<float> edgeAnglesDegrees;
+    // Signed reciprocal-direction error, 0 = correct, 180 = reversed.
+    // Infinity denotes a degenerate or invalid reciprocal pair.
+    std::vector<float> edgeDirectionDeviationsDegrees;
 };
 
 struct TnaHorizontalSettings {
@@ -83,7 +91,8 @@ struct TnaHorizontalSettings {
         bool isTension{false};
     };
     // One item per ordered reciprocal pair. Empty means the COMPAS defaults
-    // above are applied to every pair.
+    // above are applied to every pair. Tension is enabled when either the
+    // form edge or this explicit constraint marks the pair as tension.
     std::vector<EdgeConstraint> edgeConstraints;
 };
 
@@ -91,7 +100,8 @@ struct TnaHorizontalEquilibrium {
     bool success{false};
     // The configured form/force passes have completed.
     bool converged{false};
-    // The completed reciprocal pair meets angleToleranceDegrees.
+    // Every nondegenerate reciprocal pair meets angleToleranceDegrees with
+    // the correct compression/tension direction.
     bool satisfiesAngleTarget{false};
     std::string diagnostic;
 
@@ -101,6 +111,7 @@ struct TnaHorizontalEquilibrium {
     std::vector<int> fixedFormVertices;
     std::vector<int> fixedForceVertices;
     std::vector<float> edgeAnglesDegrees;
+    std::vector<float> edgeDirectionDeviationsDegrees;
     std::vector<float> forceDensities;
     // The COMPAS horizontal solver forms these weighted directions once,
     // then parallelises both diagrams towards the same targets.
@@ -116,6 +127,7 @@ struct TnaHorizontalEquilibrium {
     // COMPAS completes the form pass before starting the force pass.
     bool solvingForceDiagram{false};
     float maximumAngleDeviation{0.0f};
+    float maximumDirectionDeviation{0.0f};
 };
 
 struct TnaVerticalSettings {
@@ -134,6 +146,11 @@ struct TnaVerticalSettings {
     // Original vertex Z values. Only entries at support vertices are used;
     // this keeps the supports at their pre-flattening elevations.
     std::vector<float> supportHeights;
+    // Optional starting elevations for self-weight iteration (all vertices).
+    std::vector<float> initialHeights;
+    // Vertices constrained only during vertical equilibrium. Horizontal
+    // fixed vertices are always included as vertical supports as well.
+    std::vector<int> additionalFixedVertices;
     // Added outside faces are topology-only and must not contribute load.
     std::vector<int> unloadedFaces;
     int maximumIterations{100};
@@ -141,6 +158,7 @@ struct TnaVerticalSettings {
 };
 
 struct TnaVerticalEquilibrium {
+    // True only when equilibrium converges with finite results.
     bool success{false};
     bool converged{false};
     std::string diagnostic;
@@ -155,10 +173,37 @@ struct TnaVerticalEquilibrium {
 
 class TnaSolver {
 public:
+    // With no supportVertices, the form has no fixed vertices. Set
+    // fallbackToAllBoundarySupports only when every boundary vertex is meant
+    // to be a support (for example, an untagged legacy OBJ).
     TnaFormDiagram makeFormDiagram(const MeshData& input,
-                                   const std::vector<int>& supportVertices = {}) const;
+                                   const std::vector<int>& supportVertices = {},
+                                   bool fallbackToAllBoundarySupports = false) const;
 
     TnaForceDiagram makeForceDiagram(const TnaFormDiagram& formDiagram) const;
+    // Densities are aligned with formDiagram.activeFormEdges, not mesh.edges.
+    TnaForceDiagram makeForceDiagram(const TnaFormDiagram& formDiagram,
+                                    const std::vector<float>& forceDensities) const;
+    static std::vector<float> vertexAreas(const MeshData& mesh,
+                                         const std::vector<int>& unloadedFaces = {});
+
+    // Call after makeFormDiagram and before makeForceDiagram. Match active
+    // edges by unordered endpoints; reject invalid selections atomically.
+    // Rebuild the force diagram and reset equilibrium after changing marks.
+    bool setTensionEdges(TnaFormDiagram& form,
+                         const std::vector<TnaEdge>& edges,
+                         bool isTension = true) const;
+    // Mark active original boundary edges on every loop, including holes.
+    // Inactive support-to-support edges and appended chords are excluded.
+    bool setBoundaryEdgesTension(TnaFormDiagram& form,
+                                 bool isTension = true) const;
+    // Walk the original boundary loop containing an outer-ring support.
+    // -1 uses the first original boundary loop, so a tension ring can also
+    // be marked on a form with no supports. Other loops and interior marks
+    // are kept.
+    bool setOuterBoundaryEdgesTension(TnaFormDiagram& form,
+                                      int supportVertex = -1,
+                                      bool isTension = true) const;
 
     bool resetHorizontalEquilibrium(const MeshData& formDiagram,
                                     const TnaForceDiagram& forceDiagram,

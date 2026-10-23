@@ -134,7 +134,9 @@ namespace alice2 {
         void applyTransform();
 
         // Mesh operations
-        void weld(float epsilon = 1e-6f);
+        // Normally keep the first vertex colour. When requested, any black
+        // source vertex (RGB <= 0.02) makes its welded vertex black as well.
+        void weld(float epsilon = 1e-6f, bool preserveBlackColors = false);
         void chamferVertices(const std::vector<int>& vertexIds,
                              float edgePercentage,
                              bool removeInternalEdges = true);
@@ -164,6 +166,11 @@ namespace alice2 {
         }
         const Color& getFrontColor() const { return m_frontColor; }
         const Color& getBackColor() const { return m_backColor; }
+
+        // Render each polygon with MeshFace::color instead of the shared
+        // vertex colours. Disabled by default to preserve analysis displays.
+        void setUseFaceColors(bool use) { m_useFaceColors = use; }
+        bool getUseFaceColors() const { return m_useFaceColors; }
 
         // Overlay controls
         void setShowVertices(bool show) { m_showVertices = show; }
@@ -231,6 +238,7 @@ namespace alice2 {
         // Normal shading colors
         Color m_frontColor;
         Color m_backColor;
+        bool m_useFaceColors;
 
         // Overlay controls
         bool m_showVertices;

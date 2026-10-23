@@ -876,6 +876,7 @@ namespace alice2 {
         , m_renderMode(MeshRenderMode::Lit)
         , m_frontColor(1.0f, 1.0f, 1.0f)  // Default: white
         , m_backColor(0.0f, 0.0f, 0.0f)   // Default: black
+        , m_useFaceColors(false)
         , m_showVertices(false)
         , m_showEdges(false)
         , m_showFaces(true)
@@ -902,6 +903,7 @@ namespace alice2 {
         // Normal shading colors
         copy.m_frontColor = m_frontColor;
         copy.m_backColor = m_backColor;
+        copy.m_useFaceColors = m_useFaceColors;
 
         // Overlay controls
         copy.m_showVertices = m_showVertices;
@@ -1273,11 +1275,25 @@ namespace alice2 {
             std::vector<Vec3> triangleNormals;
             std::vector<Color> triangleColors;
 
-            for (int index : m_meshData->triangleIndices) {
-                if (index >= 0 && index < static_cast<int>(m_meshData->vertices.size())) {
-                    triangleVertices.push_back(m_meshData->vertices[index].position);
-                    triangleNormals.push_back(m_meshData->vertices[index].normal);
-                    triangleColors.push_back(m_meshData->vertices[index].color);
+            if (m_useFaceColors) {
+                for (const MeshFace& face : m_meshData->faces) {
+                    if (face.vertices.size() < 3) continue;
+                    for (size_t i = 1; i + 1 < face.vertices.size(); ++i) {
+                        for (int index : {face.vertices[0], face.vertices[i], face.vertices[i + 1]}) {
+                            if (index < 0 || index >= static_cast<int>(m_meshData->vertices.size())) continue;
+                            triangleVertices.push_back(m_meshData->vertices[index].position);
+                            triangleNormals.push_back(m_meshData->vertices[index].normal);
+                            triangleColors.push_back(face.color);
+                        }
+                    }
+                }
+            } else {
+                for (int index : m_meshData->triangleIndices) {
+                    if (index >= 0 && index < static_cast<int>(m_meshData->vertices.size())) {
+                        triangleVertices.push_back(m_meshData->vertices[index].position);
+                        triangleNormals.push_back(m_meshData->vertices[index].normal);
+                        triangleColors.push_back(m_meshData->vertices[index].color);
+                    }
                 }
             }
 
@@ -2111,7 +2127,7 @@ namespace alice2 {
         return result;
     }
 
-    void MeshObject::weld(float epsilon)
+    void MeshObject::weld(float epsilon, bool preserveBlackColors)
     {
         struct Key
         {
@@ -2154,6 +2170,9 @@ namespace alice2 {
             else
             {
                 remap[i] = it->second;
+                const Color& color = getMeshData()->vertices[i].color;
+                if (preserveBlackColors && color.r <= 0.02f && color.g <= 0.02f && color.b <= 0.02f)
+                    newVerts[it->second].color = color;
             }
         }
 
@@ -2168,9 +2187,11 @@ namespace alice2 {
                 idx.push_back(remap[vid]);
             // remove consecutive duplicates
             idx.erase(std::unique(idx.begin(), idx.end()), idx.end());
+            if (idx.size() > 1 && idx.front() == idx.back()) idx.pop_back();
             if (idx.size() >= 3)
             {
-                MeshFace f(idx, getMeshData()->calculateFaceNormal({idx, {}, {}}), face.color);
+                // Normals are recomputed after committing the remapped vertices.
+                MeshFace f(idx, face.normal, face.color);
                 newFaces.push_back(f);
             }
         }

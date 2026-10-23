@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -30,15 +31,20 @@ public:
         scene().setAxesLength(1.2f);
         m_ui = std::make_unique<SimpleUI>(input());
         m_ui->setTheme(SimpleUI::UITheme::Dark);
-        m_ui->addSlider("Form weight", Vec2{10.0f, 92.0f}, 190.0f, 0.0f, 1.0f, m_formWeight);
-        m_ui->addSlider("H max iterations", Vec2{10.0f, 120.0f}, 190.0f, 1.0f, 500.0f, m_horizontalMaximumIterations);
-        m_ui->addSlider("H target angle", Vec2{10.0f, 148.0f}, 190.0f, 0.0f, 10.0f, m_horizontalTargetAngle);
-        m_ui->addSlider("V nodal load", Vec2{10.0f, 176.0f}, 190.0f, -0.01f, 0.01f, m_verticalLoad);
-        m_ui->addSlider("V self-weight density", Vec2{10.0f, 204.0f}, 190.0f, 0.0f, 10.0f, m_selfWeightDensity);
+        m_ui->addSlider("Form weight", Vec2{10.0f, 168.0f}, 190.0f, 0.0f, 1.0f, m_formWeight);
+        m_ui->addSlider("H max iterations", Vec2{10.0f, 196.0f}, 190.0f, 1.0f, 500.0f, m_horizontalMaximumIterations);
+        m_ui->addSlider("H target angle", Vec2{10.0f, 224.0f}, 190.0f, 0.0f, 20.0f, m_horizontalTargetAngle);
+        m_ui->addSlider("V nodal load", Vec2{10.0f, 252.0f}, 190.0f, -0.01f, 0.01f, m_verticalLoad);
+        m_ui->addSlider("V self-weight density", Vec2{10.0f, 280.0f}, 190.0f, 0.0f, 10.0f, m_selfWeightDensity);
+        m_ui->addSlider("Tension force vertex distance", Vec2{10.0f, 308.0f}, 220.0f,
+                        -1.0f, 10.0f, m_tensionForceVertexDistance);
         reload();
     }
 
     void update(float) override {
+        if (std::abs(m_tensionForceVertexDistance - m_appliedTensionForceVertexDistance) > 1e-6f) {
+            applyTensionForceVertexDistance(true);
+        }
         if (!m_horizontalRunning) return;
         const TnaHorizontalSettings settings = horizontalSettings();
         for (int step = 0; step < m_horizontalStepsPerFrame &&
@@ -55,12 +61,25 @@ public:
     void draw(Renderer& renderer, Camera&) override {
         if (m_showInput) drawMesh(renderer, m_inputMesh, Color(0.72f, 0.72f, 0.72f, 1.0f), 0.8f);
         drawFormDiagram(renderer);
+        drawForceDensities(renderer);
         drawForceDiagram(renderer);
         drawSupports(renderer);
 
         renderer.setColor(Color(0.06f, 0.06f, 0.06f, 1.0f));
-        renderer.drawString("r reload OBJ | h horizontal | v vertical | e export OBJ | i toggle original | a toggle angles", 10.0f, 30.0f);
+        renderer.drawString("r reload OBJ | h horizontal | v vertical | e export OBJ | i toggle original | a toggle angles | d toggle densities | g grow tension", 10.0f, 30.0f);
         renderer.drawString(m_status, 10.0f, 52.0f);
+        renderer.setColor(Color(0.85f, 0.08f, 0.35f, 1.0f));
+        renderer.drawString("Form: pink = tension | blue = compression | black = fixed XY/Z | red = fixed Z only", 10.0f, 74.0f);
+        renderer.setColor(Color(0.06f, 0.06f, 0.06f, 1.0f));
+        renderer.drawString(std::string("t toggle boundary tension: ") +
+                                (m_tensionEnabled ? "ON" : "OFF") + " (reloads form)",
+                            10.0f, 96.0f);
+        renderer.drawString(std::string("b tension boundary scope: ") +
+                                (m_allBoundaryTension ? "ALL" : "OUTER") + " (reloads form)",
+                            10.0f, 118.0f);
+        renderer.drawString(std::string("g grow tension from boundary: ") +
+                                (m_growBoundaryTension ? "ON" : "OFF") + " (reloads form)",
+                            10.0f, 136.0f);
         if (m_ui) m_ui->draw(renderer);
     }
 
@@ -72,6 +91,10 @@ public:
             case 'e': case 'E': exportFormFoundMesh(); return true;
             case 'i': case 'I': m_showInput = !m_showInput; return true;
             case 'a': case 'A': m_showForceAngles = !m_showForceAngles; return true;
+            case 'd': case 'D': m_showForceDensities = !m_showForceDensities; return true;
+            case 'b': case 'B': m_allBoundaryTension = !m_allBoundaryTension; reload(); return true;
+            case 'g': case 'G': m_growBoundaryTension = !m_growBoundaryTension; reload(); return true;
+            case 't': case 'T': m_tensionEnabled = !m_tensionEnabled; reload(); return true;
             default: return false;
         }
     }
@@ -96,6 +119,8 @@ private:
     void reload() {
         m_horizontalRunning = false;
         m_solver = TnaSolver{};
+        m_forceResult = {};
+        clearTensionForceVertexOffsets();
         m_inputObject = std::make_shared<MeshObject>("tna_input");
         try {
             m_inputObject->readFromObj(dataPath(m_objPath).string());
@@ -103,6 +128,7 @@ private:
             // Welding restores the shared topology required for boundary walks.
             m_inputObject->weld(1e-3f);
             m_inputMesh = m_inputObject->getMeshData();
+            m_verticalOnlySupports = redVertexSupports(*m_inputMesh);
 
             // The form diagram works in plan. Keep m_inputMesh untouched as
             // a grey reference and flatten only its duplicate used by TNA.
@@ -111,13 +137,24 @@ private:
             planarInput.calculateNormals();
             planarInput.triangulationDirty = true;
 
-            // Black vertex colours are explicit support tags. An ordinary OBJ
-            // has no such tags, so the builder falls back to all boundaries.
-            m_result = m_solver.makeFormDiagram(planarInput, blackVertexSupports(*m_inputMesh));
-            if (m_result.success) {
+            // Black vertex colours are explicit support tags. An untagged OBJ
+            // deliberately has no supports unless this compatibility option
+            // is explicitly enabled below.
+            m_result = m_solver.makeFormDiagram(planarInput, blackVertexSupports(*m_inputMesh),
+                                                 m_fallbackToAllBoundarySupports);
+            // Boundary tension can be limited to the outer support loop or
+            // applied to every boundary loop, including openings.
+            if (m_result.success &&
+                (!m_tensionEnabled ||
+                 (m_allBoundaryTension
+                      ? m_solver.setBoundaryEdgesTension(m_result)
+                      : m_solver.setOuterBoundaryEdgesTension(m_result))) &&
+                (!m_tensionEnabled || !m_growBoundaryTension || growBoundaryTensionMark())) {
                 m_formMesh = std::make_shared<MeshData>(m_result.mesh);
                 m_forceResult = m_solver.makeForceDiagram(m_result);
                 if (m_forceResult.success) {
+                    cacheTensionForceVertexOffsets();
+                    applyTensionForceVertexDistance(false);
                     m_forceMesh = std::make_shared<MeshData>(m_forceResult.mesh);
                     m_initialFormMesh = std::make_shared<MeshData>(*m_formMesh);
                     m_status = m_result.diagnostic + " | " + m_forceResult.diagnostic;
@@ -137,6 +174,7 @@ private:
             m_formMesh.reset();
             m_forceMesh.reset();
             m_initialFormMesh.reset();
+            m_verticalOnlySupports.clear();
             m_status = std::string("Failed to load ") + m_objPath + ": " + error.what();
         }
     }
@@ -163,6 +201,126 @@ private:
         m_forceMesh = std::make_shared<MeshData>(horizontal.forceDiagram);
         m_horizontalRunning = true;
         m_status = horizontal.diagnostic;
+    }
+
+    // Expand the currently marked boundary tension by exactly one topological
+    // edge ring. Existing tension edges seed the band; any candidate touching
+    // a black support is omitted so supports stay at the tension boundary.
+    bool growBoundaryTensionMark() {
+        std::vector<bool> tensionVertices(m_result.mesh.vertices.size(), false);
+        std::vector<bool> supports(m_result.mesh.vertices.size(), false);
+        for (const int vertex : m_result.supportVertices) {
+            if (vertex >= 0 && vertex < static_cast<int>(supports.size())) supports[vertex] = true;
+        }
+        for (const TnaEdge& edge : m_result.activeFormEdges) {
+            if (!edge.isTension) continue;
+            if (edge.vertexA >= 0 && edge.vertexA < static_cast<int>(tensionVertices.size())) {
+                tensionVertices[edge.vertexA] = true;
+            }
+            if (edge.vertexB >= 0 && edge.vertexB < static_cast<int>(tensionVertices.size())) {
+                tensionVertices[edge.vertexB] = true;
+            }
+        }
+
+        std::vector<TnaEdge> growthEdges;
+        for (const TnaEdge& edge : m_result.activeFormEdges) {
+            if (edge.isTension || edge.vertexA < 0 || edge.vertexB < 0 ||
+                edge.vertexA >= static_cast<int>(tensionVertices.size()) ||
+                edge.vertexB >= static_cast<int>(tensionVertices.size())) continue;
+            if (supports[edge.vertexA] || supports[edge.vertexB]) continue;
+            if (tensionVertices[edge.vertexA] || tensionVertices[edge.vertexB]) {
+                growthEdges.push_back(edge);
+            }
+        }
+        return m_solver.setTensionEdges(m_result, growthEdges);
+    }
+
+    // A force vertex is selected only when it has at least one incident
+    // reciprocal edge and every one of those edges corresponds to tension in
+    // the form diagram. Cache its original position and the unit vector from
+    // the selected-set centroid once, so the slider is always pos + unit * d.
+    void cacheTensionForceVertexOffsets() {
+        clearTensionForceVertexOffsets();
+        if (!m_forceResult.success || m_forceResult.mesh.vertices.empty()) return;
+
+        const MeshData& force = m_forceResult.mesh;
+        std::vector<int> valences(force.vertices.size(), 0);
+        std::vector<bool> allIncidentEdgesTension(force.vertices.size(), true);
+        for (int edgeIndex = 0; edgeIndex < static_cast<int>(force.edges.size()); ++edgeIndex) {
+            const MeshEdge& edge = force.edges[edgeIndex];
+            if (edge.vertexA < 0 || edge.vertexB < 0 ||
+                edge.vertexA >= static_cast<int>(force.vertices.size()) ||
+                edge.vertexB >= static_cast<int>(force.vertices.size())) continue;
+            const bool isTension = edgeIndex < static_cast<int>(m_forceResult.reciprocalFormEdges.size()) &&
+                                   m_forceResult.reciprocalFormEdges[edgeIndex].isTension;
+            ++valences[edge.vertexA];
+            ++valences[edge.vertexB];
+            allIncidentEdgesTension[edge.vertexA] = allIncidentEdgesTension[edge.vertexA] && isTension;
+            allIncidentEdgesTension[edge.vertexB] = allIncidentEdgesTension[edge.vertexB] && isTension;
+        }
+
+        Vec3 centroid(0.0f, 0.0f, 0.0f);
+        for (int vertex = 0; vertex < static_cast<int>(force.vertices.size()); ++vertex) {
+            if (valences[vertex] == 0 || !allIncidentEdgesTension[vertex]) continue;
+            m_tensionForceVertexIds.push_back(vertex);
+            centroid += force.vertices[vertex].position;
+        }
+
+        // These are geometric control vertices, not merely display edits.
+        // resetHorizontalEquilibrium copies this list into its fixed-force
+        // constraints, so parallelisation cannot move them.
+        for (const int vertex : m_tensionForceVertexIds) {
+            if (std::find(m_forceResult.fixedForceVertices.begin(),
+                          m_forceResult.fixedForceVertices.end(), vertex) ==
+                m_forceResult.fixedForceVertices.end()) {
+                m_forceResult.fixedForceVertices.push_back(vertex);
+            }
+        }
+
+        if (m_tensionForceVertexIds.empty()) return;
+        centroid /= static_cast<float>(m_tensionForceVertexIds.size());
+        m_tensionForceVertexPositions.reserve(m_tensionForceVertexIds.size());
+        m_tensionForceVertexDirections.reserve(m_tensionForceVertexIds.size());
+        for (const int vertex : m_tensionForceVertexIds) {
+            const Vec3 position = force.vertices[vertex].position;
+            m_tensionForceVertexPositions.push_back(position);
+            m_tensionForceVertexDirections.push_back((position - centroid).normalized());
+        }
+    }
+
+    void clearTensionForceVertexOffsets() {
+        m_tensionForceVertexIds.clear();
+        m_tensionForceVertexPositions.clear();
+        m_tensionForceVertexDirections.clear();
+        m_appliedTensionForceVertexDistance = std::numeric_limits<float>::infinity();
+    }
+
+    void applyTensionForceVertexDistance(bool invalidateEquilibrium) {
+        if (!m_forceResult.success || m_tensionForceVertexIds.empty()) {
+            m_appliedTensionForceVertexDistance = m_tensionForceVertexDistance;
+            return;
+        }
+        MeshData& force = m_forceResult.mesh;
+        for (int index = 0; index < static_cast<int>(m_tensionForceVertexIds.size()); ++index) {
+            const int vertex = m_tensionForceVertexIds[index];
+            if (vertex < 0 || vertex >= static_cast<int>(force.vertices.size())) continue;
+            force.vertices[vertex].position = m_tensionForceVertexPositions[index] +
+                                              m_tensionForceVertexDirections[index] *
+                                                  m_tensionForceVertexDistance;
+        }
+        force.calculateNormals();
+        force.triangulationDirty = true;
+        m_appliedTensionForceVertexDistance = m_tensionForceVertexDistance;
+
+        // The edited positions are the next horizontal solve's initial force
+        // diagram. Discard an older solve rather than allowing v to use it.
+        if (invalidateEquilibrium && m_solver.horizontalEquilibrium().success) {
+            m_horizontalRunning = false;
+            m_solver = TnaSolver{};
+            if (m_initialFormMesh) m_formMesh = std::make_shared<MeshData>(*m_initialFormMesh);
+            m_status = "Tension force-vertex distance changed; press h to solve horizontal equilibrium";
+        }
+        if (m_forceMesh) *m_forceMesh = force;
     }
 
     TnaHorizontalSettings horizontalSettings() const {
@@ -233,9 +391,10 @@ private:
         for (const MeshVertex& vertex : m_inputMesh->vertices) {
             settings.supportHeights.push_back(vertex.position.z);
         }
+        settings.additionalFixedVertices = m_verticalOnlySupports;
         settings.unloadedFaces = m_result.exteriorFormFaces;
 
-        if (!m_solver.solveVerticalEquilibrium(settings)) {
+        if (!m_solver.solveVerticalEquilibrium(settings) || !m_solver.verticalEquilibrium().converged) {
             m_status = m_solver.verticalEquilibrium().diagnostic;
             return;
         }
@@ -287,6 +446,19 @@ private:
         return supports;
     }
 
+    static std::vector<int> redVertexSupports(const MeshData& mesh) {
+        constexpr float redMinimum = 0.8f;
+        constexpr float otherMaximum = 0.2f;
+        std::vector<int> supports;
+        for (int vertex = 0; vertex < static_cast<int>(mesh.vertices.size()); ++vertex) {
+            const Color& color = mesh.vertices[vertex].color;
+            if (color.r >= redMinimum && color.g <= otherMaximum && color.b <= otherMaximum) {
+                supports.push_back(vertex);
+            }
+        }
+        return supports;
+    }
+
     static void drawMesh(Renderer& renderer, const std::shared_ptr<MeshData>& mesh,
                          const Color& color, float width) {
         if (!mesh) return;
@@ -309,16 +481,22 @@ private:
         // reciprocal force edge, so do not render them as form members.
         std::vector<Vec3> segments;
         segments.reserve(m_result.activeFormEdges.size() * 2);
+        std::vector<Vec3> tensionSegments;
         for (const TnaEdge& edge : m_result.activeFormEdges) {
             if (edge.vertexA < 0 || edge.vertexB < 0 ||
                 edge.vertexA >= static_cast<int>(m_formMesh->vertices.size()) ||
                 edge.vertexB >= static_cast<int>(m_formMesh->vertices.size())) continue;
-            segments.push_back(m_formMesh->vertices[edge.vertexA].position);
-            segments.push_back(m_formMesh->vertices[edge.vertexB].position);
+            auto& selectedSegments = edge.isTension ? tensionSegments : segments;
+            selectedSegments.push_back(m_formMesh->vertices[edge.vertexA].position);
+            selectedSegments.push_back(m_formMesh->vertices[edge.vertexB].position);
         }
         if (!segments.empty()) {
             renderer.drawLines(segments.data(), static_cast<int>(segments.size()),
                                Color(0.05f, 0.32f, 0.82f, 1.0f), 1.8f);
+        }
+        if (!tensionSegments.empty()) {
+            renderer.drawLines(tensionSegments.data(), static_cast<int>(tensionSegments.size()),
+                               Color(0.85f, 0.08f, 0.35f, 1.0f), 3.0f);
         }
     }
 
@@ -327,6 +505,33 @@ private:
         for (const int vertex : m_result.supportVertices) {
             if (vertex < 0 || vertex >= static_cast<int>(m_formMesh->vertices.size())) continue;
             renderer.drawPoint(m_formMesh->vertices[vertex].position, Color(0.0f, 0.0f, 0.0f, 1.0f), 8.0f);
+        }
+        for (const int vertex : m_verticalOnlySupports) {
+            if (vertex < 0 || vertex >= static_cast<int>(m_formMesh->vertices.size())) continue;
+            renderer.drawPoint(m_formMesh->vertices[vertex].position, Color(0.9f, 0.05f, 0.05f, 1.0f), 8.0f);
+        }
+    }
+
+    void drawForceDensities(Renderer& renderer) const {
+        if (!m_showForceDensities || !m_formMesh) return;
+        const TnaHorizontalEquilibrium& horizontal = m_solver.horizontalEquilibrium();
+        for (int edgeIndex = 0;
+             edgeIndex < static_cast<int>(horizontal.reciprocalFormEdges.size()) &&
+             edgeIndex < static_cast<int>(horizontal.forceDensities.size()); ++edgeIndex) {
+            const TnaEdge& edge = horizontal.reciprocalFormEdges[edgeIndex];
+            if (edge.vertexA < 0 || edge.vertexB < 0 ||
+                edge.vertexA >= static_cast<int>(m_formMesh->vertices.size()) ||
+                edge.vertexB >= static_cast<int>(m_formMesh->vertices.size())) continue;
+            const float density = horizontal.forceDensities[edgeIndex];
+            if (!std::isfinite(density)) continue;
+            const Vec3 midpoint = (m_formMesh->vertices[edge.vertexA].position +
+                                   m_formMesh->vertices[edge.vertexB].position) * 0.5f;
+            std::ostringstream label;
+            label << std::fixed << std::setprecision(3) << density;
+            renderer.setColor(density < 0.0f
+                                  ? Color(0.85f, 0.08f, 0.35f, 1.0f)
+                                  : Color(0.05f, 0.32f, 0.82f, 1.0f));
+            renderer.drawText(label.str(), midpoint + Vec3(0.0f, 0.0f, 0.001f), 1.00f);
         }
     }
 
@@ -374,7 +579,8 @@ private:
 
     const std::vector<float>& forceAngles() const {
         const TnaHorizontalEquilibrium& horizontal = m_solver.horizontalEquilibrium();
-        return horizontal.success ? horizontal.edgeAnglesDegrees : m_forceResult.edgeAnglesDegrees;
+        return horizontal.success ? horizontal.edgeDirectionDeviationsDegrees
+                                  : m_forceResult.edgeDirectionDeviationsDegrees;
     }
 
     void drawForceDiagram(Renderer& renderer) const {
@@ -387,7 +593,7 @@ private:
                 edge.vertexA >= static_cast<int>(m_forceMesh->vertices.size()) ||
                 edge.vertexB >= static_cast<int>(m_forceMesh->vertices.size())) continue;
             const Color color = edgeIndex < static_cast<int>(angles.size())
-                                    ? forceAngleColor(std::abs(90.0f - angles[edgeIndex]))
+                                    ? forceAngleColor(angles[edgeIndex])
                                     : Color(0.40f, 0.40f, 0.40f, 1.0f);
             renderer.drawLine(m_forceMesh->vertices[edge.vertexA].position + offset,
                               m_forceMesh->vertices[edge.vertexB].position + offset,
@@ -404,8 +610,9 @@ private:
             const Vec3 midpoint = (m_forceMesh->vertices[edge.vertexA].position +
                                    m_forceMesh->vertices[edge.vertexB].position) * 0.5f + offset;
             std::ostringstream angle;
-            const float deviation = std::abs(90.0f - angles[edgeIndex]);
-            angle << std::fixed << std::setprecision(1) << deviation;
+            const float deviation = angles[edgeIndex];
+            if (std::isfinite(deviation)) angle << std::fixed << std::setprecision(1) << deviation;
+            else angle << "invalid";
             renderer.setColor(forceAngleColor(deviation));
             renderer.drawText(angle.str(), midpoint + Vec3(0.0f, 0.0f, 0.001f), 1.00f);
         }
@@ -421,6 +628,7 @@ private:
     TnaSolver m_solver;
     TnaFormDiagram m_result;
     TnaForceDiagram m_forceResult;
+    std::vector<int> m_verticalOnlySupports;
     std::string m_status{"Loading TNA mesh"};
     float m_formWeight{0.5f};
     float m_horizontalTargetAngle{3.0f};
@@ -446,10 +654,23 @@ private:
     float m_verticalForceScale{1.0f};
     float m_verticalResidualTolerance{1e-3f};
     float m_verticalMaximumIterations{100.0f};
+    // Offset applied to force vertices incident exclusively to tension edges.
+    float m_tensionForceVertexDistance{0.0f};
+    float m_appliedTensionForceVertexDistance{std::numeric_limits<float>::infinity()};
+    std::vector<int> m_tensionForceVertexIds;
+    std::vector<Vec3> m_tensionForceVertexPositions;
+    std::vector<Vec3> m_tensionForceVertexDirections;
     int m_horizontalStepsPerFrame{2};
     bool m_horizontalRunning{false};
+    // Set true only for legacy untagged OBJs whose full boundary is intended
+    // to be fixed. The default leaves an untagged form support-free.
+    bool m_fallbackToAllBoundarySupports{false};
+    bool m_tensionEnabled{true};
+    bool m_allBoundaryTension{false};
+    bool m_growBoundaryTension{false};
     bool m_showInput{true};
     bool m_showForceAngles{true};
+    bool m_showForceDensities{false};
 };
 
 ALICE2_REGISTER_SKETCH_AUTO(TnaSketch)
