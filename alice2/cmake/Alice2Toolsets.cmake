@@ -13,6 +13,7 @@ if(ALICE2_WITH_ZSPACE_CORE)
     endif()
     option(ZSPACE_TOOLSETS_WITH_TETGEN "Enable desktop harmonic slicing" ON)
     option(ZSPACE_TOOLSETS_SLICING_OPENMP "Enable desktop slicer parallelism" ON)
+    set(ZSPACE_TOOLSETS_WITH_USD_IO ${ALICE2_WITH_TS3DP_USD} CACHE BOOL "Enable Toolsets slicer IO" FORCE)
     add_subdirectory("${ZSPACE_TOOLSETS_DIR}" "${CMAKE_BINARY_DIR}/zspace_toolsets_build")
 endif()
 

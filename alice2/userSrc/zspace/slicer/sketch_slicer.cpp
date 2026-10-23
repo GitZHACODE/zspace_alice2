@@ -27,6 +27,7 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <iomanip>
 #include <limits>
 #include <map>
 #include <memory>
@@ -303,7 +304,7 @@ private:
       return;
     }
     std::string error;
-    if (!zSpace::aliceSlicingUSD::exportUSD(
+    if (!zSpace::zTsIO::exportUSD(
             path, state.inputMeshPath, fileBuffer,
             static_cast<int>(slicer->getPrintPaths3D().size()), &error))
       logFail("Export USD", error);
@@ -330,7 +331,7 @@ private:
     state.fieldPathSegments.clear();
     // computePostProcess performs extraction itself; do not extract twice.
     // Retain partial outputs for inspection if a PrintSyn stage fails.
-    if (!slicer.computePostProcess(state.printSettings))
+    if (!timedCompute([&] { return slicer.computePostProcess(state.printSettings); }))
       logFail("PrintSyn", slicer.getStatus());
 
     const auto &layers = slicer.getPrintPaths3D();
@@ -377,10 +378,10 @@ private:
 
 #if defined(ALICE2_SLICER_USD)
   void loadUSDInputs() {
-    zSpace::aliceSlicingUSD::SlicerUSDInput input;
+    zSpace::zTsIO::SlicerUSDInput input;
     std::string error;
     logInput("File: " + state.inputMeshPath);
-    if (!zSpace::aliceSlicingUSD::importUSD(state.inputMeshPath, input,
+    if (!zSpace::zTsIO::importUSD(state.inputMeshPath, input,
                                                      &error)) {
       logFail("Input", error);
       return;
@@ -459,7 +460,7 @@ private:
   // on the loaded inputs.
   void runSelectedSlicer() {
     clearResults();
-    const auto start = std::chrono::steady_clock::now();
+    computeSeconds = 0.0;
     if (state.slicerChoice == kSlicerTopology) {
       state.slicer.reset();
       if (!state.topoSlicer)
@@ -471,13 +472,31 @@ private:
         state.slicer = std::make_unique<zSpace::HarmonicSlicer>();
       runHarmonicPipeline();
     }
-    const auto elapsed = std::chrono::duration<double, std::milli>(
-        std::chrono::steady_clock::now() - start);
-    std::cout << "["
-              << (state.slicerChoice == kSlicerTopology ? "TopologySlicer"
-                                                        : "HarmonicSlicer")
-              << "] computation time: " << elapsed.count() << " ms"
-              << std::endl;
+    const zSpace::zSlicer *active = state.slicerChoice == kSlicerTopology
+        ? static_cast<const zSpace::zSlicer *>(state.topoSlicer.get())
+        : static_cast<const zSpace::zSlicer *>(state.slicer.get());
+    if (!active) return;
+    const auto &path = active->getResultantPrintPath();
+    zSpace::zFnGraph graph(const_cast<zSpace::zObjGraph &>(path.graph));
+    std::ostringstream summary;
+    summary << std::fixed << std::setprecision(3)
+            << (state.slicerChoice == kSlicerTopology ? "Topology" : "Harmonic")
+            << " | Layers: " << active->getPrintPaths3D().size()
+            << " | Printpath points: " << graph.numVertices()
+            << " | Compute: " << computeSeconds << " s"
+            << " | Data transfer: 0.000 s"
+            << " | Total: " << computeSeconds << " s";
+    std::cout << summary.str() << std::endl;
+  }
+
+  // Time algorithm calls only; scene/display preparation is outside these calls.
+  double computeSeconds = 0.0;
+  template <typename F> bool timedCompute(F &&call) {
+    const auto start = std::chrono::steady_clock::now();
+    const bool ok = call();
+    computeSeconds += std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - start).count();
+    return ok;
   }
 
   void runHarmonicPipeline() {
@@ -502,18 +521,18 @@ private:
         logFail("HarmonicSlicer", std::string("run stopped at ") + step + ".");
       return !ok;
     };
-    if (stopped(state.slicer->computeBasicStructure(), "computeBasicStructure"))
+    if (stopped(timedCompute([&] { return state.slicer->computeBasicStructure(); }), "computeBasicStructure"))
       return; // step 1: tag and tetrahedralize
     rebuildTetWireGraph(state, scene());
-    if (stopped(state.slicer->computeHarmonicField(), "computeHarmonicField"))
+    if (stopped(timedCompute([&] { return state.slicer->computeHarmonicField(); }), "computeHarmonicField"))
       return; // step 3: harmonic (w) values
-    if (stopped(state.slicer->computeVolumetricParameterization(),
+    if (stopped(timedCompute([&] { return state.slicer->computeVolumetricParameterization(); }),
                 "computeVolumetricParameterization"))
       return; // step 4: tracing (u,v) values
-    if (stopped(state.slicer->computeContours(), "computeContours"))
+    if (stopped(timedCompute([&] { return state.slicer->computeContours(); }), "computeContours"))
       return; // step 5: slice meshes, ARAP charts and boundaries
     colorHarmonicIsoByUV(state, scene());
-    if (stopped(state.slicer->computeField(), "computeField"))
+    if (stopped(timedCompute([&] { return state.slicer->computeField(); }), "computeField"))
       return; // step 7: per-layer path/width fields
     computeProcessedPrintPaths(
         *state.slicer); // Process once and cache per-layer display paths.
@@ -561,7 +580,7 @@ private:
     }
 
     // computeSlicer builds the basic structure and stops if any step fails.
-    if (!state.topoSlicer->computeSlicer()) {
+    if (!timedCompute([&] { return state.topoSlicer->computeSlicer(); })) {
       logFail("TopologySlicer", "run stopped at computeSlicer.");
       return;
     }

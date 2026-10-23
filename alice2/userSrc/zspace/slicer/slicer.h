@@ -1,47 +1,5 @@
 #pragma once
-#include <zspace/zToolsets/fabrication/slicing/printsyn/zPrintSyn.h>
-#include <zspace/zToolsets/fabrication/slicing/utils/Utils.h>
-namespace zSpace {
-namespace aliceSlicingUSD {
-
-// Copy an input USD and replace /TDP_gcode with a Scope containing ordered path
-// data. Custom arrays printNormals/printWidths/printHeight correspond 1:1 to
-// points. Path coordinates/lengths are millimetres; export converts to the
-// source stage units.
-bool exportUSD(const PrintPath &path, const std::string &inputFilePath,
-                        const std::string &filePath, int layerCount,
-                        std::string *outError = nullptr, int blockid = 0);
-
-// Settings and PrintSettings are resolved native settings.
-// Returned coordinates and dimensional settings are millimetres after
-// object transforms. MetersPerUnit records the source file unit; ratios,
-// angles, tags and IDs are unchanged.
-struct SlicerUSDInput {
-  zObjMesh Block;
-  zIntArray FaceTags;
-  zIntArray FaceWidthIds;    // Per-face widthid into settings BoundaryWidth.
-  zIntArray BracingWidthIds; // Per-curve widthid into settings BracingWidth.
-  zObjGraph Bracing;
-  size_t BracingCurveCount = 0;
-  zFloatArray BracingPrintWidths;
-  zPoint StartPoint;
-  SlicerSettings Settings;
-  PrintSynSetting PrintSettings;
-  std::vector<std::string> UnknownSettings;
-  double MetersPerUnit = 0.01;
-  std::string UpAxis;
-};
-// Uses the generic Core IO USD document API.
-// Paths must identify the geometry prim itself; missing/wrong schemas are
-// errors. Failure clears the output and returns a diagnostic through outError.
-bool importUSD(const std::string &filePath, SlicerUSDInput &out,
-                        std::string *outError = nullptr,
-                        const std::string &blockPath = "/AG_block",
-                        const std::string &bracingPath = "/Slicer_bracing",
-                        const std::string &startPath = "/Slicer_slot");
-
-} // namespace aliceSlicingUSD
-} // namespace zSpace
+#include <zspace/zToolsets/fabrication/slicing/utils/IO.h>
 
 // IO and headless tests share this header without pulling in Alice rendering.
 #ifndef ALICE2_SLICER_IO_ONLY

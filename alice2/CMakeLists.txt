@@ -289,7 +289,6 @@ else()
     endif()
     if("${CMAKE_CURRENT_SOURCE_DIR}/userSrc/zspace/slicer/sketch_slicer.cpp" IN_LIST ALICE2_USER_SOURCES)
         list(APPEND ALICE2_USER_SOURCES
-            "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/zspace/slicer/SlicerIO.cpp"
             "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/zspace/slicer/SlicerDisplay.cpp")
     endif()
     list(APPEND ALICE2_SOURCES ${ALICE2_USER_SOURCES})
@@ -534,10 +533,9 @@ if(ALICE2_BUILD_SLICING_TESTS)
     if(NOT ALICE2_WITH_ZSPACE_CORE OR NOT ALICE2_WITH_TS3DP_USD OR NOT ZSPACE_TOOLSETS_WITH_TETGEN)
         message(FATAL_ERROR "Desktop slicing tests require core, native USD and TetGen")
     endif()
-    add_executable(alice2_slicing_smoke verification/slicing_smoke.cpp
-        userSrc/zspace/slicer/SlicerIO.cpp)
+    add_executable(alice2_slicing_smoke verification/slicing_smoke.cpp)
     target_link_libraries(alice2_slicing_smoke PRIVATE zspace::toolsets zspace::io)
-    # Test the same IO translation unit without depending on the UI executable.
+    # Test Toolsets schema IO without depending on the UI executable.
     zspace_deploy_runtime(TARGET alice2_slicing_smoke COMPONENTS io)
     foreach(runtime core interface io toolsets)
         add_custom_command(TARGET alice2_slicing_smoke POST_BUILD
