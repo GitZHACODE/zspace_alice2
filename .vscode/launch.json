@@ -1,18 +1,30 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "Debug Alice2",
-            "type": "cppdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/alice2/build/clang-release/bin/alice2",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/alice2",
-            "environment": [],
-            "externalConsole": false,
-            "MIMode": "gdb",
-            "preLaunchTask": "Build Alice2"
-        }
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Alice2 (Windows)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/alice2/build/Debug/base/sketch_base.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}/alice2/build/Debug/base",
+      "environment": [],
+      "externalConsole": false,
+      "preLaunchTask": "Build Alice2 Debug"
+    },
+    {
+      "name": "Debug Alice2 (Linux)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/alice2/build/clang-debug/Debug/base/sketch_base",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}/alice2/build/clang-debug/Debug/base",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "preLaunchTask": "Build Alice2 Debug"
+    }
+  ]
 }

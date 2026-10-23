@@ -602,8 +602,8 @@ Archive source/dependency revisions, build flags, hardware, thread configuration
 
 ~~~powershell
 cmake --build alice2/build --config Release --parallel 4
-./alice2/build/bin/Release/alice2.exe --check-bestfit-tna
-./alice2/build/bin/Release/alice2.exe --check-offset-cable path/to/tna.obj
+./alice2/build/Release/checks/alice2_checks.exe --check-bestfit-tna
+./alice2/build/Release/checks/alice2_checks.exe --check-offset-cable path/to/tna.obj
 ~~~
 
 The synthetic suite covers the coupled tied arch, vertical-only fixed reactions, fixed XYZ/Z, independent red/yellow preferences, all-sliding anchors, cancellation, incompatible-network nonacceptance, topology, branching, shared anchors, welding and surface-only loads. It also includes separate v1/TNA regressions.
@@ -656,7 +656,7 @@ Source links:
 - [BestFitForceDensitySolver.h](../../alice2/src/tna/BestFitForceDensitySolver.h)
 - [TnaSolver.cpp](../../alice2/src/tna/TnaSolver.cpp)
 - [TnaSolver.h](../../alice2/src/tna/TnaSolver.h)
-- [sketch_bestfit_tna_v2.cpp](../../alice2/userSrc/geometry/sketch_bestfit_tna_v2.cpp)
+- [sketch_bestfit_tna_v2.cpp](../../alice2/userSrc/bestfit/sketch_bestfit_tna_v2.cpp)
 - [BestFitTnaChecks.cpp](../../alice2/src/tna/BestFitTnaChecks.cpp)
 
 The bundled SparseQR threshold was checked in alice2/build/_deps/eigen-src/Eigen/src/SparseQR/SparseQR.h; that generated dependency location may not exist in a fresh checkout.

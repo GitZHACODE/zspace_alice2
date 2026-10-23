@@ -1,12 +1,12 @@
 # Compression best fit, TNA, then offset-cable best fit
 
-Branch: **experiment/tna-then-offset-bestfit**. Active sketch: [sketch_tna_offset_bestfit.cpp](../../alice2/userSrc/geometry/sketch_tna_offset_bestfit.cpp), enabled with its first-line main define.
+Branch: **experiment/tna-then-offset-bestfit**. Active sketch: [sketch_tna_offset_bestfit.cpp](../../alice2/userSrc/bestfit/sketch_tna_offset_bestfit.cpp), enabled with its first-line main define.
 
 This three-stage, manually triggered experiment replaces the earlier automatic two-stage procedure. It uses the same OBJ reader, colour thresholds, welding, negative offsets, cable branching, tension-only connectors, surface loads, and final spatial best-fit solver as v2.
 
 ## Input and keys
 
-Input remains **working-directory/data/tna.obj**, with no absolute-path fallback. The lowpoly test uses alice2/build/bin/Release/data/tna.obj: 169 welded vertices and 144 faces. The separate alice2/data/tna.obj has 472 welded vertices and 416 faces. The sketch does not overwrite or swap these inputs.
+Input remains **working-directory/data/tna.obj**, with no absolute-path fallback. The lowpoly test uses alice2/build/bin/Release/data/tna.obj: 169 welded vertices and 144 faces. The separate alice2/build/Release/bestfit/data/tna.obj has 472 welded vertices and 416 faces. The sketch does not overwrite or swap these inputs.
 
 | Key | Action |
 |---|---|
@@ -119,9 +119,9 @@ Node reference means original input for compression fitting, saved compression b
 From the repository root:
 
     cmake --build alice2/build --config Release --parallel 4
-    .\alice2\build\bin\Release\alice2.exe --check-tna-offset
-    .\alice2\build\bin\Release\alice2.exe --check-bestfit-tna
-    .\alice2\build\bin\Release\alice2.exe --check-tna-offset alice2/build/bin/Release/data/tna.obj 50
+    .\alice2\build\bin\Release\alice2_checks.exe --check-tna-offset
+    .\alice2\build\bin\Release\alice2_checks.exe --check-bestfit-tna
+    .\alice2\build\bin\Release\alice2_checks.exe --check-tna-offset alice2/build/bin/Release/data/tna.obj 50
 
 The command-line check explicitly starts/waits for each stage, following q, t, c. Optional arguments: OBJ path, fit budget, form weight, horizontal budget. A real-input run returns nonzero for failed compression/TNA or an unfinished final cable equilibrium.
 

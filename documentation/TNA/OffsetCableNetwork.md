@@ -4,7 +4,7 @@ For paper preparation, see the [computational and mathematical reference](Offset
 
 Checked against the current sources on 2026-10-06, after restoring commit `1fffc12` ("before sparseQR"). The commit name is historical: this baseline already uses Eigen SparseQR for its coupled linear steps. It has a finite-difference Jacobian and rebuilds the QR factorization every iteration. The later analytic Jacobian, cached symbolic analysis, LSMR method, solver switch and offset timing command are absent from this revision.
 
-The enabled sketch is `alice2/userSrc/geometry/sketch_bestfit_tna_v2.cpp`, registered as **Offset Cable Network (3D)**. Its method is spatial equilibrium form-finding using signed force densities: it jointly adjusts member densities and free node coordinates. The older v1 two-stage fitting/TNA workflow is documented separately in [BestFitTna.md](BestFitTna.md); v1 is currently disabled in its source.
+The enabled sketch is `alice2/userSrc/bestfit/sketch_bestfit_tna_v2.cpp`, registered as **Offset Cable Network (3D)**. Its method is spatial equilibrium form-finding using signed force densities: it jointly adjusts member densities and free node coordinates. The older v1 two-stage fitting/TNA workflow is documented separately in [BestFitTna.md](BestFitTna.md); v1 is currently disabled in its source.
 
 This method is related to 3D graphic statics through spatial force equilibrium. It does not construct a reciprocal force diagram or polyhedral force cells, and does not run a reciprocal TNA stage. Those diagram relationships distinguish the polyhedral graphic-statics approach; see the [Block Research Group overview](https://blockresearchgroup.github.io/compas_3gs/latest/overview/00_graphic_statics.html).
 
@@ -218,8 +218,8 @@ Press `e` to write both files beneath `<working directory>/data/`. Exports are a
 
 ```powershell
 cmake --build alice2/build --config Release --parallel 4
-./alice2/build/bin/Release/alice2.exe --check-bestfit-tna
-./alice2/build/bin/Release/alice2.exe --check-offset-cable path/to/tna.obj
+./alice2/build/Release/checks/alice2_checks.exe --check-bestfit-tna
+./alice2/build/Release/checks/alice2_checks.exe --check-offset-cable path/to/tna.obj
 ```
 
 The synthetic suite checks the tied-arch coupled fit and vertical-only black reactions, red/yellow movement preferences, fixed heights, all-sliding anchors, cancellation, and honest failure on an incompatible network. Topology checks cover branching, offset movement, boundary anchors, red classification, surface-only loads, face-corner welding and invalid input. It also includes the older fitting/TNA regression checks.
@@ -230,7 +230,7 @@ All-tension joints need incident force directions that can balance the applied l
 
 ## Source map
 
-- [Sketch controls, worker, display and exporters](../../alice2/userSrc/geometry/sketch_bestfit_tna_v2.cpp)
+- [Sketch controls, worker, display and exporters](../../alice2/userSrc/bestfit/sketch_bestfit_tna_v2.cpp)
 - [Welding, offset topology and load settings](../../alice2/src/tna/OffsetCableNetwork.h)
 - [Coupled variables, objective, finite differences, QR and schedule](../../alice2/src/tna/VerticalReactionFit.h)
 - [Shared load/residual reporting and initial seed solver](../../alice2/src/tna/BestFitForceDensitySolver.cpp)
