@@ -234,6 +234,30 @@ int main(int argc,char** argv) {
     const bool reimported=zTsIO::readSlicerInputUSD(exported.string(),reread,&error);
     require(reimported,"USD exported input reimport: "+error);
     require(reread.FaceTags==input.FaceTags&&reread.SettingsJSON==input.SettingsJSON,"Export changed source settings/tags");
+    const auto heightRange=std::minmax_element(slicer.getResultantPrintPath().heights.begin(),slicer.getResultantPrintPath().heights.end());
+    require(reread.PrintHeightDomain.size()==2,"Measured output printheightdomain was not imported");
+    require(std::abs(reread.PrintHeightDomain[0]-*heightRange.first)<1e-5&&std::abs(reread.PrintHeightDomain[1]-*heightRange.second)<1e-5,
+      "Output domain lost source-unit precision or did not overwrite the measured range");
+    const auto domainStage=pxr::UsdStage::Open(pxr::SdfLayer::OpenAsAnonymous(exported.string()));
+    require(bool(domainStage),"Cannot prepare domain-input fixture");
+    auto metadata=domainStage->GetRootLayer()->GetCustomLayerData();
+    metadata["printheightdomain"]=pxr::VtValue(pxr::VtArray<double>{6*toSourceUnits,12*toSourceUnits});
+    domainStage->GetRootLayer()->SetCustomLayerData(metadata);
+    const auto domainFile=output.parent_path()/(output.stem().string()+"-domain-input.usda");
+    require(domainStage->GetRootLayer()->Export(domainFile.string()),"Cannot author domain-input fixture");
+    zTsIO::SlicerUSDInput domainInput;
+    require(zTsIO::readSlicerInputUSD(domainFile.string(),domainInput,&error),error);
+    require(domainInput.PrintHeightDomain.size()==2&&std::abs(domainInput.PrintHeightDomain[0]-6)<1e-9&&std::abs(domainInput.PrintHeightDomain[1]-12)<1e-9,
+      "Root double[] printheightdomain is not normalized to mm");
+    const auto rejectDomain=[&](const pxr::VtValue& value){metadata["printheightdomain"]=value;domainStage->GetRootLayer()->SetCustomLayerData(metadata);
+      const auto invalidDomain=output.parent_path()/(output.stem().string()+"-invalid-domain.usda");
+      require(domainStage->GetRootLayer()->Export(invalidDomain.string()),"Cannot author invalid domain");
+      require(!zTsIO::readSlicerInputUSD(invalidDomain.string(),domainInput,&error),"Invalid USD height-domain schema accepted");
+      require(domainInput.PrintHeightDomain.empty()&&domainInput.SettingsJSON.empty(),"Failed domain import retained stale input");};
+    rejectDomain(pxr::VtValue(pxr::VtArray<double>{6}));
+    rejectDomain(pxr::VtValue(pxr::VtArray<float>{6,12}));
+    rejectDomain(pxr::VtValue(pxr::VtArray<double>{12,6}));
+    rejectDomain(pxr::VtValue(pxr::VtArray<double>{-1,12}));
     require(mesh(reread.Block)==mesh(input.Block),"Export changed source mesh");
     require(reread.MetersPerUnit==input.MetersPerUnit,"Export changed source units");
     // A failed read must clear an earlier successful import and report why.

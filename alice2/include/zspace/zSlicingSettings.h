@@ -24,6 +24,9 @@ inline zSpace::SlicerSettings defaultSlicerSettings()
     s._HEqualiseIterations = 2;
     s._HArapIterations = 10;
     s._HUnrollStart = 0;
+    s.HPrintHeight.Tolerance = 0.05; // Approved project fabrication allowance, in mm.
+    s.HPrintHeight.Iterations = 32; // Larger batches avoid repeated path reconstruction.
+    s.HPrintHeight.AllowLayerCountChange = true;
     return s;
 }
 
@@ -31,6 +34,7 @@ inline zSpace::PrintSynSetting defaultPrintSynSettings()
 {
     zSpace::PrintSynSetting s;
     s.ResampleLength = 5.0f;
+    s.SurfaceChordTolerance = 0.1;
     s.FeatureAngleTol = 120.0f;
     s.SeamOffset = 40.0f;
     s.SeamSize = 20.0f;
@@ -76,6 +80,8 @@ inline void applySlicerJson(const nlohmann::json& obj, zSpace::SlicerSettings& s
         else if (key == "_HEqualiseIterations" || key == "HEqualiseIterations") s._HEqualiseIterations = v.get<int>();
         else if (key == "_HArapIterations" || key == "HArapIterations") s._HArapIterations = v.get<int>();
         else if (key == "_HUnrollStart" || key == "HUnrollStart") s._HUnrollStart = v.get<int>();
+        else if (key == "HPrintHeightAllowLayerCountChange") s.HPrintHeight.AllowLayerCountChange = v.get<bool>();
+        else if (key == "HPrintHeightOptimizeSurfaces") s.HPrintHeight.OptimizeSurfaces = v.get<bool>();
         else unknown.push_back("slicer." + it.key());
     }
 }
@@ -87,6 +93,7 @@ inline void applyPrintSynJson(const nlohmann::json& obj, zSpace::PrintSynSetting
         const std::string& key = it.key();
         const nlohmann::json& v = it.value();
         if (key == "ResampleLength") s.ResampleLength = v.get<float>();
+        else if (key == "SurfaceChordTolerance") s.SurfaceChordTolerance = v.get<double>();
         else if (key == "FeatureAngleTol") s.FeatureAngleTol = v.get<float>();
         else if (key == "SeamOffset") s.SeamOffset = v.get<float>();
         else if (key == "SeamSize") s.SeamSize = v.get<float>();

@@ -46,8 +46,8 @@ namespace {
 constexpr int kSlicerNone = -1;
 constexpr int kSlicerHarmonic = 0;
 constexpr int kSlicerTopology = 1;
-constexpr int kHarmonicModeCount = 8;
-constexpr int kTopologyModeCount = 7;
+constexpr int kHarmonicModeCount = 9;
+constexpr int kTopologyModeCount = 8;
 
 inline int displayModeCount(int slicer)
 {
@@ -63,12 +63,14 @@ const char* displayModeName(int slicer, int mode)
         "Method 2 (u,v) check",
         "Tracing curves (failed red, top success green)",
         "Print paths (inner blue, outer pink) + layer-0 field", "Print mesh (rectangle lofts)",
-        "Layer inspector (up/down: layer) - 3D paths + 2D paths on the layer's field"};
+        "Sampled path per layer (up/down: layer) - 3D + 2D targets",
+        "Raw SDF contour per layer (up/down: layer) - before PrintSyn"};
     static const char* topology[kTopologyModeCount] = {
         "Input preview (transparent block, bracing, slot point)",
         "Input mesh (colored top/bottom)", "V-loops + vertex value t (blue 0 -> red 1)",
         "Section meshes", "Print paths (inner blue, outer pink) + layer-0 field", "Print mesh (rectangle lofts)",
-        "Layer inspector (up/down: layer) - 3D paths + 2D paths on the layer's field"};
+        "Sampled path per layer (up/down: layer) - 3D + 2D targets",
+        "Raw SDF contour per layer (up/down: layer) - before PrintSyn"};
     if (slicer == kSlicerNone) return "Input preview (transparent block, bracing, slot point)";
     const int count = displayModeCount(slicer);
     const int m = ((mode % count) + count) % count;
@@ -120,26 +122,40 @@ public:
 
         m_viewValidation = alice2::slicing::SlicerViewValidation::read();
         if (!m_viewValidation.Input.empty()) {
+          try {
             m_inputMeshPath = m_viewValidation.Input;
             loadInputs();
             if (!m_inputLoaded) throw std::runtime_error("Validation input did not load.");
             m_settings._HIsoRelaxIterations = m_viewValidation.RelaxIterations;
+            if(m_viewValidation.HeightOptimization>=0)m_settings.HPrintHeight.Enabled=m_viewValidation.HeightOptimization!=0;
+            if(m_viewValidation.HeightSurfaces>=0)m_settings.HPrintHeight.OptimizeSurfaces=m_viewValidation.HeightSurfaces!=0;
             m_slicerChoice = m_lastSlicerChoice = m_viewValidation.Topology ? kSlicerTopology : kSlicerHarmonic;
             runSelectedSlicer();
             zSpace::zSlicer* slicer = m_viewValidation.Topology ? static_cast<zSpace::zSlicer*>(m_topoSlicer.get()) : static_cast<zSpace::zSlicer*>(m_slicer.get());
-            if (!slicer || zSpace::zFnGraph(const_cast<zSpace::PrintPath&>(slicer->getResultantPrintPath()).graph).numEdges() == 0)
+            const bool complete = slicer && zSpace::zFnGraph(const_cast<zSpace::PrintPath&>(slicer->getResultantPrintPath()).graph).numEdges() > 0;
+            if (!complete && (!m_viewValidation.AllowPartial || !slicer || slicer->getPrintPaths3D().empty()))
                 throw std::runtime_error("Validation pipeline did not produce a complete print path.");
+            if (!complete) std::cerr << "[SlicerViewValidation] PARTIAL, noncompliant: " << slicer->getStatus() << std::endl;
+            if (!m_viewValidation.Output.empty()) {
+                std::string error;
+                if (!complete || !zSpace::zTsIO::exportPrintPathUSD(slicer->getResultantPrintPath(), m_inputMeshPath,
+                    m_viewValidation.Output, static_cast<int>(slicer->getPrintPaths3D().size()), &error, 0, &slicer->getPrintPaths3D()))
+                    throw std::runtime_error("Validation USD export failed: " + error);
+            }
             auto* app = Application::getInstance();
             if (!app->getCameraController().hasSavedCamera(0)) throw std::runtime_error("Validation requires the user's saved F1 camera.");
             app->getCameraController().loadCamera(0);
             m_displayMode = (std::min)(m_viewValidation.DisplayMode, displayModeCount(m_slicerChoice) - 1);
-            // Use Alice's existing '6' render mode to reveal the loft geometry
-            // in validation captures; interactive launch defaults are unchanged.
+            m_inspectLayer = m_viewValidation.Layer;
             const int printMeshMode = m_viewValidation.Topology ? 5 : 6;
-            if (m_displayMode == printMeshMode) app->getRenderer().setSceneRenderMode(SceneRenderMode::MeshGray);
+            if (m_displayMode == printMeshMode) app->getRenderer().setSceneRenderMode(SceneRenderMode::Regular);
             m_validationCaptureFrame = app->getFrameCount() + 4;
             std::cout << "[SlicerViewValidation] mode=" << (m_viewValidation.Topology ? "topology" : "harmonic")
-                      << " relaxIterations=" << m_viewValidation.RelaxIterations << " view=F1 printLayers=" << slicer->getPrintPaths3D().size() << std::endl;
+                      << " relaxIterations=" << m_viewValidation.RelaxIterations << " heightSurfaces=" << m_settings.HPrintHeight.OptimizeSurfaces << " view=F1 printLayers=" << slicer->getPrintPaths3D().size() << std::endl;
+          } catch (const std::exception& error) {
+            std::cerr << "[SlicerViewValidation] FAILED: " << error.what() << std::endl;
+            Application::getInstance()->quit();
+          }
         }
 
         // No default geometry and no default import - the scene starts
@@ -240,6 +256,7 @@ public:
                 case 4: drawGhostInputMesh(); drawFieldPrintPaths(renderer); drawTopologyFieldMinimap(renderer); break;
                 case 5: drawPrintMesh(); break;
                 case 6: drawGhostInputMesh(); drawLayerInspector(renderer); break;
+                case 7: drawGhostInputMesh(); drawLayerInspector(renderer, true); break;
                 default: break;
             }
         } else {
@@ -252,6 +269,7 @@ public:
                 case 5: drawGhostInputMesh(); drawFieldPrintPaths(renderer); drawHarmonicFieldMinimap(renderer); break;
                 case 6: drawPrintMesh(); break;
                 case 7: drawGhostInputMesh(); drawLayerInspector(renderer); break;
+                case 8: drawGhostInputMesh(); drawLayerInspector(renderer, true); break;
                 default: break;
             }
         }
@@ -428,9 +446,11 @@ private:
     {
         zDisplayMeshSetting display;
         display.showVertices = false;
-        display.showEdges = false;
+        display.showEdges = true;
         display.showFaces = true;
-        display.faceColor = Color(0.15f, 0.6f, 0.75f, 1.0f);
+        display.faceColor = Color(0.65f, 0.65f, 0.65f, 1.0f);
+        display.edgeColor = Color(0.0f, 0.0f, 0.0f, 1.0f);
+        display.edgeWidth = 1.0f;
         scene().draw(m_printMesh, display);
     }
 
@@ -673,11 +693,11 @@ private:
         drawFieldMinimap(renderer, m_topoSlicer->getScalarField(), pathFields[0], widthFields[0], "Path (layer 0)");
     }
 
-    // Layer inspector mode: the last display mode of either slicer.
+    // Raw and sampled inspectors share the selected layer (up/down arrows).
     bool isLayerInspectorMode() const
     {
-        return (m_slicerChoice == kSlicerHarmonic && m_slicer && m_displayMode == kHarmonicModeCount - 1) ||
-               (m_slicerChoice == kSlicerTopology && m_topoSlicer && m_displayMode == kTopologyModeCount - 1);
+        return (m_slicerChoice == kSlicerHarmonic && m_slicer && m_displayMode >= kHarmonicModeCount - 2) ||
+               (m_slicerChoice == kSlicerTopology && m_topoSlicer && m_displayMode >= kTopologyModeCount - 2);
     }
 
     zSpace::zSlicer* activeSlicer() const
@@ -700,23 +720,53 @@ private:
     // blue, outer pink; start vertex green, open ends red, branch vertices
     // orange) and its field in the HUD with the layer's 2D print paths on
     // top. The slicer status line says where post-processing stopped.
-    void drawLayerInspector(Renderer& renderer)
+    // Extract only the selected layer from the final fields/sections. This
+    // cache does not mutate the slicer's processed paths or add work to slicing.
+    // It also stays correct if a surface optimizer rebuilds fields in postprocess.
+    void cacheRawContourLayer(int layer)
+    {
+        if (layer < 0 || layer >= static_cast<int>(m_rawContourReady.size()) || m_rawContourReady[layer]) return;
+        m_rawContourReady[layer] = 1;
+        const auto extract = [&](auto& op, const zSpace::zFloatArray* heights, const zSpace::zVectorArray* normals) {
+            const auto& fields = op.getPathFields(); const auto& widths = op.getWidthFields(); const auto& tracks = op.getTrackFields();
+            const auto& charts = op.getIsoMeshes2D(); const auto& sections = op.getIsoMeshes();
+            if (static_cast<size_t>(layer) >= fields.size() || widths.size() != fields.size() || tracks.size() != fields.size()
+                || static_cast<size_t>(layer) >= charts.size() || static_cast<size_t>(layer) >= sections.size()) return false;
+            std::vector<std::string> messages;
+            if (!zSpace::zTsField::extractPrintPaths(op.getScalarField(), fields[layer], widths[layer], tracks[layer], m_rawContours2D[layer], layer, &messages)) return false;
+            return zSpace::zTsField::mapPrintPaths(m_rawContours2D[layer], const_cast<zSpace::zObjMesh&>(charts[layer]),
+                const_cast<zSpace::zObjMesh&>(sections[layer]), heights, m_rawContours3D[layer], layer, normals);
+        };
+        bool ok = false;
+        if (m_slicerChoice == kSlicerHarmonic && m_slicer && static_cast<size_t>(layer) < m_slicer->getVertexLayerHeights().size())
+            ok = extract(*m_slicer, &m_slicer->getVertexLayerHeights()[layer],
+                static_cast<size_t>(layer) < m_slicer->getVertexLayerNormals().size() ? &m_slicer->getVertexLayerNormals()[layer] : nullptr);
+        else if (m_slicerChoice == kSlicerTopology && m_topoSlicer) ok = extract(*m_topoSlicer, &m_topoSlicer->getVertexLayerHeights(), nullptr);
+        if (!ok) {m_rawContours2D[layer].clear();m_rawContours3D[layer].clear();logFail("Raw contour", "Extraction/mapping failed on layer " + std::to_string(layer));return;}
+        size_t vertices = 0; for (const auto& path : m_rawContours2D[layer])
+            vertices += zSpace::zFnGraph(const_cast<zSpace::zObjGraph&>(path.graph)).numVertices();
+        std::cout << "[RawContourDisplay] layer=" << layer << " original vertices=" << vertices << std::endl;
+    }
+
+    void drawLayerInspector(Renderer& renderer, bool raw = false)
     {
         zSpace::zSlicer* slicer = activeSlicer();
         const int count = inspectorLayerCount();
         if (!slicer || count == 0) return;
         m_inspectLayer = (std::max)(0, (std::min)(count - 1, m_inspectLayer));
         const int l = m_inspectLayer;
+        if (raw) cacheRawContourLayer(l);
 
-        const auto& layers3D = slicer->getPrintPaths3D();
-        const auto& layers2D = slicer->getPrintPaths2D();
+        const auto& layers3D = raw ? m_rawContours3D : slicer->getPrintPaths3D();
+        const auto& layers2D = raw ? m_rawContours2D : slicer->getPrintPaths2D();
         const Color innerColor(0.1f, 0.35f, 0.95f, 1.0f);
         const Color outerColor(1.0f, 0.4f, 0.75f, 1.0f);
         const auto toVec3 = [](const zSpace::zPoint& p) {
             return Vec3(static_cast<float>(p.x), static_cast<float>(p.y), static_cast<float>(p.z));
         };
         std::ostringstream info;
-        info << "Layer " << l << " / " << (count - 1) << " (up/down arrow) | corners: yellow";
+        info << (raw ? "Raw contour layer " : "Sampled path layer ") << l << " / " << (count - 1)
+             << " (up/down arrow)" << (raw ? " | before corner reconstruction / resampling" : " | features: yellow");
         if (l < static_cast<int>(layers3D.size())) {
             info << " | paths: " << layers3D[l].size();
             for (size_t k = 0; k < layers3D[l].size(); ++k) {
@@ -737,9 +787,9 @@ private:
                                        0.5f * (path.trackIds[a] + path.trackIds[b]) >= 0.5f;
                     renderer.drawLine(toVec3(positions[a]), toVec3(positions[b]), outer ? outerColor : innerColor, 4.0f);
                 }
-                // Detect in the 2D chart, so surface curvature does not create false corners.
-                if (l < static_cast<int>(layers2D.size()) && k < layers2D[l].size()) {
-                    const auto corners = zSpace::zPrintSyn::cornerVertexIds(
+                // Display recorded source-contour features, even where the corner is rounded.
+                if (!raw && l < static_cast<int>(layers2D.size()) && k < layers2D[l].size()) {
+                    const auto corners = zSpace::zPrintSyn::featureVertexIds(
                         layers2D[l][k], m_printSettings.FeatureAngleTol);
                     for (int id : corners)
                         if (id >= 0 && static_cast<size_t>(id) < positions.size())
@@ -766,18 +816,18 @@ private:
 
         const std::vector<zSpace::PrintPath>* paths2D =
             (l < static_cast<int>(layers2D.size())) ? &layers2D[l] : nullptr;
-        const std::string label = "Path (layer " + std::to_string(l) + ")";
+        const std::string label = std::string(raw ? "Raw contour (layer " : "Sampled path (layer ") + std::to_string(l) + ")";
         if (m_slicerChoice == kSlicerHarmonic && m_slicer) {
             const auto& pathFields = m_slicer->getPathFields();
             const auto& widthFields = m_slicer->getWidthFields();
             if (l < static_cast<int>(pathFields.size()) && l < static_cast<int>(widthFields.size()))
-                drawFieldMinimap(renderer, m_slicer->getScalarField(), pathFields[l], widthFields[l], label.c_str(), paths2D);
+                drawFieldMinimap(renderer, m_slicer->getScalarField(), pathFields[l], widthFields[l], label.c_str(), paths2D, !raw);
         } else if (m_slicerChoice == kSlicerTopology && m_topoSlicer) {
             const auto& pathFields = m_topoSlicer->getPathFields();
             const auto& widthFields = m_topoSlicer->getWidthFields();
             if (l < static_cast<int>(pathFields.size()) && l < static_cast<int>(widthFields.size()))
                 drawFieldMinimap(renderer, m_topoSlicer->getScalarField(), pathFields[l], widthFields[l], label.c_str(),
-                                 paths2D);
+                                 paths2D, !raw);
         }
 
         renderer.setColor(Color(0.08f, 0.09f, 0.12f, 1.0f));
@@ -796,7 +846,8 @@ private:
     // start vertex green).
     void drawFieldMinimap(Renderer& renderer, const zSpace::zObjMeshScalarField& field,
                           const zSpace::zScalarArray& pathValues, const zSpace::zScalarArray& widthValues,
-                          const char* pathLabel, const std::vector<zSpace::PrintPath>* paths2D = nullptr)
+                          const char* pathLabel, const std::vector<zSpace::PrintPath>* paths2D = nullptr,
+                          bool showFeatures = true)
     {
         zSpace::zFnMesh fn(const_cast<zSpace::zObjMeshScalarField&>(field));
         zSpace::zPointArray positions;
@@ -899,7 +950,7 @@ private:
                         glVertex2f(pb.first, pb.second);
                     }
                     glEnd();
-                    const auto corners = zSpace::zPrintSyn::cornerVertexIds(path, m_printSettings.FeatureAngleTol);
+                    const auto corners = showFeatures ? zSpace::zPrintSyn::featureVertexIds(path, m_printSettings.FeatureAngleTol) : zSpace::zIntArray{};
                     glPointSize(7.0f);
                     glColor4f(1.0f, 0.85f, 0.0f, 1.0f);
                     glBegin(GL_POINTS);
@@ -1142,12 +1193,13 @@ private:
     void computeProcessedPrintPaths(zSpace::zSlicer& slicer)
     {
         m_fieldPathSegments.clear();
-        // computePostProcess performs extraction itself; do not extract twice.
         // Retain partial outputs for inspection if a PrintSyn stage fails.
         if (!slicer.computePostProcess(m_printSettings))
             logFail("PrintSyn", slicer.getStatus());
 
         const auto& layers = slicer.getPrintPaths3D();
+        m_rawContours2D.assign(layers.size(), {}); m_rawContours3D.assign(layers.size(), {});
+        m_rawContourReady.assign(layers.size(), 0);
         std::string meshError;
         if (!zSpace::zTsUtils::buildPrintMesh(layers, m_printMesh, &meshError))
             logFail("Print mesh", meshError);
@@ -1202,6 +1254,16 @@ private:
             std::vector<std::string> unknown;
             applySlicerJson(settings.at("slicer"), m_settings, unknown);
             applyPrintSynJson(settings.at("printSyn"), m_printSettings, unknown);
+#if defined(ALICE2_SLICER_DISABLE_SURFACE_HEIGHT)
+            m_settings.HPrintHeight.OptimizeSurfaces = false;
+            logInput("Height mode: global layer scheduling; local surface correction disabled.");
+#endif
+            if(!input.PrintHeightDomain.empty()){
+                m_settings.HPrintHeight.Enabled=true;
+                m_settings.HPrintHeight.Minimum=input.PrintHeightDomain[0];
+                m_settings.HPrintHeight.Maximum=input.PrintHeightDomain[1];
+                logInput("Harmonic target printheightdomain = ["+std::to_string(input.PrintHeightDomain[0])+", "+std::to_string(input.PrintHeightDomain[1])+"] mm, tolerance +/-"+std::to_string(m_settings.HPrintHeight.Tolerance)+" mm");
+            }
             for (const auto& key : unknown) logFail("Settings", "ignoring unknown setting '" + key + "'");
             m_settings.BracingCurveWidths = input.BracingPrintWidths;
             if (!input.BracingPrintWidths.empty()) m_settings.BracingWidth = input.BracingPrintWidths.front();
@@ -1273,6 +1335,7 @@ private:
     {
         zSpace::zFnMesh(m_printMesh).clear();
         m_fieldPathSegments.clear();
+        m_rawContours2D.clear(); m_rawContours3D.clear(); m_rawContourReady.clear();
         zSpace::zFnGraph(m_tetWireGraph).clear();
     }
 
@@ -1441,6 +1504,8 @@ private:
         bool outer = false;
     };
     std::vector<std::vector<PathSegment>> m_fieldPathSegments;
+    zSpace::PrintPathArray m_rawContours2D, m_rawContours3D;
+    std::vector<char> m_rawContourReady;
 };
 
 ALICE2_REGISTER_SKETCH_AUTO(HarmonicSlicerTestSketch)
