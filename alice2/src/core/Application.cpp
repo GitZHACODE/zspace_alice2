@@ -1,4 +1,5 @@
 #include "Application.h"
+#include "ScreenshotTarget.h"
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include <chrono>
@@ -764,6 +765,24 @@ namespace alice2 {
             return;
         }
 
+        std::pair<int, int> captureSize;
+        try {
+            captureSize = screenshotSizeFromEnvironment();
+        } catch (const std::exception& error) {
+            std::cerr << "[SCREENSHOT] " << error.what() << std::endl;
+            return;
+        }
+        std::unique_ptr<ScreenshotTarget> target;
+        if (captureSize.first > 0) {
+            target = std::make_unique<ScreenshotTarget>(*m_renderer, *m_camera, m_windowWidth, m_windowHeight);
+            if (!target->initialize(captureSize.first, captureSize.second, m_multisampleSamples)) {
+                std::cerr << "[SCREENSHOT] Cannot create the requested render target" << std::endl;
+                return;
+            }
+            std::cout << "[SCREENSHOT] Native render " << captureSize.first << "x" << captureSize.second
+                      << ", UI scale=1" << std::endl;
+        }
+
         // Create screenshots directory if it doesn't exist
         #ifdef _WIN32
             system("mkdir \"src\\screenshots\" 2>nul");
@@ -793,8 +812,11 @@ namespace alice2 {
                 m_cameraController->loadCamera(slot);
 
                 // Force a render to update the view
-                glfwSwapBuffers(m_window);
+                if (target) target->bindForRendering();
+                else glfwSwapBuffers(m_window);
                 render();
+
+                if (target) target->resolveForReading();
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
@@ -805,7 +827,10 @@ namespace alice2 {
 
                 // Read pixels from framebuffer
                 int width, height;
-                glfwGetFramebufferSize(m_window, &width, &height);
+                if (target) {
+                    width = captureSize.first;
+                    height = captureSize.second;
+                } else glfwGetFramebufferSize(m_window, &width, &height);
 
                 std::vector<unsigned char> pixels(width * height * 3);
                 glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());

@@ -57,3 +57,8 @@ selected runtime working directory. The slicer sketch's opt-in
 `ALICE2_VALIDATE_SLICER_INPUT` hook runs the real import/pipeline and saved-camera
 framebuffer capture; normal interactive launches are unchanged. Do not substitute
 a browser report or generated geometry picture for this application evidence.
+
+For an explicit PNG resolution from saved cameras, set `ALICE2_SCREENSHOT_SIZE`
+to e.g. `3840x2160`. Alice renders to a multisampled offscreen target at that
+resolution with 1x UI pixel sizes, independently of monitor/window dimensions.
+Without this option, saved-camera screenshots retain the window resolution.

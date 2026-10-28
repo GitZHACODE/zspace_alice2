@@ -48,7 +48,7 @@ struct SlicerViewValidation {
         if(!surfaces.empty())options.HeightSurfaces=std::stoi(surfaces);
         const auto height=environment("ALICE2_VALIDATE_HEIGHT_OPTIMIZATION");
         if(!height.empty())options.HeightOptimization=std::stoi(height);
-        if (options.RelaxIterations < 0 || options.RelaxIterations > 100 || options.DisplayMode < 0 || options.DisplayMode > 8 || options.Layer < 0 || options.HeightOptimization < -1 || options.HeightOptimization > 1 || options.HeightSurfaces < -1 || options.HeightSurfaces > 1)
+        if (options.RelaxIterations < 0 || options.RelaxIterations > 100 || options.DisplayMode < 0 || options.DisplayMode > (options.Topology ? 8 : 9) || options.Layer < 0 || options.HeightOptimization < -1 || options.HeightOptimization > 1 || options.HeightSurfaces < -1 || options.HeightSurfaces > 1)
             throw std::runtime_error("Invalid slicer validation iteration/display option.");
         return options;
     }

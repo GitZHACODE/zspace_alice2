@@ -46,8 +46,8 @@ namespace {
 constexpr int kSlicerNone = -1;
 constexpr int kSlicerHarmonic = 0;
 constexpr int kSlicerTopology = 1;
-constexpr int kHarmonicModeCount = 9;
-constexpr int kTopologyModeCount = 8;
+constexpr int kHarmonicModeCount = 10;
+constexpr int kTopologyModeCount = 9;
 
 inline int displayModeCount(int slicer)
 {
@@ -62,15 +62,17 @@ const char* displayModeName(int slicer, int mode)
         "Input mesh (colored top/bottom)", "Tetrahedra volume mesh",
         "Method 2 (u,v) check",
         "Tracing curves (failed red, top success green)",
-        "Print paths (inner blue, outer pink) + layer-0 field", "Print mesh (rectangle lofts)",
+        "Print paths + path / width / FaceTag fields", "Print mesh (rectangle lofts)",
         "Sampled path per layer (up/down: layer) - 3D + 2D targets",
-        "Raw SDF contour per layer (up/down: layer) - before PrintSyn"};
+        "Raw SDF contour per layer (up/down: layer) - before PrintSyn",
+        "FaceTag samples + ownership field (up/down: layer)"};
     static const char* topology[kTopologyModeCount] = {
         "Input preview (transparent block, bracing, slot point)",
         "Input mesh (colored top/bottom)", "V-loops + vertex value t (blue 0 -> red 1)",
-        "Section meshes", "Print paths (inner blue, outer pink) + layer-0 field", "Print mesh (rectangle lofts)",
+        "Section meshes", "Print paths + path / width / FaceTag fields", "Print mesh (rectangle lofts)",
         "Sampled path per layer (up/down: layer) - 3D + 2D targets",
-        "Raw SDF contour per layer (up/down: layer) - before PrintSyn"};
+        "Raw SDF contour per layer (up/down: layer) - before PrintSyn",
+        "FaceTag samples + ownership field (up/down: layer)"};
     if (slicer == kSlicerNone) return "Input preview (transparent block, bracing, slot point)";
     const int count = displayModeCount(slicer);
     const int m = ((mode % count) + count) % count;
@@ -257,6 +259,7 @@ public:
                 case 5: drawPrintMesh(); break;
                 case 6: drawGhostInputMesh(); drawLayerInspector(renderer); break;
                 case 7: drawGhostInputMesh(); drawLayerInspector(renderer, true); break;
+                case 8: drawGhostInputMesh(); drawLayerInspector(renderer, false, true); break;
                 default: break;
             }
         } else {
@@ -270,6 +273,7 @@ public:
                 case 6: drawPrintMesh(); break;
                 case 7: drawGhostInputMesh(); drawLayerInspector(renderer); break;
                 case 8: drawGhostInputMesh(); drawLayerInspector(renderer, true); break;
+                case 9: drawGhostInputMesh(); drawLayerInspector(renderer, false, true); break;
                 default: break;
             }
         }
@@ -662,13 +666,23 @@ private:
     // Replays computeProcessedPrintPaths()'s cached result: the slicer's
     // per-layer 3D print paths, inner track blue and outer track pink (a
     // single-perimeter path has no outer track, so it is all blue).
+    static Color faceTagColor(int tag) {
+        switch(tag){case 3:return Color(.13f,.77f,.37f,1);case 4:return Color(.64f,.29f,.90f,1);
+          case 5:return Color(.04f,.72f,.88f,1);case 6:return Color(.90f,.12f,.22f,1);default:return Color(.62f,.65f,.69f,1);}
+    }
+    const zSpace::zTsField::FaceTagSource *faceTagSource(int layer) const {
+        const std::vector<zSpace::zTsField::FaceTagSource> *sources=nullptr;
+        if(m_slicerChoice==kSlicerTopology && m_topoSlicer)sources=&m_topoSlicer->getFaceTagSources();
+        if(m_slicerChoice==kSlicerHarmonic && m_slicer)sources=&m_slicer->getFaceTagSources();
+        return sources && layer>=0 && layer<int(sources->size())?&(*sources)[layer]:nullptr;
+    }
     void drawFieldPrintPaths(Renderer& renderer)
     {
         const Color innerColor(0.1f, 0.35f, 0.95f, 1.0f);
         const Color outerColor(1.0f, 0.4f, 0.75f, 1.0f);
         for (const auto& segments : m_fieldPathSegments) {
             for (const PathSegment& seg : segments) {
-                renderer.drawLine(seg.a, seg.b, seg.outer ? outerColor : innerColor, 4.0f);
+                renderer.drawLine(seg.a, seg.b, seg.faceTag ? faceTagColor(seg.faceTag) : seg.outer ? outerColor : innerColor, 4.0f);
             }
         }
     }
@@ -696,8 +710,8 @@ private:
     // Raw and sampled inspectors share the selected layer (up/down arrows).
     bool isLayerInspectorMode() const
     {
-        return (m_slicerChoice == kSlicerHarmonic && m_slicer && m_displayMode >= kHarmonicModeCount - 2) ||
-               (m_slicerChoice == kSlicerTopology && m_topoSlicer && m_displayMode >= kTopologyModeCount - 2);
+        return (m_slicerChoice == kSlicerHarmonic && m_slicer && m_displayMode >= kHarmonicModeCount - 3) ||
+               (m_slicerChoice == kSlicerTopology && m_topoSlicer && m_displayMode >= kTopologyModeCount - 3);
     }
 
     zSpace::zSlicer* activeSlicer() const
@@ -711,6 +725,8 @@ private:
     // print paths may be partial if extraction or mapping fails).
     int inspectorLayerCount() const
     {
+        if(m_displayMode==displayModeCount(m_slicerChoice)-1 && activeSlicer())
+            return static_cast<int>(activeSlicer()->getPrintPaths3D().size());
         if (m_slicerChoice == kSlicerHarmonic && m_slicer) return static_cast<int>(m_slicer->getPathFields().size());
         if (m_slicerChoice == kSlicerTopology && m_topoSlicer) return static_cast<int>(m_topoSlicer->getPathFields().size());
         return 0;
@@ -748,7 +764,7 @@ private:
         std::cout << "[RawContourDisplay] layer=" << layer << " original vertices=" << vertices << std::endl;
     }
 
-    void drawLayerInspector(Renderer& renderer, bool raw = false)
+    void drawLayerInspector(Renderer& renderer, bool raw = false, bool faceTags = false)
     {
         zSpace::zSlicer* slicer = activeSlicer();
         const int count = inspectorLayerCount();
@@ -766,7 +782,7 @@ private:
         };
         std::ostringstream info;
         info << (raw ? "Raw contour layer " : "Sampled path layer ") << l << " / " << (count - 1)
-             << " (up/down arrow)" << (raw ? " | before corner reconstruction / resampling" : " | features: yellow");
+             << " (up/down arrow)" << (raw ? " | before corner reconstruction / resampling" : faceTags ? " | FaceTag colours" : " | features: yellow");
         if (l < static_cast<int>(layers3D.size())) {
             info << " | paths: " << layers3D[l].size();
             for (size_t k = 0; k < layers3D[l].size(); ++k) {
@@ -785,10 +801,16 @@ private:
                     const bool outer = static_cast<size_t>(a) < path.trackIds.size() &&
                                        static_cast<size_t>(b) < path.trackIds.size() &&
                                        0.5f * (path.trackIds[a] + path.trackIds[b]) >= 0.5f;
-                    renderer.drawLine(toVec3(positions[a]), toVec3(positions[b]), outer ? outerColor : innerColor, 4.0f);
+                    renderer.drawLine(toVec3(positions[a]), toVec3(positions[b]), (e/2 < path.edgeFaceTags.size() && path.edgeFaceTags[e/2] ? faceTagColor(path.edgeFaceTags[e/2]) : faceTags ? faceTagColor(0) : outer ? outerColor : innerColor), faceTags ? 2.0f : 4.0f);
+                }
+                if(faceTags) {
+                    GLint depthFunction;glGetIntegerv(GL_DEPTH_FUNC,&depthFunction);glDepthFunc(GL_LEQUAL);
+                    for(size_t v=0;v<positions.size();++v)
+                        renderer.drawPoint(toVec3(positions[v]),faceTagColor(v<path.faceTags.size()?path.faceTags[v]:0),8.f);
+                    glDepthFunc(depthFunction);
                 }
                 // Display recorded source-contour features, even where the corner is rounded.
-                if (!raw && l < static_cast<int>(layers2D.size()) && k < layers2D[l].size()) {
+                if (!raw && !faceTags && l < static_cast<int>(layers2D.size()) && k < layers2D[l].size()) {
                     const auto corners = zSpace::zPrintSyn::featureVertexIds(
                         layers2D[l][k], m_printSettings.FeatureAngleTol);
                     for (int id : corners)
@@ -821,18 +843,30 @@ private:
             const auto& pathFields = m_slicer->getPathFields();
             const auto& widthFields = m_slicer->getWidthFields();
             if (l < static_cast<int>(pathFields.size()) && l < static_cast<int>(widthFields.size()))
-                drawFieldMinimap(renderer, m_slicer->getScalarField(), pathFields[l], widthFields[l], label.c_str(), paths2D, !raw);
+                drawFieldMinimap(renderer, m_slicer->getScalarField(), pathFields[l], widthFields[l], label.c_str(), paths2D, !raw && !faceTags, l);
         } else if (m_slicerChoice == kSlicerTopology && m_topoSlicer) {
             const auto& pathFields = m_topoSlicer->getPathFields();
             const auto& widthFields = m_topoSlicer->getWidthFields();
             if (l < static_cast<int>(pathFields.size()) && l < static_cast<int>(widthFields.size()))
                 drawFieldMinimap(renderer, m_topoSlicer->getScalarField(), pathFields[l], widthFields[l], label.c_str(),
-                                 paths2D, !raw);
+                                 paths2D, !raw && !faceTags, l);
         }
 
         renderer.setColor(Color(0.08f, 0.09f, 0.12f, 1.0f));
         renderer.drawString(info.str(), 10, 68);
         renderer.drawString("Slicer status: " + slicer->getStatus(), 10, 86);
+        if(faceTags) {
+            std::map<int,int> counts,pieces;
+            if(l<int(layers2D.size()))for(const auto &path:layers2D[l])for(const auto &segment:path.faceTagSegments) {
+                counts[segment.tag]+=int(segment.vertices.size());++pieces[segment.tag];
+            }
+            std::ostringstream row;row<<"2D sampling: "<<m_printSettings.ResampleLength<<" mm | endpoint-inclusive totals:";
+            for(auto entry:counts)row<<" tag "<<entry.first<<" = "<<entry.second<<" ("<<pieces[entry.first]<<" pieces)";
+            if(counts.empty())row<<" load an input with separated side tags 3-6";
+            renderer.drawString(row.str(),10,106);
+            int x=10;for(int tag:{3,4,5,6}){renderer.setColor(faceTagColor(tag));renderer.drawString("FaceTag "+std::to_string(tag),float(x),126);x+=130;}
+            renderer.setColor(faceTagColor(0));renderer.drawString("0 = inner / bracing / slot returns",float(x),126);
+        }
     }
 
     // Two colored-quad minimaps stacked top-over-bottom in the top-right
@@ -847,7 +881,7 @@ private:
     void drawFieldMinimap(Renderer& renderer, const zSpace::zObjMeshScalarField& field,
                           const zSpace::zScalarArray& pathValues, const zSpace::zScalarArray& widthValues,
                           const char* pathLabel, const std::vector<zSpace::PrintPath>* paths2D = nullptr,
-                          bool showFeatures = true)
+                          bool showFeatures = true, int layer = 0)
     {
         zSpace::zFnMesh fn(const_cast<zSpace::zObjMeshScalarField&>(field));
         zSpace::zPointArray positions;
@@ -873,7 +907,21 @@ private:
         GLint viewport[4];
         glGetIntegerv(GL_VIEWPORT, viewport);
 
-        constexpr float kPanelSize = 440.0f; // longer side of each panel
+        zSpace::zColorArray tagColors;
+        const auto *source=faceTagSource(layer);
+        if(source && !source->edgeTags.empty()) {
+            auto &tags=m_faceTagFieldCache[layer];
+            if(tags.size()!=positions.size()) {
+                zSpace::zTsField::queryFaceTags(*source,positions,tags);
+                std::set<int> labels(tags.begin(),tags.end());
+                std::cout<<"[FaceTagField] layer="<<layer<<" values="<<tags.size()<<" labels=";
+                for(int tag:labels)std::cout<<tag<<" ";std::cout<<std::endl;
+            }
+            for(int tag:tags){const auto c=faceTagColor(tag);tagColors.emplace_back(c.r,c.g,c.b,1.f);}
+        }
+        const int panelCount=tagColors.empty()?2:3;
+        const float maxPanelHeight=(viewport[3]-200.f-panelCount*24.f)/panelCount;
+        const float kPanelSize=(std::min)(440.f,(std::max)(80.f,maxPanelHeight*float((std::max)(rangeX,rangeY)/rangeY)));
         constexpr float kMargin = 100.0f; // all HUDs use a 100px margin from the window edge
         constexpr float kGap = 24.0f; // leaves room for the path label between the two panels
         // Same scale on both axes, so the field shows at its real proportions.
@@ -887,6 +935,9 @@ private:
         const float widthTop = pathBottom + kGap;
         const float widthBottom = widthTop + panelH;
 
+        const GLboolean depthEnabled=glIsEnabled(GL_DEPTH_TEST);
+        glDisable(GL_DEPTH_TEST); // HUD quads, path lines and target dots share screen depth.
+
         glMatrixMode(GL_PROJECTION);
         glPushMatrix();
         glLoadIdentity();
@@ -895,7 +946,7 @@ private:
         glPushMatrix();
         glLoadIdentity();
 
-        const auto drawPanel = [&](float top, float bottom, const zSpace::zColorArray& colors) {
+        const auto drawPanel = [&](float top, float bottom, const zSpace::zColorArray& colors, bool categorical=false) {
             if (colors.size() != positions.size()) return;
             const auto toScreen = [&](const zSpace::zPoint& p) {
                 const float sx = left + static_cast<float>((p.x - minBB.x) / rangeX) * (right - left);
@@ -922,9 +973,9 @@ private:
 
                 glBegin(GL_QUADS);
                 glColor4f(colors[ia].r, colors[ia].g, colors[ia].b, colors[ia].a); glVertex2f(va.first, va.second);
-                glColor4f(colors[ib].r, colors[ib].g, colors[ib].b, colors[ib].a); glVertex2f(vb.first, vb.second);
-                glColor4f(colors[ic].r, colors[ic].g, colors[ic].b, colors[ic].a); glVertex2f(vc.first, vc.second);
-                glColor4f(colors[id].r, colors[id].g, colors[id].b, colors[id].a); glVertex2f(vd.first, vd.second);
+                glColor4f(colors[categorical?ia:ib].r, colors[categorical?ia:ib].g, colors[categorical?ia:ib].b, colors[categorical?ia:ib].a); glVertex2f(vb.first, vb.second);
+                glColor4f(colors[categorical?ia:ic].r, colors[categorical?ia:ic].g, colors[categorical?ia:ic].b, colors[categorical?ia:ic].a); glVertex2f(vc.first, vc.second);
+                glColor4f(colors[categorical?ia:id].r, colors[categorical?ia:id].g, colors[categorical?ia:id].b, colors[categorical?ia:id].a); glVertex2f(vd.first, vd.second);
                 glEnd();
             }
 
@@ -942,7 +993,8 @@ private:
                         const bool outer = static_cast<size_t>(a) < path.trackIds.size() &&
                                            static_cast<size_t>(b) < path.trackIds.size() &&
                                            0.5f * (path.trackIds[a] + path.trackIds[b]) >= 0.5f;
-                        if (outer) glColor4f(1.0f, 0.4f, 0.75f, 1.0f);
+                        if(e/2<path.edgeFaceTags.size() && path.edgeFaceTags[e/2]) {const auto c=faceTagColor(path.edgeFaceTags[e/2]);glColor4f(c.r,c.g,c.b,1.f);}
+                        else if (outer) glColor4f(1.0f, 0.4f, 0.75f, 1.0f);
                         else glColor4f(0.1f, 0.35f, 0.95f, 1.0f);
                         const auto pa = toScreen(pathPoints[a]);
                         const auto pb = toScreen(pathPoints[b]);
@@ -950,6 +1002,14 @@ private:
                         glVertex2f(pb.first, pb.second);
                     }
                     glEnd();
+                    if(!path.faceTags.empty()) {
+                        glPointSize(4.f);glBegin(GL_POINTS);
+                        for(size_t v=0;v<pathPoints.size();++v) {
+                            const auto c=faceTagColor(path.faceTags[v]);glColor4f(c.r,c.g,c.b,1.f);
+                            const auto point=toScreen(pathPoints[v]);glVertex2f(point.first,point.second);
+                        }
+                        glEnd();glPointSize(1.f);
+                    }
                     const auto corners = showFeatures ? zSpace::zPrintSyn::featureVertexIds(path, m_printSettings.FeatureAngleTol) : zSpace::zIntArray{};
                     glPointSize(7.0f);
                     glColor4f(1.0f, 0.85f, 0.0f, 1.0f);
@@ -985,15 +1045,19 @@ private:
 
         drawPanel(pathTop, pathBottom, pathColors);
         drawPanel(widthTop, widthBottom, widthColors);
+        const float tagTop=widthBottom+kGap,tagBottom=tagTop+panelH;
+        if(!tagColors.empty())drawPanel(tagTop,tagBottom,tagColors,true);
 
         glPopMatrix();
         glMatrixMode(GL_PROJECTION);
         glPopMatrix();
         glMatrixMode(GL_MODELVIEW);
 
+        if(depthEnabled)glEnable(GL_DEPTH_TEST);
         renderer.setColor(Color(0.05f, 0.05f, 0.05f, 1.0f));
         renderer.drawString(pathLabel, left, pathBottom + 16.0f);
         renderer.drawString("Width", left, widthBottom + 16.0f);
+        if(!tagColors.empty())renderer.drawString("FaceTag: 3 green | 4 purple | 5 cyan | 6 red | 0 other",left,tagBottom+16.f);
     }
 
     void drawTetWireframe()
@@ -1193,6 +1257,7 @@ private:
     void computeProcessedPrintPaths(zSpace::zSlicer& slicer)
     {
         m_fieldPathSegments.clear();
+        m_faceTagFieldCache.clear();
         // Retain partial outputs for inspection if a PrintSyn stage fails.
         if (!slicer.computePostProcess(m_printSettings))
             logFail("PrintSyn", slicer.getStatus());
@@ -1200,6 +1265,7 @@ private:
         const auto& layers = slicer.getPrintPaths3D();
         m_rawContours2D.assign(layers.size(), {}); m_rawContours3D.assign(layers.size(), {});
         m_rawContourReady.assign(layers.size(), 0);
+        m_faceTagFieldCache.clear();
         std::string meshError;
         if (!zSpace::zTsUtils::buildPrintMesh(layers, m_printMesh, &meshError))
             logFail("Print mesh", meshError);
@@ -1221,6 +1287,7 @@ private:
                     PathSegment seg;
                     seg.a = Vec3(static_cast<float>(pa.x), static_cast<float>(pa.y), static_cast<float>(pa.z));
                     seg.b = Vec3(static_cast<float>(pb.x), static_cast<float>(pb.y), static_cast<float>(pb.z));
+                    seg.faceTag=e/2<path.edgeFaceTags.size()?path.edgeFaceTags[e/2]:0;
                     seg.outer = 0.5f * (trackAt(edges[e]) + trackAt(edges[e + 1])) >= 0.5f;
                     m_fieldPathSegments[k].push_back(seg);
                 }
@@ -1335,6 +1402,7 @@ private:
     {
         zSpace::zFnMesh(m_printMesh).clear();
         m_fieldPathSegments.clear();
+        m_faceTagFieldCache.clear();
         m_rawContours2D.clear(); m_rawContours3D.clear(); m_rawContourReady.clear();
         zSpace::zFnGraph(m_tetWireGraph).clear();
     }
@@ -1498,7 +1566,9 @@ private:
     // computeProcessedPrintPaths()'s cached result, replayed every frame by
     // drawFieldPrintPaths() - [layer][segment], already resolved to
     // world-space endpoints, with the segment's track (outer = pink).
+    std::map<int,zSpace::zIntArray> m_faceTagFieldCache;
     struct PathSegment {
+        int faceTag=0;
         Vec3 a;
         Vec3 b;
         bool outer = false;

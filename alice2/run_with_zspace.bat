@@ -7,6 +7,7 @@ echo ========================================
 echo.
 
 set "BUILD_DIR=build_zspace_v3"
+if not "%~1"=="" set "BUILD_DIR=%~1"
 set "BIN_DIR=%BUILD_DIR%\bin\Release"
 set "EXE_PATH=%BIN_DIR%\alice2.exe"
 set "DLL_GLEW=%BIN_DIR%\glew32.dll"
@@ -21,7 +22,7 @@ if errorlevel 1 goto :fail
 
 if not exist "%EXE_PATH%" (
     echo ERROR: alice2.exe not found!
-    echo Expected alice2.exe in build_zspace_v3\bin\Release.
+    echo Expected alice2.exe in %BIN_DIR%.
     echo Build the zSpace configuration first using build_with_zspace.bat.
     goto :fail_pop
 )

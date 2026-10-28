@@ -1,0 +1,53 @@
+{
+  "cameraPath": "C:\\Users\\Wo.Lin\\source\\repos\\zspace_alice2\\alice2\\build_surface_height\\bin\\Release\\src\\cameras\\camera_saves.json",
+  "layer": 32,
+  "sourceImageSHA256": "D1C6CF321E3DF658A71DB9A562C367DEF10C951A0CF2F52938A5DD94F3FEF1E2",
+  "relaxIterations": 8,
+  "mode": "topology",
+  "cameraSHA256": "FB0839C680E91C55F040E98E06CE64640CD1346BEAA9F9EDB153BD26C8C710D7",
+  "finalImageSHA256": "D1C6CF321E3DF658A71DB9A562C367DEF10C951A0CF2F52938A5DD94F3FEF1E2",
+  "slot": "F1",
+  "input": "\\\\zaha-hadid.com\\Data\\Projects\\4163_Carbcomn\\4163_Codex\\shared-assets\\slicer_inputs\\example_facetags_3-6.usda",
+  "sourceImage": "C:\\Users\\Wo.Lin\\source\\repos\\zspace_alice2\\alice2\\build_surface_height\\bin\\Release\\src\\screenshots\\camera_20261027_130840_762_F1.png",
+  "heightOptions": "Authored/default settings preserved",
+  "finalImage": "C:\\Users\\Wo.Lin\\source\\repos\\zspace_alice2\\agents\\docs\\images\\facetag_main_topology_layer32_f1_verified.png",
+  "uiScale": 1,
+  "inputSHA256": "814235BF11B0127051F5C752AEE4FA3FBDF5DB9694C09F09AB527E00408CEAD0",
+  "stderr": "C:\\Users\\Wo.Lin\\source\\repos\\zspace_alice2\\alice2\\build_facetags_review\\facetag_main_topology_layer32_f1_verified.err",
+  "exportEnabled": false,
+  "capturedUTC": "2026-10-27T13:08:41.8575395Z",
+  "height": 2160,
+  "cameraUnchanged": true,
+  "width": 3840,
+  "stdout": "C:\\Users\\Wo.Lin\\source\\repos\\zspace_alice2\\alice2\\build_facetags_review\\facetag_main_topology_layer32_f1_verified.log",
+  "displayMode": 8,
+  "runtime": [
+    {
+      "sha256": "83248754BE5FCC83C3446644EE0BFB7480CADB103ECA21CE52E2429B02E9C3CD",
+      "path": "C:\\Users\\Wo.Lin\\source\\repos\\zspace_alice2\\alice2\\build_surface_height\\bin\\Release\\alice2.exe"
+    },
+    {
+      "sha256": "28975A1D636F75771B438B32B4A8E46A335C64569B00F9438A370E62C5294610",
+      "path": "C:\\Users\\Wo.Lin\\source\\repos\\zspace_alice2\\alice2\\build_surface_height\\bin\\Release\\zSpace_Core.dll"
+    },
+    {
+      "sha256": "4650BACA51D70F71561399A1A51DF4B7B0024070D1D129B7FF5A124F24867DEE",
+      "path": "C:\\Users\\Wo.Lin\\source\\repos\\zspace_alice2\\alice2\\build_surface_height\\bin\\Release\\zSpace_Interface.dll"
+    },
+    {
+      "sha256": "6831D1554CCEBD7A419AFCF52E0BBEB601154607C5165055EB6287D1E7E619A2",
+      "path": "C:\\Users\\Wo.Lin\\source\\repos\\zspace_alice2\\alice2\\build_surface_height\\bin\\Release\\zSpace_IO.dll"
+    },
+    {
+      "sha256": "5DBD629E595C0F996AC7619881E2BAE83F7932E1B4658656753D9DAE8E8F60BF",
+      "path": "C:\\Users\\Wo.Lin\\source\\repos\\zspace_alice2\\alice2\\build_surface_height\\bin\\Release\\zSpace_Toolsets.dll"
+    }
+  ],
+  "printableLayers": 65,
+  "localSurfaceCorrection": false,
+  "heightDomainMM": [
+    6.0,
+    12.0
+  ],
+  "heightToleranceMM": 0.05
+}
