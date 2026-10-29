@@ -560,3 +560,142 @@ alice2\build_with_zspace.bat
   two code repositories.
 - Publication: commit and push both current contributor branches, then verify
   their remote heads match the local commits.
+
+## 2026-10-29: Verify and improve surface relaxation / height optimization
+
+- User explicitly authorizes verifying the research audit and updating code,
+  prioritizing corner smoothness, height quality and computational time.
+- Audit is evidence to verify, not an instruction source. Preserve fixed
+  contacts, containment, complete layers/bracing, widths, gaps and junctions.
+- Participating agents: coordinator owns native integration, pipeline rebuild
+  controls and builds; solver agent owns constrained fairing/height internals;
+  independent validation agent owns baseline harness and regression review.
+- First capture source/settings/build mode and baseline geometry/timing in
+  raw, relaxed, scheduled and enabled local-correction modes. The currently
+  configured normal Alice2 load forces local surface correction off.
+- Proposed files: harmonic Relaxation.cpp, Relax.cpp, Contour.cpp,
+  PostProcess.cpp and corresponding settings/report/test headers as supported
+  by reproduced evidence; Alice2 setting/build integration if required.
+- Acceptance: show separate geometry and wall-time results, retain hard
+  validity checks and honest infeasibility reports, avoid unnecessary chart/
+  field/path rebuilds, preserve disabled behavior and prior sampling/caches.
+- Build: build_surface_height with TASK-008, native OpenUSD/TetGen and -Test;
+  add focused numerical checks and compare the shared FaceTag USD input.
+- Status: verification and baseline capture in progress. No commit/push
+  requested for these new changes; no automatic viewer launch.
+- Verified audit against the active build: normal Alice2 local correction is
+  compiled OFF. The old sampling probe disabled both relaxation and height
+  optimization; it was not evidence for this solver. Current audit source
+  claims are hypotheses until numerical checks below, not automatic fixes.
+- Baselines preserved with committed-header ABI and isolated old DLL under
+  build_surface_height/relax-height-review. Input SHA256 C33E98DBF1E0753EAE1C3CFDC4E1FA8CB5EA3985EE947F03F8187510122B5603;
+  eight OpenMP threads, default equalization 2, 62 sections/61 printed layers.
+  Scheduling succeeds but final heights are 5.57449..16.37298 mm for 6..12
+  +/-0.05. Original full correction fails before the optimizer in the final
+  relaxation height query. Fixed contact geometry and mean-adjacent-height
+  contract remain; repository records withdrawal of the previous-only rule.
+- Kink localization: one corresponding ordinary outer target turns 0.168 deg
+  in 2D and 62.693 deg after surface mapping. Upper layers have within-layer
+  height ratios 2.36..2.86, so global spacing/count changes cannot alone fit a
+  band of ratio 2 with those surfaces unchanged. Three active analytical height
+  gradients match finite differences within approximately 0.3%.
+- Experimental scalar-normal correction with absolute bending, query reuse,
+  per-layer trust/unfrozen slivers runs, but is NOT a successful real-input
+  solution: one fixed-count trial took 68.83 s and failed complete footprint
+  validation at 5.356..14.311 mm; ordinary outer turn P99 worsened 7.45 to
+  11.93 deg. Do not present passing synthetic tests as actual-input success.
+- Profile: repeated consensus 26.92 s and rejected line trials 17.69 s dominate;
+  projection construction 3.55 s, height refresh 2.65 s. Optimize active solves,
+  bounded layer backtracking and shared correction budgets before BVH-only work.
+- Shared outer-iteration budget and report aggregation implemented in
+  PostProcess; failed or unchanged feedback does not silently create valid
+  output or repeatedly rebuild identical charts/fields/paths. Regression
+  checks budget exhaustion clears fabrication statistics.
+- A constrained fairing-target experiment passed synthetic tests but failed
+  actual scheduling height queries. It must not ship as an unguarded default.
+  Next validation checks measurability before committing a relaxation trial.
+- User clarification now supersedes the historical mean-height rule: printpath
+  origins are robot TCPs. With TCP at the nozzle outlet, constrain the directed
+  gap to the previously deposited layer, not the adjacent-gap average.
+- User explicitly requested printmesh alignment and then elliptical sections.
+  Implement 16-sided ellipses with full width centred on the TCP path and full
+  height below it, from -height to 0 along the growth-normal section axis.
+- To keep bottom/top coverage consistent, section zero is the substrate
+  reference and printed TCP paths use sections 1..last, including the exact top
+  cap. Both slicers retain all reference sections/fields; getPrintSectionOffset
+  maps printed layer p to section p+1. Alternating bracing/slots count from the
+  first printed TCP layer. Alice2 raw/processed inspectors use the same mapping.
+- Solver agent owns previous-gap measurements/derivatives/scheduling/tests;
+  validation agent owns elliptical profiles, topology suffix/parity and native
+  integration assertions; coordinator owns harmonic suffix, Alice2/cache/export
+  mapping and final integration. No TCP target is moved just for mesh display.
+- New previous-gap baselines and final-path checks are required; earlier
+  averaged-height experiments do not prove this revised process contract.
+- Ellipse/TCP deliverable verified: 61 printed TCP sections S1..S61 over 62
+  reference sections; first lies on S1 within 2.68e-6 mm, last on the exact top
+  within 7.0e-5 mm. All 16,499 ellipse top vertices equal their TCP positions.
+  Mesh has 263,984 vertices and 263,130 faces; three builds 255/341/235 ms.
+  Outer budgets {3:53,4:20,5:53,6:21} match every layer; four junction pairs
+  per layer, inner counts 115..144 and width attributes 20..30 retained.
+- Critical audit extension reproduced: nodal-height interpolation differed
+  from actual TCP previous-section rays by 4.14 mm (7.58 mm in a failed field
+  experiment). Implemented strict measureTargetHeights, actual feedback sample
+  intersections/normalized-normal derivatives, final physical heights and
+  relinking. Actual 16,499-target schedule measurement costs 14.16 ms and agrees
+  with independent Moller-Trumbore rays within 9.45e-7 mm. No invented heights
+  from plane extrapolation on final TCPs. Raw nodal tables remain guides.
+- Removed the blind eight-iteration nodal correction before the real footprint
+  exists. Correction uses actual TCP footprint samples; active layers, cached
+  validations/factors, 32 inner steps and shared outer/movement budgets bound
+  work. Reference-curve checks use chart crossings and <=1 mm chart intervals;
+  this is not certification of a continuous machine trajectory/interpolation.
+- Final exact-model run still FAILS the actual 6..12 +/-0.05 mm domain:
+  10/32 outer iterations, 6.985 s optimizer, 33.732 s diagnostic total (includes
+  extra raw extraction/JSON). Actual final targets 4.115..17.127 mm; independent
+  rays agree within 4.77e-7 mm. This is a truthful measurement/runtime fix, not
+  a solved fabrication case. Local correction remains OFF in normal Alice2
+  loading; the exact physical height measurement and ellipse are active.
+- Old outward-taper positive fixtures had genuinely unsupported robot rays
+  (80/338 and 3/14 misses independently reproduced). Supported inward variants
+  now cover successful printing; exact original outward cases remain negative
+  support/failure-output tests. Do not loosen ray validity to make tests pass.
+- Final coordinated Release build and all 26 native checks passed (26.10 s),
+  including exact oblique 5 mm versus nodal 0.5 mm contrast, miss/off-surface/
+  scaled-axis/parallel API cases, previous-only unequal gaps, top inclusion,
+  ellipse winding/dimensions, TCP window/parity and shared-budget failures.
+  Both repositories pass git diff --check. No new commits or pushes; native
+  binary in build_surface_height. Packaged Python/WASM remain unrecompiled.
+- Optional field initializer experiments remain generated files only. Simple
+  bounded-gradient initialization did not solve actual target bounds; the
+  final convex cone/ball ADMM experiment is being evaluated separately and
+  must not silently replace the baseline on failure or be called a success
+  from gradient proxies alone.
+- Final convex experiment completed: 69/200 iterations, 83..116 ms, proxy
+  6.00432..11.99988 mm, exact cap values and positive gradients. It then failed
+  actual path processing because FaceTag 3 disappeared from the selected path
+  on layer 58. Rejected; production field remains unchanged. Partial raw-path
+  measurements from that failure are not final fabrication results.
+- Final delivery state: ellipse mesh, TCP section window, truthful previous-
+  surface height attributes and bounded optimizer/runtime diagnostics are
+  implemented and built. The supplied warped input's complete height-domain
+  correction remains unresolved; do not present this as a fully working
+  6..12 mm optimizer. Normal Alice2 surface correction stays OFF. No processes
+  or DLL locks remain, and no new commit/push was requested or performed.
+
+## 2026-10-29: Publish TCP / ellipse / height-diagnostic checkpoint
+
+- User now explicitly requests commit and push before further algorithm work.
+- Scope: Toolsets TCP section indexing, elliptical profiles, exact previous-
+  surface target heights, bounded correction and tests; Alice2 matching layer
+  inspection, cached red out-of-domain markers and verification snapshots.
+- Red markers use the configured height domain plus fabrication tolerance and
+  take priority over yellow junction markers; ordinary valid targets stay black.
+- Verification: final marker-enabled Release build passed all 26 native tests
+  (27.84 s); both repositories pass git diff --check.
+- The actual warped input still fails the full requested height domain. This
+  checkpoint does not claim that optimization is solved. Normal Alice2 local
+  surface correction remains OFF. Heat geodesics only initialize layer count;
+  a heat/geodesic local height regulator is not implemented.
+- Exclude generated builds/prototypes, packaged runtimes, the external research
+  journal and unrelated webviewer changes. Publish on the existing contributor
+  branches and verify local commit IDs against remote heads.

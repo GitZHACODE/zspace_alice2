@@ -715,6 +715,9 @@ private:
         glBegin(GL_POINTS);
         for (const auto& p : markers.Features) glVertex3f(p.x, p.y, p.z);
         glEnd();
+        glColor4f(1.f,0.f,0.f,1.f);glBegin(GL_POINTS);
+        for(const auto& p:markers.OutsideDomain)glVertex3f(p.x,p.y,p.z);
+        glEnd();
         glPopAttrib();
     }
 
@@ -726,7 +729,9 @@ private:
         const auto& pathFields = m_slicer->getPathFields();
         const auto& widthFields = m_slicer->getWidthFields();
         if (pathFields.empty() || widthFields.empty()) return;
-        drawFieldMinimap(renderer, m_slicer->getScalarField(), pathFields[0], widthFields[0], "Path (layer 0)");
+        const int section=m_slicer->getPrintSectionOffset();
+        if(section<int(pathFields.size())&&section<int(widthFields.size()))
+            drawFieldMinimap(renderer, m_slicer->getScalarField(), pathFields[section], widthFields[section], "TCP path (layer 0)",nullptr,true,section);
     }
 
     void drawTopologyFieldMinimap(Renderer& renderer)
@@ -735,7 +740,9 @@ private:
         const auto& pathFields = m_topoSlicer->getPathFields();
         const auto& widthFields = m_topoSlicer->getWidthFields();
         if (pathFields.empty() || widthFields.empty()) return;
-        drawFieldMinimap(renderer, m_topoSlicer->getScalarField(), pathFields[0], widthFields[0], "Path (layer 0)");
+        const int section=m_topoSlicer->getPrintSectionOffset();
+        if(section<int(pathFields.size())&&section<int(widthFields.size()))
+            drawFieldMinimap(renderer, m_topoSlicer->getScalarField(), pathFields[section], widthFields[section], "TCP path (layer 0)",nullptr,true,section);
     }
 
     // Raw and sampled inspectors share the selected layer (up/down arrows).
@@ -752,14 +759,21 @@ private:
         return nullptr;
     }
 
+    int printSectionOffset() const
+    {
+        if(m_slicerChoice==kSlicerHarmonic&&m_slicer)return m_slicer->getPrintSectionOffset();
+        if(m_slicerChoice==kSlicerTopology&&m_topoSlicer)return m_topoSlicer->getPrintSectionOffset();
+        return 0;
+    }
+
     // Layers the inspector steps through: the slicer's field layers (the
     // print paths may be partial if extraction or mapping fails).
     int inspectorLayerCount() const
     {
         if(m_displayMode==displayModeCount(m_slicerChoice)-1 && activeSlicer())
             return static_cast<int>(activeSlicer()->getPrintPaths3D().size());
-        if (m_slicerChoice == kSlicerHarmonic && m_slicer) return static_cast<int>(m_slicer->getPathFields().size());
-        if (m_slicerChoice == kSlicerTopology && m_topoSlicer) return static_cast<int>(m_topoSlicer->getPathFields().size());
+        if (m_slicerChoice == kSlicerHarmonic && m_slicer) return (std::max)(0,static_cast<int>(m_slicer->getPathFields().size())-printSectionOffset());
+        if (m_slicerChoice == kSlicerTopology && m_topoSlicer) return (std::max)(0,static_cast<int>(m_topoSlicer->getPathFields().size())-printSectionOffset());
         return 0;
     }
 
@@ -775,20 +789,21 @@ private:
         if (layer < 0 || layer >= static_cast<int>(m_rawContourReady.size()) || m_rawContourReady[layer]) return;
         const alice2::slicing::SlicerMethodTimer timer("cacheRawContourLayer");
         m_rawContourReady[layer] = 1;
+        const int section=layer+printSectionOffset();
         const auto extract = [&](auto& op, const zSpace::zFloatArray* heights, const zSpace::zVectorArray* normals) {
             const auto& fields = op.getPathFields(); const auto& widths = op.getWidthFields(); const auto& tracks = op.getTrackFields();
             const auto& charts = op.getIsoMeshes2D(); const auto& sections = op.getIsoMeshes();
-            if (static_cast<size_t>(layer) >= fields.size() || widths.size() != fields.size() || tracks.size() != fields.size()
-                || static_cast<size_t>(layer) >= charts.size() || static_cast<size_t>(layer) >= sections.size()) return false;
+            if (static_cast<size_t>(section) >= fields.size() || widths.size() != fields.size() || tracks.size() != fields.size()
+                || static_cast<size_t>(section) >= charts.size() || static_cast<size_t>(section) >= sections.size()) return false;
             std::vector<std::string> messages;
-            if (!zSpace::zTsField::extractPrintPaths(op.getScalarField(), fields[layer], widths[layer], tracks[layer], m_rawContours2D[layer], layer, &messages)) return false;
-            return zSpace::zTsField::mapPrintPaths(m_rawContours2D[layer], const_cast<zSpace::zObjMesh&>(charts[layer]),
-                const_cast<zSpace::zObjMesh&>(sections[layer]), heights, m_rawContours3D[layer], layer, normals);
+            if (!zSpace::zTsField::extractPrintPaths(op.getScalarField(), fields[section], widths[section], tracks[section], m_rawContours2D[layer], layer, &messages)) return false;
+            return zSpace::zTsField::mapPrintPaths(m_rawContours2D[layer], const_cast<zSpace::zObjMesh&>(charts[section]),
+                const_cast<zSpace::zObjMesh&>(sections[section]), heights, m_rawContours3D[layer], layer, normals);
         };
         bool ok = false;
-        if (m_slicerChoice == kSlicerHarmonic && m_slicer && static_cast<size_t>(layer) < m_slicer->getVertexLayerHeights().size())
-            ok = extract(*m_slicer, &m_slicer->getVertexLayerHeights()[layer],
-                static_cast<size_t>(layer) < m_slicer->getVertexLayerNormals().size() ? &m_slicer->getVertexLayerNormals()[layer] : nullptr);
+        if (m_slicerChoice == kSlicerHarmonic && m_slicer && static_cast<size_t>(section) < m_slicer->getVertexLayerHeights().size())
+            ok = extract(*m_slicer, &m_slicer->getVertexLayerHeights()[section],
+                static_cast<size_t>(section) < m_slicer->getVertexLayerNormals().size() ? &m_slicer->getVertexLayerNormals()[section] : nullptr);
         else if (m_slicerChoice == kSlicerTopology && m_topoSlicer) ok = extract(*m_topoSlicer, &m_topoSlicer->getVertexLayerHeights(), nullptr);
         if (!ok) {m_rawContours2D[layer].clear();m_rawContours3D[layer].clear();logFail("Raw contour", "Extraction/mapping failed on layer " + std::to_string(layer));return;}
         for (const auto& path : m_rawContours3D[layer])
@@ -860,17 +875,18 @@ private:
         const InspectorPaths* paths2D =
             (l < static_cast<int>(layers2D.size())) ? &layers2D[l] : nullptr;
         const std::string label = std::string(raw ? "Raw contour (layer " : "Sampled path (layer ") + std::to_string(l) + ")";
+        const int section=l+printSectionOffset();
         if (m_slicerChoice == kSlicerHarmonic && m_slicer) {
             const auto& pathFields = m_slicer->getPathFields();
             const auto& widthFields = m_slicer->getWidthFields();
-            if (l < static_cast<int>(pathFields.size()) && l < static_cast<int>(widthFields.size()))
-                drawFieldMinimap(renderer, m_slicer->getScalarField(), pathFields[l], widthFields[l], label.c_str(), paths2D, !raw && !faceTags, l);
+            if (section < static_cast<int>(pathFields.size()) && section < static_cast<int>(widthFields.size()))
+                drawFieldMinimap(renderer, m_slicer->getScalarField(), pathFields[section], widthFields[section], label.c_str(), paths2D, !raw && !faceTags, section);
         } else if (m_slicerChoice == kSlicerTopology && m_topoSlicer) {
             const auto& pathFields = m_topoSlicer->getPathFields();
             const auto& widthFields = m_topoSlicer->getWidthFields();
-            if (l < static_cast<int>(pathFields.size()) && l < static_cast<int>(widthFields.size()))
-                drawFieldMinimap(renderer, m_topoSlicer->getScalarField(), pathFields[l], widthFields[l], label.c_str(),
-                                 paths2D, !raw && !faceTags, l);
+            if (section < static_cast<int>(pathFields.size()) && section < static_cast<int>(widthFields.size()))
+                drawFieldMinimap(renderer, m_topoSlicer->getScalarField(), pathFields[section], widthFields[section], label.c_str(),
+                                 paths2D, !raw && !faceTags, section);
         }
 
         renderer.setColor(Color(0.08f, 0.09f, 0.12f, 1.0f));
@@ -1281,9 +1297,10 @@ private:
                 m_processedInspector2D[k].push_back(alice2::slicing::inspectorPathSnapshot(path, m_printSettings.FeatureAngleTol));
             for (const zSpace::PrintPath& path : layers[k]) {
                 m_processedInspector3D[k].push_back(alice2::slicing::inspectorPathSnapshot(path, m_printSettings.FeatureAngleTol));
-                const auto markers = alice2::slicing::printPathMarkers(path, m_printSettings.FeatureAngleTol);
+                const auto markers = alice2::slicing::printPathMarkers(path, m_printSettings.FeatureAngleTol, &m_settings.HPrintHeight);
                 m_processedMarkers[k].Targets.insert(m_processedMarkers[k].Targets.end(), markers.Targets.begin(), markers.Targets.end());
                 m_processedMarkers[k].Features.insert(m_processedMarkers[k].Features.end(), markers.Features.begin(), markers.Features.end());
+                m_processedMarkers[k].OutsideDomain.insert(m_processedMarkers[k].OutsideDomain.end(),markers.OutsideDomain.begin(),markers.OutsideDomain.end());
                 zSpace::zFnGraph fn(const_cast<zSpace::zObjGraph&>(path.graph));
                 zSpace::zPointArray positions;
                 zSpace::zIntArray edges;

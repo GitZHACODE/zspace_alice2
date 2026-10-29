@@ -51,13 +51,14 @@ static Json path(const PrintPath& p) {
 static Json result(zTsSlicing& slicer,int mode) {
     zObjMeshArray* slices = mode ? &slicer.getHarmonicSlicer()->getIsoMeshes() : &slicer.getTopologySlicer()->getIsoMeshes();
     Json layers=Json::array(); const auto& paths=slicer.get3DPrintPaths();
-    require(paths.size()+1==slices->size(),"Exact top reference mesh must not be a print layer");
+    require(paths.size()+1==slices->size(),"Each TCP layer must have a preceding supporting section");
     for(size_t i=0;i<paths.size();++i) {
         Json ps=Json::array(); require(!paths[i].empty(),"Empty path layer");
         for(const auto& p:paths[i]) ps.push_back(path(p));
-        layers.push_back({{"slice",mesh((*slices)[i])},{"paths",ps}});
+        layers.push_back({{"slice",mesh((*slices)[i+1])},{"paths",ps}});
     }
-    return {{"mode",mode},{"layers",layers},{"topReference",mesh(slices->back())},{"combined",path(slicer.getResultantPrintPath())}};
+    return {{"mode",mode},{"layers",layers},{"printSectionOffset",1},{"substrate",mesh(slices->front())},
+            {"topReference",mesh(slices->back())},{"combined",path(slicer.getResultantPrintPath())}};
 }
 // Check exported arrays in source units, independent of graph traversal order.
 static void exportedArray(const std::string& text,const std::string& name,Json expected,double scale,
