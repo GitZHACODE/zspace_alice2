@@ -30,6 +30,9 @@ rg "methodName" ..\zspace_core\include ..\zspace_core\src ..\zspace_core\tests
 
 - Keep `faceCounts` and `faceConnects` aligned.
 - Check face winding against outward normals.
+- Keep fabrication normals toward increasing slicer layers independently of
+  the source solid's outward normals. Correct print-normal tables without
+  changing cap winding or assuming increasing layers always follow world +Z.
 - For the starter pyramid base, use `0, 3, 2, 1`, not `0, 1, 2, 3`.
 - Read `agents/zspace_sketch_generation.md` before generating mesh topology.
 

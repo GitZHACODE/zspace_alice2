@@ -5,6 +5,9 @@
 #include <zspace/slicing.h>
 #include <zspace/zSlicingSettings.h>
 #include <zspace/zSlicerViewValidation.h>
+#include <zspace/zSlicerPathMarkers.h>
+#include <zspace/zSlicerTiming.h>
+#include <zspace/zSlicerFieldPreview.h>
 
 // clang-format off
 #include <windows.h>
@@ -48,6 +51,8 @@ constexpr int kSlicerHarmonic = 0;
 constexpr int kSlicerTopology = 1;
 constexpr int kHarmonicModeCount = 10;
 constexpr int kTopologyModeCount = 9;
+using InspectorPath = alice2::slicing::InspectorPathSnapshot;
+using InspectorPaths = std::vector<InspectorPath>;
 
 inline int displayModeCount(int slicer)
 {
@@ -163,6 +168,8 @@ public:
         // No default geometry and no default import - the scene starts
         // empty; press 'i' to pick a USD and run the pipeline on it.
     }
+
+    void cleanup() override { m_fieldPreview.clear(); }
 
     // Sliders write straight into the bound variable on drag (SimpleUI has
     // no per-change callback), so the only way to notice an edit is to
@@ -357,7 +364,9 @@ private:
             return;
         }
         std::string error;
-        if (!zSpace::zTsIO::exportPrintPathUSD(path, m_inputMeshPath, fileBuffer, static_cast<int>(slicer->getPrintPaths3D().size()), &error, 0, &slicer->getPrintPaths3D()))
+        if (!alice2::slicing::timeSlicerMethod("exportPrintPathUSD", [&] {
+                return zSpace::zTsIO::exportPrintPathUSD(path, m_inputMeshPath, fileBuffer,
+                    static_cast<int>(slicer->getPrintPaths3D().size()), &error, 0, &slicer->getPrintPaths3D()); }))
             logFail("Export USD", error);
         else
             logOk("Export USD", std::string("Saved ") + fileBuffer);
@@ -382,6 +391,7 @@ private:
 
     void focusCameraOnInputMesh()
     {
+        const alice2::slicing::SlicerMethodTimer timer("focusCameraOnInputMesh");
         zSpace::zPoint minBB;
         zSpace::zPoint maxBB;
         zSpace::zFnMesh fn(m_inputMesh);
@@ -521,6 +531,7 @@ private:
     // a color, as they do in the field.
     void buildInputGroups(std::string& outSummary)
     {
+        const alice2::slicing::SlicerMethodTimer timer("buildInputGroups");
         m_inputGroupMeshes.clear();
         m_inputGroupColors.clear();
         m_widthPalette.clear();
@@ -667,8 +678,8 @@ private:
     // per-layer 3D print paths, inner track blue and outer track pink (a
     // single-perimeter path has no outer track, so it is all blue).
     static Color faceTagColor(int tag) {
-        switch(tag){case 3:return Color(.13f,.77f,.37f,1);case 4:return Color(.64f,.29f,.90f,1);
-          case 5:return Color(.04f,.72f,.88f,1);case 6:return Color(.90f,.12f,.22f,1);default:return Color(.62f,.65f,.69f,1);}
+        const auto c = alice2::slicing::slicerFaceTagColor(tag);
+        return Color(c.r,c.g,c.b,c.a);
     }
     const zSpace::zTsField::FaceTagSource *faceTagSource(int layer) const {
         const std::vector<zSpace::zTsField::FaceTagSource> *sources=nullptr;
@@ -685,6 +696,26 @@ private:
                 renderer.drawLine(seg.a, seg.b, seg.faceTag ? faceTagColor(seg.faceTag) : seg.outer ? outerColor : innerColor, 4.0f);
             }
         }
+        for (const auto& markers : m_processedMarkers) drawProcessedPathMarkers(markers);
+    }
+
+    // Draw cached final targets in batches. LEQUAL keeps them visible on their
+    // own path lines while retaining occlusion by nearer geometry.
+    static void drawProcessedPathMarkers(const alice2::slicing::PrintPathMarkers& markers)
+    {
+        glPushAttrib(GL_CURRENT_BIT | GL_POINT_BIT | GL_DEPTH_BUFFER_BIT);
+        glDepthFunc(GL_LEQUAL);
+        glPointSize(5.0f);
+        glColor4f(0.0f, 0.0f, 0.0f, 1.0f);
+        glBegin(GL_POINTS);
+        for (const auto& p : markers.Targets) glVertex3f(p.x, p.y, p.z);
+        glEnd();
+        glPointSize(9.0f);
+        glColor4f(1.0f, 0.85f, 0.0f, 1.0f);
+        glBegin(GL_POINTS);
+        for (const auto& p : markers.Features) glVertex3f(p.x, p.y, p.z);
+        glEnd();
+        glPopAttrib();
     }
 
     // Both slicers: every layer has its own fields on one shared grid (the
@@ -742,6 +773,7 @@ private:
     void cacheRawContourLayer(int layer)
     {
         if (layer < 0 || layer >= static_cast<int>(m_rawContourReady.size()) || m_rawContourReady[layer]) return;
+        const alice2::slicing::SlicerMethodTimer timer("cacheRawContourLayer");
         m_rawContourReady[layer] = 1;
         const auto extract = [&](auto& op, const zSpace::zFloatArray* heights, const zSpace::zVectorArray* normals) {
             const auto& fields = op.getPathFields(); const auto& widths = op.getWidthFields(); const auto& tracks = op.getTrackFields();
@@ -759,6 +791,10 @@ private:
                 static_cast<size_t>(layer) < m_slicer->getVertexLayerNormals().size() ? &m_slicer->getVertexLayerNormals()[layer] : nullptr);
         else if (m_slicerChoice == kSlicerTopology && m_topoSlicer) ok = extract(*m_topoSlicer, &m_topoSlicer->getVertexLayerHeights(), nullptr);
         if (!ok) {m_rawContours2D[layer].clear();m_rawContours3D[layer].clear();logFail("Raw contour", "Extraction/mapping failed on layer " + std::to_string(layer));return;}
+        for (const auto& path : m_rawContours3D[layer])
+            m_rawInspector3D[layer].push_back(alice2::slicing::inspectorPathSnapshot(path, m_printSettings.FeatureAngleTol));
+        for (const auto& path : m_rawContours2D[layer])
+            m_rawInspector2D[layer].push_back(alice2::slicing::inspectorPathSnapshot(path, m_printSettings.FeatureAngleTol));
         size_t vertices = 0; for (const auto& path : m_rawContours2D[layer])
             vertices += zSpace::zFnGraph(const_cast<zSpace::zObjGraph&>(path.graph)).numVertices();
         std::cout << "[RawContourDisplay] layer=" << layer << " original vertices=" << vertices << std::endl;
@@ -773,8 +809,8 @@ private:
         const int l = m_inspectLayer;
         if (raw) cacheRawContourLayer(l);
 
-        const auto& layers3D = raw ? m_rawContours3D : slicer->getPrintPaths3D();
-        const auto& layers2D = raw ? m_rawContours2D : slicer->getPrintPaths2D();
+        const auto& layers3D = raw ? m_rawInspector3D : m_processedInspector3D;
+        const auto& layers2D = raw ? m_rawInspector2D : m_processedInspector2D;
         const Color innerColor(0.1f, 0.35f, 0.95f, 1.0f);
         const Color outerColor(1.0f, 0.4f, 0.75f, 1.0f);
         const auto toVec3 = [](const zSpace::zPoint& p) {
@@ -782,61 +818,46 @@ private:
         };
         std::ostringstream info;
         info << (raw ? "Raw contour layer " : "Sampled path layer ") << l << " / " << (count - 1)
-             << " (up/down arrow)" << (raw ? " | before corner reconstruction / resampling" : faceTags ? " | FaceTag colours" : " | features: yellow");
+             << " (up/down arrow)" << (raw ? " | before corner reconstruction / resampling" : faceTags ? " | FaceTag colours" : " | targets: black | features: yellow");
         if (l < static_cast<int>(layers3D.size())) {
             info << " | paths: " << layers3D[l].size();
             for (size_t k = 0; k < layers3D[l].size(); ++k) {
-                const zSpace::PrintPath& path = layers3D[l][k];
-                zSpace::zFnGraph fn(const_cast<zSpace::zObjGraph&>(path.graph));
-                zSpace::zPointArray positions;
-                zSpace::zIntArray edges;
-                fn.getVertexPositions(positions);
-                fn.getEdgeData(edges);
+                const InspectorPath& path = layers3D[l][k];
+                const auto& positions = path.Points;
+                const auto& edges = path.EdgeConnects;
                 if (positions.empty()) continue;
-                std::vector<int> degree(positions.size(), 0);
                 for (size_t e = 0; e + 1 < edges.size(); e += 2) {
                     const int a = edges[e], b = edges[e + 1];
-                    ++degree[a];
-                    ++degree[b];
-                    const bool outer = static_cast<size_t>(a) < path.trackIds.size() &&
-                                       static_cast<size_t>(b) < path.trackIds.size() &&
-                                       0.5f * (path.trackIds[a] + path.trackIds[b]) >= 0.5f;
-                    renderer.drawLine(toVec3(positions[a]), toVec3(positions[b]), (e/2 < path.edgeFaceTags.size() && path.edgeFaceTags[e/2] ? faceTagColor(path.edgeFaceTags[e/2]) : faceTags ? faceTagColor(0) : outer ? outerColor : innerColor), faceTags ? 2.0f : 4.0f);
+                    const bool outer = static_cast<size_t>(a) < path.TrackIds.size() &&
+                                       static_cast<size_t>(b) < path.TrackIds.size() &&
+                                       0.5f * (path.TrackIds[a] + path.TrackIds[b]) >= 0.5f;
+                    renderer.drawLine(toVec3(positions[a]), toVec3(positions[b]), (e/2 < path.EdgeFaceTags.size() && path.EdgeFaceTags[e/2] ? faceTagColor(path.EdgeFaceTags[e/2]) : faceTags ? faceTagColor(0) : outer ? outerColor : innerColor), faceTags ? 2.0f : 4.0f);
                 }
                 if(faceTags) {
                     GLint depthFunction;glGetIntegerv(GL_DEPTH_FUNC,&depthFunction);glDepthFunc(GL_LEQUAL);
                     for(size_t v=0;v<positions.size();++v)
-                        renderer.drawPoint(toVec3(positions[v]),faceTagColor(v<path.faceTags.size()?path.faceTags[v]:0),8.f);
+                        renderer.drawPoint(toVec3(positions[v]),faceTagColor(v<path.FaceTags.size()?path.FaceTags[v]:0),8.f);
                     glDepthFunc(depthFunction);
                 }
-                // Display recorded source-contour features, even where the corner is rounded.
-                if (!raw && !faceTags && l < static_cast<int>(layers2D.size()) && k < layers2D[l].size()) {
-                    const auto corners = zSpace::zPrintSyn::featureVertexIds(
-                        layers2D[l][k], m_printSettings.FeatureAngleTol);
-                    for (int id : corners)
-                        if (id >= 0 && static_cast<size_t>(id) < positions.size())
-                            renderer.drawPoint(toVec3(positions[id]), Color(1.0f, 0.85f, 0.0f, 1.0f), 9.0f);
-                }
-                int openEnds = 0, branches = 0;
-                for (size_t v = 0; v < positions.size(); ++v) {
-                    if (degree[v] == 1) {
-                        ++openEnds;
+                if (raw || faceTags) for (size_t v = 0; v < positions.size(); ++v) {
+                    if (path.Degree[v] == 1) {
                         renderer.drawPoint(toVec3(positions[v]), Color(0.95f, 0.1f, 0.1f, 1.0f), 10.0f);
-                    } else if (degree[v] > 2) {
-                        ++branches;
+                    } else if (path.Degree[v] > 2) {
                         renderer.drawPoint(toVec3(positions[v]), Color(1.0f, 0.55f, 0.0f, 1.0f), 10.0f);
                     }
                 }
-                renderer.drawPoint(toVec3(positions[0]), Color(0.1f, 0.75f, 0.2f, 1.0f), 12.0f);
+                if (raw || faceTags) renderer.drawPoint(toVec3(positions[0]), Color(0.1f, 0.75f, 0.2f, 1.0f), 12.0f);
                 if (k == 0)
                     info << " | first path: " << positions.size() << " vertices, " << edges.size() / 2 << " edges, "
-                         << openEnds << " open ends, " << branches << " branch vertices";
+                         << path.OpenEnds << " open ends, " << path.Branches << " branch vertices";
             }
         } else {
             info << " | no print paths on this layer";
         }
+        if (!raw && !faceTags && static_cast<size_t>(l) < m_processedMarkers.size())
+            drawProcessedPathMarkers(m_processedMarkers[l]);
 
-        const std::vector<zSpace::PrintPath>* paths2D =
+        const InspectorPaths* paths2D =
             (l < static_cast<int>(layers2D.size())) ? &layers2D[l] : nullptr;
         const std::string label = std::string(raw ? "Raw contour (layer " : "Sampled path (layer ") + std::to_string(l) + ")";
         if (m_slicerChoice == kSlicerHarmonic && m_slicer) {
@@ -857,8 +878,9 @@ private:
         renderer.drawString("Slicer status: " + slicer->getStatus(), 10, 86);
         if(faceTags) {
             std::map<int,int> counts,pieces;
-            if(l<int(layers2D.size()))for(const auto &path:layers2D[l])for(const auto &segment:path.faceTagSegments) {
-                counts[segment.tag]+=int(segment.vertices.size());++pieces[segment.tag];
+            if(l<int(layers2D.size()))for(const auto &path:layers2D[l]) {
+                for(const auto& entry:path.FaceTagPointCounts)counts[entry.first]+=entry.second;
+                for(const auto& entry:path.FaceTagPieceCounts)pieces[entry.first]+=entry.second;
             }
             std::ostringstream row;row<<"2D sampling: "<<m_printSettings.ResampleLength<<" mm | endpoint-inclusive totals:";
             for(auto entry:counts)row<<" tag "<<entry.first<<" = "<<entry.second<<" ("<<pieces[entry.first]<<" pieces)";
@@ -880,46 +902,22 @@ private:
     // start vertex green).
     void drawFieldMinimap(Renderer& renderer, const zSpace::zObjMeshScalarField& field,
                           const zSpace::zScalarArray& pathValues, const zSpace::zScalarArray& widthValues,
-                          const char* pathLabel, const std::vector<zSpace::PrintPath>* paths2D = nullptr,
+                          const char* pathLabel, const InspectorPaths* paths2D = nullptr,
                           bool showFeatures = true, int layer = 0)
     {
-        zSpace::zFnMesh fn(const_cast<zSpace::zObjMeshScalarField&>(field));
-        zSpace::zPointArray positions;
-        fn.getVertexPositions(positions);
-        zSpace::zIntArray polyConnects;
-        zSpace::zIntArray polyCounts;
-        fn.getPolygonData(polyConnects, polyCounts);
-        if (positions.empty() || polyCounts.empty()) return;
-
-        zSpace::zPoint minBB, maxBB;
-        fn.getBounds(minBB, maxBB);
+        if (pathValues.empty() || widthValues.empty()) return;
+        const auto& cached = m_fieldPreview.layer(layer, field, pathValues, widthValues,
+            m_widthPalette, faceTagSource(layer));
+        const auto& grid = m_fieldPreview.grid();
+        const auto& minBB = grid.Min;
+        const auto& maxBB = grid.Max;
         const double rangeX = (maxBB.x - minBB.x > 1e-9) ? (maxBB.x - minBB.x) : 1.0;
         const double rangeY = (maxBB.y - minBB.y > 1e-9) ? (maxBB.y - minBB.y) : 1.0;
 
-        zSpace::zColorArray pathColors;
-        zSpace::zTsUtils::colorPathField(pathValues, pathColors);
-        zSpace::zColorArray widthColors;
-        // Same palette as the input face groups (buildInputGroups()), so each
-        // width matches its side_<n> color even on a layer missing some groups.
-        zSpace::zTsUtils::colorWidthField(widthValues, widthColors,
-                                          m_widthPalette.empty() ? nullptr : &m_widthPalette);
-
         GLint viewport[4];
         glGetIntegerv(GL_VIEWPORT, viewport);
-
-        zSpace::zColorArray tagColors;
-        const auto *source=faceTagSource(layer);
-        if(source && !source->edgeTags.empty()) {
-            auto &tags=m_faceTagFieldCache[layer];
-            if(tags.size()!=positions.size()) {
-                zSpace::zTsField::queryFaceTags(*source,positions,tags);
-                std::set<int> labels(tags.begin(),tags.end());
-                std::cout<<"[FaceTagField] layer="<<layer<<" values="<<tags.size()<<" labels=";
-                for(int tag:labels)std::cout<<tag<<" ";std::cout<<std::endl;
-            }
-            for(int tag:tags){const auto c=faceTagColor(tag);tagColors.emplace_back(c.r,c.g,c.b,1.f);}
-        }
-        const int panelCount=tagColors.empty()?2:3;
+        const bool haveTags = cached.Tags.Id != 0;
+        const int panelCount=haveTags?3:2;
         const float maxPanelHeight=(viewport[3]-200.f-panelCount*24.f)/panelCount;
         const float kPanelSize=(std::min)(440.f,(std::max)(80.f,maxPanelHeight*float((std::max)(rangeX,rangeY)/rangeY)));
         constexpr float kMargin = 100.0f; // all HUDs use a 100px margin from the window edge
@@ -946,54 +944,44 @@ private:
         glPushMatrix();
         glLoadIdentity();
 
-        const auto drawPanel = [&](float top, float bottom, const zSpace::zColorArray& colors, bool categorical=false) {
-            if (colors.size() != positions.size()) return;
+        const auto drawPanel = [&](float top, float bottom, const alice2::slicing::FieldPreviewTexture& texture) {
+            if (!texture.Id) return;
             const auto toScreen = [&](const zSpace::zPoint& p) {
                 const float sx = left + static_cast<float>((p.x - minBB.x) / rangeX) * (right - left);
                 const float sy = bottom - static_cast<float>((p.y - minBB.y) / rangeY) * (bottom - top);
                 return std::make_pair(sx, sy);
             };
 
-            int offset = 0;
-            for (int count : polyCounts) {
-                if (count != 4) { offset += count; continue; } // quad grid (triMesh=false)
-                const int ia = polyConnects[offset + 0];
-                const int ib = polyConnects[offset + 1];
-                const int ic = polyConnects[offset + 2];
-                const int id = polyConnects[offset + 3];
-                offset += count;
-                if (ia < 0 || ib < 0 || ic < 0 || id < 0 ||
-                    static_cast<size_t>(ia) >= positions.size() || static_cast<size_t>(ib) >= positions.size() ||
-                    static_cast<size_t>(ic) >= positions.size() || static_cast<size_t>(id) >= positions.size()) continue;
-
-                const auto va = toScreen(positions[ia]);
-                const auto vb = toScreen(positions[ib]);
-                const auto vc = toScreen(positions[ic]);
-                const auto vd = toScreen(positions[id]);
-
-                glBegin(GL_QUADS);
-                glColor4f(colors[ia].r, colors[ia].g, colors[ia].b, colors[ia].a); glVertex2f(va.first, va.second);
-                glColor4f(colors[categorical?ia:ib].r, colors[categorical?ia:ib].g, colors[categorical?ia:ib].b, colors[categorical?ia:ib].a); glVertex2f(vb.first, vb.second);
-                glColor4f(colors[categorical?ia:ic].r, colors[categorical?ia:ic].g, colors[categorical?ia:ic].b, colors[categorical?ia:ic].a); glVertex2f(vc.first, vc.second);
-                glColor4f(colors[categorical?ia:id].r, colors[categorical?ia:id].g, colors[categorical?ia:id].b, colors[categorical?ia:id].a); glVertex2f(vd.first, vd.second);
-                glEnd();
-            }
+            // Vertex colours use linear texture filtering; category texels use
+            // nearest filtering and the original cell's lower-left label.
+            const float u0 = texture.Categorical ? 0.f : .5f/texture.Width;
+            const float v0 = texture.Categorical ? 0.f : .5f/texture.Height;
+            const float u1 = texture.Categorical ? 1.f : 1.f-u0;
+            const float v1 = texture.Categorical ? 1.f : 1.f-v0;
+            GLint activeTexture = 0; glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTexture);
+            glPushAttrib(GL_TEXTURE_BIT | GL_ENABLE_BIT | GL_CURRENT_BIT);
+            glActiveTexture(GL_TEXTURE0);
+            glEnable(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D, texture.Id);
+            glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+            glBegin(GL_QUADS);
+            glTexCoord2f(u0,v0); glVertex2f(left,bottom);
+            glTexCoord2f(u1,v0); glVertex2f(right,bottom);
+            glTexCoord2f(u1,v1); glVertex2f(right,top);
+            glTexCoord2f(u0,v1); glVertex2f(left,top);
+            glEnd(); glPopAttrib(); glActiveTexture(activeTexture);
 
             if (paths2D) {
                 glLineWidth(2.0f);
-                for (const zSpace::PrintPath& path : *paths2D) {
-                    zSpace::zFnGraph fnPath(const_cast<zSpace::zObjGraph&>(path.graph));
-                    zSpace::zPointArray pathPoints;
-                    zSpace::zIntArray pathEdges;
-                    fnPath.getVertexPositions(pathPoints);
-                    fnPath.getEdgeData(pathEdges);
+                for (const InspectorPath& path : *paths2D) {
+                    const auto& pathPoints = path.Points;
+                    const auto& pathEdges = path.EdgeConnects;
                     glBegin(GL_LINES);
                     for (size_t e = 0; e + 1 < pathEdges.size(); e += 2) {
                         const int a = pathEdges[e], b = pathEdges[e + 1];
-                        const bool outer = static_cast<size_t>(a) < path.trackIds.size() &&
-                                           static_cast<size_t>(b) < path.trackIds.size() &&
-                                           0.5f * (path.trackIds[a] + path.trackIds[b]) >= 0.5f;
-                        if(e/2<path.edgeFaceTags.size() && path.edgeFaceTags[e/2]) {const auto c=faceTagColor(path.edgeFaceTags[e/2]);glColor4f(c.r,c.g,c.b,1.f);}
+                        const bool outer = static_cast<size_t>(a) < path.TrackIds.size() &&
+                                           static_cast<size_t>(b) < path.TrackIds.size() &&
+                                           0.5f * (path.TrackIds[a] + path.TrackIds[b]) >= 0.5f;
+                        if(e/2<path.EdgeFaceTags.size() && path.EdgeFaceTags[e/2]) {const auto c=faceTagColor(path.EdgeFaceTags[e/2]);glColor4f(c.r,c.g,c.b,1.f);}
                         else if (outer) glColor4f(1.0f, 0.4f, 0.75f, 1.0f);
                         else glColor4f(0.1f, 0.35f, 0.95f, 1.0f);
                         const auto pa = toScreen(pathPoints[a]);
@@ -1002,15 +990,25 @@ private:
                         glVertex2f(pb.first, pb.second);
                     }
                     glEnd();
-                    if(!path.faceTags.empty()) {
+                    if(!showFeatures && !path.FaceTags.empty()) {
                         glPointSize(4.f);glBegin(GL_POINTS);
                         for(size_t v=0;v<pathPoints.size();++v) {
-                            const auto c=faceTagColor(path.faceTags[v]);glColor4f(c.r,c.g,c.b,1.f);
+                            const auto c=faceTagColor(path.FaceTags[v]);glColor4f(c.r,c.g,c.b,1.f);
                             const auto point=toScreen(pathPoints[v]);glVertex2f(point.first,point.second);
                         }
                         glEnd();glPointSize(1.f);
                     }
-                    const auto corners = showFeatures ? zSpace::zPrintSyn::featureVertexIds(path, m_printSettings.FeatureAngleTol) : zSpace::zIntArray{};
+                    const zSpace::zIntArray emptyFeatures;
+                    const auto& corners = showFeatures ? path.FeatureIds : emptyFeatures;
+                    if (showFeatures) {
+                        glPointSize(4.0f);
+                        glColor4f(0.0f, 0.0f, 0.0f, 1.0f);
+                        glBegin(GL_POINTS);
+                        for (const auto& p : pathPoints) {
+                            const auto point = toScreen(p); glVertex2f(point.first, point.second);
+                        }
+                        glEnd();
+                    }
                     glPointSize(7.0f);
                     glColor4f(1.0f, 0.85f, 0.0f, 1.0f);
                     glBegin(GL_POINTS);
@@ -1021,7 +1019,7 @@ private:
                     }
                     glEnd();
                     glPointSize(1.0f);
-                    if (!pathPoints.empty()) { // start vertex
+                    if (!showFeatures && !pathPoints.empty()) { // diagnostic start vertex
                         const auto p0 = toScreen(pathPoints[0]);
                         glPointSize(8.0f);
                         glColor4f(0.1f, 0.75f, 0.2f, 1.0f);
@@ -1043,10 +1041,10 @@ private:
             glEnd();
         };
 
-        drawPanel(pathTop, pathBottom, pathColors);
-        drawPanel(widthTop, widthBottom, widthColors);
+        drawPanel(pathTop, pathBottom, cached.Path);
+        drawPanel(widthTop, widthBottom, cached.Width);
         const float tagTop=widthBottom+kGap,tagBottom=tagTop+panelH;
-        if(!tagColors.empty())drawPanel(tagTop,tagBottom,tagColors,true);
+        if(haveTags)drawPanel(tagTop,tagBottom,cached.Tags);
 
         glPopMatrix();
         glMatrixMode(GL_PROJECTION);
@@ -1057,7 +1055,7 @@ private:
         renderer.setColor(Color(0.05f, 0.05f, 0.05f, 1.0f));
         renderer.drawString(pathLabel, left, pathBottom + 16.0f);
         renderer.drawString("Width", left, widthBottom + 16.0f);
-        if(!tagColors.empty())renderer.drawString("FaceTag: 3 green | 4 purple | 5 cyan | 6 red | 0 other",left,tagBottom+16.f);
+        if(haveTags)renderer.drawString("FaceTag: 3 green | 4 purple | 5 cyan | 6 red | 0 other",left,tagBottom+16.f);
     }
 
     void drawTetWireframe()
@@ -1088,6 +1086,7 @@ private:
     // wire graph output, so it's assembled here on the alice2 side.
     void rebuildTetWireGraph()
     {
+        const alice2::slicing::SlicerMethodTimer timer("rebuildTetWireGraph");
         zSpace::zFnGraph clearFn(m_tetWireGraph);
         clearFn.clear();
 
@@ -1126,6 +1125,7 @@ private:
     // position across every layer. u -> red, v -> green.
     void colorHarmonicIsoByUV()
     {
+        const alice2::slicing::SlicerMethodTimer timer("colorHarmonicIsoByUV");
         const std::vector<zSpace::zPointArray>& uvBySlice = m_slicer->getIsoMeshUV();
         zSpace::zObjMeshArray& meshes = m_slicer->getIsoMeshes();
         if (uvBySlice.empty() || meshes.empty()) return;
@@ -1256,22 +1256,34 @@ private:
     // Extract paths, run PrintSyn, then cache the processed 3D paths for display.
     void computeProcessedPrintPaths(zSpace::zSlicer& slicer)
     {
+        const alice2::slicing::SlicerMethodTimer methodTimer("computeProcessedPrintPaths");
         m_fieldPathSegments.clear();
-        m_faceTagFieldCache.clear();
+        m_processedMarkers.clear();
+        m_fieldPreview.clear();
         // Retain partial outputs for inspection if a PrintSyn stage fails.
-        if (!slicer.computePostProcess(m_printSettings))
+        if (!alice2::slicing::timeSlicerMethod("computePostProcess", [&] { return slicer.computePostProcess(m_printSettings); }))
             logFail("PrintSyn", slicer.getStatus());
 
         const auto& layers = slicer.getPrintPaths3D();
         m_rawContours2D.assign(layers.size(), {}); m_rawContours3D.assign(layers.size(), {});
         m_rawContourReady.assign(layers.size(), 0);
-        m_faceTagFieldCache.clear();
+        m_rawInspector3D.assign(layers.size(), {}); m_rawInspector2D.assign(layers.size(), {});
+        m_processedInspector3D.assign(layers.size(), {}); m_processedInspector2D.assign(layers.size(), {});
         std::string meshError;
-        if (!zSpace::zTsUtils::buildPrintMesh(layers, m_printMesh, &meshError))
+        if (!alice2::slicing::timeSlicerMethod("buildPrintMesh", [&] { return zSpace::zTsUtils::buildPrintMesh(layers, m_printMesh, &meshError); }))
             logFail("Print mesh", meshError);
+        const alice2::slicing::SlicerMethodTimer cacheTimer("cacheProcessedPathsAndMarkers");
         m_fieldPathSegments.assign(layers.size(), std::vector<PathSegment>());
+        m_processedMarkers.resize(layers.size());
+        const auto& paths2D = slicer.getPrintPaths2D();
         for (size_t k = 0; k < layers.size(); ++k) {
+            if (k < paths2D.size()) for (const auto& path : paths2D[k])
+                m_processedInspector2D[k].push_back(alice2::slicing::inspectorPathSnapshot(path, m_printSettings.FeatureAngleTol));
             for (const zSpace::PrintPath& path : layers[k]) {
+                m_processedInspector3D[k].push_back(alice2::slicing::inspectorPathSnapshot(path, m_printSettings.FeatureAngleTol));
+                const auto markers = alice2::slicing::printPathMarkers(path, m_printSettings.FeatureAngleTol);
+                m_processedMarkers[k].Targets.insert(m_processedMarkers[k].Targets.end(), markers.Targets.begin(), markers.Targets.end());
+                m_processedMarkers[k].Features.insert(m_processedMarkers[k].Features.end(), markers.Features.begin(), markers.Features.end());
                 zSpace::zFnGraph fn(const_cast<zSpace::zObjGraph&>(path.graph));
                 zSpace::zPointArray positions;
                 zSpace::zIntArray edges;
@@ -1307,10 +1319,11 @@ private:
 #if defined(ZSPACE_TS3DP_OPENUSD)
     void loadUSDInputs()
     {
+        const alice2::slicing::SlicerMethodTimer timer("loadUSDInputs");
         zSpace::zTsIO::SlicerUSDInput input;
         std::string error;
         logInput("File: " + m_inputMeshPath);
-        if (!zSpace::zTsIO::readSlicerInputUSD(m_inputMeshPath, input, &error)) {
+        if (!alice2::slicing::timeSlicerMethod("readSlicerInputUSD", [&] { return zSpace::zTsIO::readSlicerInputUSD(m_inputMeshPath, input, &error); })) {
             logFail("Input", error);
             return;
         }
@@ -1375,6 +1388,7 @@ private:
 
     void loadInputs()
     {
+        const alice2::slicing::SlicerMethodTimer timer("loadInputs");
         m_slicer.reset();
         m_topoSlicer.reset();
         clearResults();
@@ -1400,9 +1414,13 @@ private:
     // Results cached for drawing, owned by the sketch rather than a slicer.
     void clearResults()
     {
+        const alice2::slicing::SlicerMethodTimer timer("clearResults");
         zSpace::zFnMesh(m_printMesh).clear();
         m_fieldPathSegments.clear();
-        m_faceTagFieldCache.clear();
+        m_processedMarkers.clear();
+        m_fieldPreview.clear();
+        m_processedInspector3D.clear(); m_processedInspector2D.clear();
+        m_rawInspector3D.clear(); m_rawInspector2D.clear();
         m_rawContours2D.clear(); m_rawContours3D.clear(); m_rawContourReady.clear();
         zSpace::zFnGraph(m_tetWireGraph).clear();
     }
@@ -1411,8 +1429,9 @@ private:
     // on the loaded inputs.
     void runSelectedSlicer()
     {
-        clearResults();
+        const alice2::slicing::SlicerTimingSession timing;
         const auto start = std::chrono::steady_clock::now();
+        clearResults();
         if (m_slicerChoice == kSlicerTopology) {
             m_slicer.reset();
             if (!m_topoSlicer) m_topoSlicer = std::make_unique<zSpace::TopologySlicer>();
@@ -1430,18 +1449,21 @@ private:
 
     void runHarmonicPipeline()
     {
+        const alice2::slicing::SlicerMethodTimer timer("runHarmonicPipeline");
         // The loaded settings (shared + H* entries are read), with
         // LayerSpacing from the "Layer Spacing" slider and one BoundaryWidth
         // per width group.
-        zSpace::SlicerSettings settings = m_settings;
-        settings.LayerSpacing = m_layerSpacing;
-        fitBoundaryWidths(settings, "HarmonicSlicer");
-        m_slicer->setSettings(settings);
-        m_slicer->setInputMesh(m_inputMesh, m_faceTags, m_faceWidthIds);
-        if (m_haveBracing) m_slicer->setBracingGraph(m_bracingGraph);
-        else m_slicer->clearBracingGraph();
-        if (m_haveSlotAnchor) m_slicer->setSlotAnchor(m_slotAnchor);
-        else m_slicer->clearSlotAnchor();
+        alice2::slicing::timeSlicerMethod("HarmonicSlicer.configureInputs", [&] {
+            zSpace::SlicerSettings settings = m_settings;
+            settings.LayerSpacing = m_layerSpacing;
+            fitBoundaryWidths(settings, "HarmonicSlicer");
+            m_slicer->setSettings(settings);
+            m_slicer->setInputMesh(m_inputMesh, m_faceTags, m_faceWidthIds);
+            if (m_haveBracing) m_slicer->setBracingGraph(m_bracingGraph);
+            else m_slicer->clearBracingGraph();
+            if (m_haveSlotAnchor) m_slicer->setSlotAnchor(m_slotAnchor);
+            else m_slicer->clearSlotAnchor();
+        });
 
         // Every step runs only if the previous one succeeded - a failed step
         // stops the run (nothing after it has an input).
@@ -1449,14 +1471,14 @@ private:
             if (!ok) logFail("HarmonicSlicer", std::string("run stopped at ") + step + ".");
             return !ok;
         };
-        if (stopped(m_slicer->computeBasicStructure(), "computeBasicStructure")) return; // step 1: tag and tetrahedralize
+        if (stopped(alice2::slicing::timeSlicerMethod("HarmonicSlicer.computeBasicStructure", [&] { return m_slicer->computeBasicStructure(); }), "computeBasicStructure")) return;
         rebuildTetWireGraph();
-        if (stopped(m_slicer->computeHarmonicField(), "computeHarmonicField")) return; // step 3: harmonic (w) values
-        if (stopped(m_slicer->computeVolumetricParameterization(), "computeVolumetricParameterization"))
+        if (stopped(alice2::slicing::timeSlicerMethod("HarmonicSlicer.computeHarmonicField", [&] { return m_slicer->computeHarmonicField(); }), "computeHarmonicField")) return;
+        if (stopped(alice2::slicing::timeSlicerMethod("HarmonicSlicer.computeVolumetricParameterization", [&] { return m_slicer->computeVolumetricParameterization(); }), "computeVolumetricParameterization"))
             return; // step 4: tracing (u,v) values
-        if (stopped(m_slicer->computeContours(), "computeContours")) return; // step 5: slice meshes, ARAP charts and boundaries
+        if (stopped(alice2::slicing::timeSlicerMethod("HarmonicSlicer.computeContours", [&] { return m_slicer->computeContours(); }), "computeContours")) return;
         colorHarmonicIsoByUV();
-        if (stopped(m_slicer->computeField(), "computeField")) return; // step 7: per-layer path/width fields
+        if (stopped(alice2::slicing::timeSlicerMethod("HarmonicSlicer.computeField", [&] { return m_slicer->computeField(); }), "computeField")) return;
         computeProcessedPrintPaths(*m_slicer); // Process once and cache per-layer display paths.
     }
 
@@ -1465,15 +1487,18 @@ private:
     // of the side faces (fitBoundaryWidths()), as compasviewer.py does.
     void runTopologyPipeline()
     {
+        const alice2::slicing::SlicerMethodTimer timer("runTopologyPipeline");
         logOk("TopologySlicer", "run started");
         zSpace::SlicerSettings settings = m_settings;
         settings.LayerSpacing = m_layerSpacing; // "Layer Spacing" slider
         fitBoundaryWidths(settings, "TopologySlicer");
-        m_topoSlicer->setSettings(settings);
-        m_topoSlicer->setInputMesh(m_inputMesh, m_faceTags, m_faceWidthIds);
-        m_topoSlicer->setBracingGraph(m_bracingGraph); // empty graph = no bracing
-        if (m_haveSlotAnchor) m_topoSlicer->setSlotAnchor(m_slotAnchor);
-        else m_topoSlicer->clearSlotAnchor();
+        alice2::slicing::timeSlicerMethod("TopologySlicer.configureInputs", [&] {
+            m_topoSlicer->setSettings(settings);
+            m_topoSlicer->setInputMesh(m_inputMesh, m_faceTags, m_faceWidthIds);
+            m_topoSlicer->setBracingGraph(m_bracingGraph); // empty graph = no bracing
+            if (m_haveSlotAnchor) m_topoSlicer->setSlotAnchor(m_slotAnchor);
+            else m_topoSlicer->clearSlotAnchor();
+        });
 
 
         // The settings are absolute lengths. On a model in other units than
@@ -1499,11 +1524,11 @@ private:
 
         // Failing here (e.g. a triangle mesh or no Top/Bottom tags) stops the
         // run - computeSlicer() would only repeat the same failure.
-        if (!m_topoSlicer->computeBasicStructure()) {
+        if (!alice2::slicing::timeSlicerMethod("TopologySlicer.computeBasicStructure", [&] { return m_topoSlicer->computeBasicStructure(); })) {
             logFail("TopologySlicer", "run stopped at computeBasicStructure.");
             return;
         }
-        if (!m_topoSlicer->computeSlicer()) {
+        if (!alice2::slicing::timeSlicerMethod("TopologySlicer.computeSlicer", [&] { return m_topoSlicer->computeSlicer(); })) {
             logFail("TopologySlicer", "run stopped at computeSlicer.");
             return;
         }
@@ -1566,7 +1591,9 @@ private:
     // computeProcessedPrintPaths()'s cached result, replayed every frame by
     // drawFieldPrintPaths() - [layer][segment], already resolved to
     // world-space endpoints, with the segment's track (outer = pink).
-    std::map<int,zSpace::zIntArray> m_faceTagFieldCache;
+    alice2::slicing::SlicerFieldPreview m_fieldPreview;
+    std::vector<InspectorPaths> m_processedInspector3D, m_processedInspector2D;
+    std::vector<InspectorPaths> m_rawInspector3D, m_rawInspector2D;
     struct PathSegment {
         int faceTag=0;
         Vec3 a;
@@ -1574,6 +1601,7 @@ private:
         bool outer = false;
     };
     std::vector<std::vector<PathSegment>> m_fieldPathSegments;
+    std::vector<alice2::slicing::PrintPathMarkers> m_processedMarkers;
     zSpace::PrintPathArray m_rawContours2D, m_rawContours3D;
     std::vector<char> m_rawContourReady;
 };

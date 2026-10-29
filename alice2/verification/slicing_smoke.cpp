@@ -5,6 +5,7 @@
 #include <pxr/usd/usdGeom/tokens.h>
 #include <zspace/slicing.h>
 #include <zspace/zSlicingSettings.h>
+#include <zspace/zSlicerTiming.h>
 #include <nlohmann/json.hpp>
 #include <cmath>
 #include <filesystem>
@@ -160,8 +161,22 @@ int main(int argc,char** argv) {
     require(slicer.hasPrintStatistics() && std::isfinite(slicer.getPrintLength()) && slicer.getPrintLength()>0 && std::isfinite(slicer.getPrintVolume()) && slicer.getPrintVolume()>=0,"Invalid print statistics");
     require(slicer.getPrintVolume()>0,"Printed volume must remain positive with the existing height method");
     Json first=result(slicer,mode); require(first["layers"].size()==size_t(legacy?52:4),"Unexpected printed layer count");
-    require(slicer.computeSlicer(false),"Repeated slicing failed");
-    require(slicer.computePostProcess(false),"Repeated PrintSyn failed");
+    {
+      const alice2::slicing::SlicerTimingSession timing;
+      require(slicer.computeSlicer(false),"Repeated slicing failed");
+      require(slicer.computePostProcess(false),"Repeated PrintSyn failed");
+    }
+    const auto timingRows=zTsUtils::getSlicingTimings();
+    require(!timingRows.empty(),"Native pipeline produced no method timings");
+    for(const auto& row:timingRows)
+      require(row.calls>0 && std::isfinite(row.totalMilliseconds) && row.totalMilliseconds>=row.maxMilliseconds && row.maxMilliseconds>=0,
+              "Invalid native method timing");
+    std::ostringstream timingReport;
+    alice2::slicing::printSlicingTimingReport(timingReport);
+    require(timingReport.str().find("PrintSyn.computePipeline")!=std::string::npos &&
+            timingReport.str().find("worker-sum=")!=std::string::npos &&
+            timingReport.str().find("wall-sum=")!=std::string::npos,
+            "Timing report does not distinguish method wall time from worker sums");
     require(first==result(slicer,mode),"Repeated solve changed owned numeric result");
     const std::filesystem::path output=argv[2];
     if(!output.parent_path().empty()) std::filesystem::create_directories(output.parent_path());
