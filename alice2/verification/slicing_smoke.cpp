@@ -134,6 +134,8 @@ int main(int argc,char** argv) {
     require(settings.BoundaryWidth.size()==2,"Missing width groups");
     require(std::abs(settings.BoundaryWidth[0]-(legacy?60:.4))<1e-6,"Authored width changed");
     require(std::abs(print.ResampleLength-(legacy?10:.2))<1e-6,"Authored resample changed");
+    require(std::abs(print.InnerResampleLength-(legacy?20:.3))<1e-6,
+            "Inner spacing was not imported in millimetres or defaulted to 20 mm");
     if (!legacy) {
         zPoint lo,hi; zFnMesh(input.Block).getBounds(lo,hi);
         require(std::abs(hi.x-lo.x-4)<1e-5 && std::abs(hi.y-lo.y-4)<1e-5 && std::abs(hi.z-lo.z-2)<1e-5,"Input geometry not normalized to mm");
@@ -147,7 +149,8 @@ int main(int argc,char** argv) {
       {"fieldScaleUp",settings.FieldScaleUp},{"fieldCellSize",settings.FieldCellSize},
       {"traceStepFraction",settings._HTraceStepFraction},{"traceMaxSteps",settings._HTraceMaxSteps},
       {"equaliseIterations",settings._HEqualiseIterations},{"arapIterations",settings._HArapIterations},{"unrollStart",settings._HUnrollStart},
-      {"resampleLength",print.ResampleLength},{"featureAngle",print.FeatureAngleTol},{"seamOffset",print.SeamOffset},{"seamSize",print.SeamSize}};
+      {"resampleLength",print.ResampleLength},{"innerResampleLength",print.InnerResampleLength},
+      {"featureAngle",print.FeatureAngleTol},{"seamOffset",print.SeamOffset},{"seamSize",print.SeamSize}};
     Json request={{"mesh",mesh(input.Block)},{"faceTags",input.FaceTags},{"faceWidthIds",input.FaceWidthIds},
       {"bracing",graph(bracing)},{"anchor",{input.StartPoint.x,input.StartPoint.y,input.StartPoint.z}},
       {"settings",wasmSettings},{"mode",mode},{"postProcess",true}};

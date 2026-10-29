@@ -11,9 +11,11 @@ The `alice2_agent` is responsible for sketch structure, display, UI flow, and zS
 - Use `zDisplayMeshSetting`, `zDisplayGraphSetting`, and `zDisplayPointCloudSetting` for optional display settings.
 - Use lowercase `z` for zSpace-related alice2 wrapper/sketch names to match the zSpace library style.
 - Use lowercase `z` for related filenames too: `zDisplaySettings.h`, `zSpaceDraw.h/.cpp`, and `zSpaceObject.h/.cpp`.
-- For the slicer inspector, classify yellow feature points from the current
-  graph geometry and angle threshold when building display caches. Recorded
-  feature masks must not keep stale yellow markers (Lin, 28 October 2026).
+- For the slicer inspector, yellow features are junctions between distinct
+  outer FaceTags, computed when building display caches. Geometric angle
+  supports remain ordinary targets. Outer tagged runs skip corner reconstruction;
+  inner/untagged runs reconstruct independently with their own spacing (Lin,
+  29 October 2026). Historical angle masks must not create yellow markers.
 
 ## Public Sketch API
 

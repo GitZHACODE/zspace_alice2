@@ -16,22 +16,22 @@ template<class Action> static void rejects(Action action, const char* message)
 }
 static void snapshots()
 {
-    zPointArray points{{0,0,7},{1,0,7},{1,1,7},{2,1,7}};
-    zIntArray edges{0,1,1,2,2,3};
+    zPointArray points{{0,0,7},{2,0,7},{3,1,7},{4,2,7},{6,2,7}};
+    zIntArray edges{0,1,1,2,2,3,3,4};
     PrintPath path;
     zFnGraph(path.graph).create(points, edges);
-    path.trackIds = {0,0,1,1}; path.edgeFaceTags = {3,4,5}; path.faceTags = {3,3,4,5};
-    path.faceTagSegments = {{3,{0,1}}, {4,{1,2,3}}, {3,{2,3}}};
-    path.featureFlags = {0,PrintPath::AngleFeature,0,PrintPath::IntersectionFeature};
+    path.trackIds = {1,1,1,1,1}; path.edgeFaceTags = {6,6,3,3}; path.faceTags = {6,6,3,3,3};
+    path.faceTagSegments = {{6,{0,1,2}}, {3,{2,3,4}}};
+    path.featureFlags = {0,PrintPath::AngleFeature,0,PrintPath::IntersectionFeature,0};
     const auto display = inspectorPathSnapshot(path, 91);
-    require(display.Points.size() == 4 && display.EdgeConnects == edges, "Snapshot lost final geometry");
-    require(display.Degree == zIntArray{1,2,2,1} && display.OpenEnds == 2 && display.Branches == 0,
+    require(display.Points.size() == 5 && display.EdgeConnects == edges, "Snapshot lost final geometry");
+    require(display.Degree == zIntArray{1,2,2,2,1} && display.OpenEnds == 2 && display.Branches == 0,
             "Cached path degrees do not describe its topology");
-    require(display.FeatureIds == zIntArray{1,2}, "Snapshot did not re-detect geometric corners");
+    require(display.FeatureIds == zIntArray{2}, "Snapshot did not select the flat outer junction");
     require(display.TrackIds == path.trackIds && display.FaceTags == path.faceTags
             && display.EdgeFaceTags == path.edgeFaceTags, "Snapshot lost path ownership");
-    require(display.FaceTagPointCounts == std::map<int,int>{{3,4},{4,3}}
-            && display.FaceTagPieceCounts == std::map<int,int>{{3,2},{4,1}},
+    require(display.FaceTagPointCounts == std::map<int,int>{{3,3},{6,3}}
+            && display.FaceTagPieceCounts == std::map<int,int>{{3,1},{6,1}},
             "Snapshot did not retain endpoint-inclusive FaceTag piece totals");
     zPointArray after; zIntArray afterEdges;
     zFnGraph(path.graph).getVertexPositions(after); zFnGraph(path.graph).getEdgeData(afterEdges);
@@ -39,13 +39,13 @@ static void snapshots()
     for (size_t i = 0; i < points.size(); ++i)
         require(zTsUtils::vecDistSq(points[i], after[i]) == 0, "Snapshot moved a final target");
     path.featureFlags.assign(points.size(), 0);
-    require(inspectorPathSnapshot(path, 91).FeatureIds == zIntArray{1,2}, "Zero masks hid geometric corners");
+    require(inspectorPathSnapshot(path, 91).FeatureIds == zIntArray{2}, "Zero masks hid the junction");
     path.featureFlags.clear();
-    require(inspectorPathSnapshot(path, 91).FeatureIds == zIntArray{1,2}, "Missing masks changed geometric corners");
+    require(inspectorPathSnapshot(path, 91).FeatureIds == zIntArray{2}, "Missing masks changed junction selection");
     points[0].x = 50;
     zFnGraph(path.graph).create(points, edges);
-    path.faceTags[0] = 6;
-    require(display.Points[0].x == 0 && display.FaceTags[0] == 3, "Snapshot retained mutable source storage");
+    path.faceTags[0] = 3;
+    require(display.Points[0].x == 0 && display.FaceTags[0] == 6, "Snapshot retained mutable source storage");
     PrintPath empty;
     const auto none = inspectorPathSnapshot(empty, 90);
     require(none.Points.empty() && none.Degree.empty() && none.OpenEnds == 0, "Empty path retained display data");

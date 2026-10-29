@@ -36,6 +36,7 @@ def Scope "Slicer_setting"
     custom bool slicer:DoubleBoundary = false
     custom float slicer:BracingSlot = 0.5
     custom float printSyn:ResampleLength = 0.00020000000000000001
+    custom float printSyn:InnerResampleLength = 0.0003
     custom float printSyn:SeamOffset = 4.0000000000000003E-05
     custom float printSyn:SeamSize = 2.0000000000000002E-05
 }

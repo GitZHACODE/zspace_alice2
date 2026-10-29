@@ -13,7 +13,7 @@
 namespace alice2::slicing {
 
 // Owned display data. Build once after a solve/extraction and render without
-// touching graph handles or re-detecting geometric corners on every frame.
+// touching graph handles or reclassifying outer junctions on every frame.
 struct InspectorPathSnapshot {
     zSpace::zPointArray Points;
     zSpace::zIntArray EdgeConnects;

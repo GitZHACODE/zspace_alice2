@@ -422,3 +422,141 @@ alice2\build_with_zspace.bat
   12,174 targets, zero edges below 0.01 mm and per-tag budgets stay unchanged.
 - Output: alice2/build_surface_height/bin/Release/alice2.exe. Run using
   alice2\run_with_zspace.bat build_surface_height. No GUI launch, commit or push.
+
+## 2026-10-29: Outer FaceTag junction features without corner reconstruction
+
+- User intent: first checkpoint/push the verified code, then use outer FaceTag
+  junctions as feature targets, skip corner reconstruction, retain current
+  sampling, and build Alice2 for review.
+- Checkpoint completed before implementation: Toolsets 436a8c5a1010b000f622cd1cbfc966835016f185
+  on codex/task-008-print-path-post-processing; Alice2
+  9361db1ce95d98b071a6b9ded1a6d16b66f55b89 on codex/task-006-print-mesh.
+  Both existing remote heads verified after push. Generated builds/logs excluded;
+  Core was clean. New implementation remains separate for user review.
+- Participating agents: backend agent owns Toolsets junction semantics and
+  focused regressions; coordinator owns Alice2 cached display/tests and native
+  integration; independent review checks junction selection and sampling.
+- Proposed changes: junction feature helper/metadata, production stage ordering,
+  tag sampler/display helpers and their tests. Preserve geometric support points
+  as ordinary targets; never sharpen them or move the contour to an intersection.
+- Acceptance: yellow targets only at incident distinct outer FaceTags; exclude
+  inner/bracing/gap boundaries. No reconstruction timing/call in production.
+  Keep 0.01 mm cleanup, parallel fixed FaceTag budgets, no second resampling,
+  first-layer normal fix, display caches and unchanged source geometry. Check
+  junction identities through seam/orientation/projection/linking and per-layer
+  counts, including the pictured feature-target-feature pattern.
+- Build: existing build_surface_height, TASK-008, native OpenUSD/TetGen and -Test.
+- Result: complete. Added OuterJunctionFeature (bit 4, retaining legacy enum
+  values/layout). featureVertexIds derives features from actual incidence of
+  distinct valid side edge tags 3..6 with outer-track eligibility; angle/old flags
+  do not select yellow targets. Slot/travel tag 0, same-side supports and inner
+  tracks do not create junctions. A flat red/green junction is a feature even
+  when neighboring geometric support points are ordinary black targets.
+- Removed both production reconstructCorners calls (tagged/generic); standalone
+  API remains available. Current sampling, geometry-support anchors, 0.01 mm
+  cleanup, fixed tag budgets and no mapped 3D second pass remain. Source shape
+  is retained instead of creating intersections. Reorder/seam/projection/link
+  stages preserve edge ownership and refresh junction metadata; tag-zero travel
+  bridges cannot synthesize features. Valid single-perimeter tracks now identify
+  outer boundary 1; bracing-controlled and invalid-input defaults remain 0,
+  without changing path/width field expressions.
+- Alice2: marker/inspector caches use junction selection; sampled-layer legend
+  says outer junctions in yellow and raw legend says before sampling. Regression
+  fixture represents the pictured angle-support/junction/angle-support sequence:
+  only the flat junction is yellow; angle supports stay black.
+- Verification: Release build_surface_height and all 26 native checks pass;
+  independent review found no blockers; both repositories pass git diff --check.
+  Cases cover arbitrary vertex/edge order, both windings, seams, junction flag
+  propagation, no intersections, slot/inner/bracing exclusions, single/double
+  boundaries, track-field geometry parity, attributes/normals, cached display and
+  standalone 3D sampler compatibility. Existing angle-only sampler fixture now
+  supplies actual FaceTag junction anchors while retaining spacing assertions.
+- Same 61-layer example: 244 features, exactly four per layer, with pairs
+  (3,4), (3,6), (4,5), (5,6) on every layer. No legacy angle/intersection flags
+  survive production; no reconstructCorners timing row. 13,124 total targets
+  retain ordinary supports from the unsharpened contours (checkpoint 12,174).
+  FaceTag budgets stay {3:27,4:11,5:27,6:11} and unique point labels stay
+  {3:27,4:10,5:26,6:9} on every layer; no edges below 0.01 mm. Grid labels,
+  upward first-layer normals and cache switch-back reuse verified unchanged.
+- Output: alice2/build_surface_height/bin/Release/alice2.exe. Run with
+  alice2\run_with_zspace.bat build_surface_height. No GUI launch. New junction
+  implementation remains uncommitted for review; only the requested pre-change
+  checkpoint was committed/pushed above. Generated diagnostics stay in build.
+
+## 2026-10-29: Uniform outer sampling and independent inner spacing
+
+- User intent: remove short end intervals on outer FaceTag runs while retaining
+  equal outer sample counts across layers; inner/untagged runs use independent
+  20 mm spacing and regain corner reconstruction. Update code and the USD input.
+- Clarification received: 20 means millimetres of spacing, not a point count;
+  inner counts do not need to match across layers.
+- Participating agents: backend agent owns run sampling/reconstruction and
+  Toolsets setting/units tests; coordinator owns Alice2 settings parsing, sample
+  USD edit, integration and numeric verification; independent review checks
+  short-end causes, tag-boundary protection and independent inner behavior.
+- Proposed input: printSyn:InnerResampleLength = 20 (mm-normalized); keep
+  ResampleLength for outer budget selection. Update active shared example
+  example_facetags_3-6.usda without replacing geometry or other settings.
+- Acceptance: outer runs have uniform chart-arc intervals over the whole run,
+  retaining junction anchors/counts without tiny angle-support end spans. Inner
+  runs alone reconstruct corners, then sample by InnerResampleLength per layer.
+  Outer geometry/junction selection, normal correction, 0.01 mm cleanup, metadata
+  and no second mapped resampling remain. USD length units/defaults/invalid
+  values must be checked; source/sample geometry and unrequested settings kept.
+- Build: existing build_surface_height, TASK-008, OpenUSD/TetGen and -Test.
+- Result: complete. Outer pieces now sample their entire chart arc once using
+  only run endpoints; ordinary angle supports no longer reset the phase or add
+  short terminal intervals. Whole-face budgets are still equal across layers
+  and distributed across split pieces with bounded integer allocation.
+- Inner/tag-zero runs reconstruct on private geometry with exact shared
+  endpoints, then step independently by InnerResampleLength (20 mm default),
+  retaining corner/end residuals and the existing 0.01 mm coincidence cleanup.
+  Inner counts are not budgeted across layers. Generic untagged/inner paths use
+  the same spacing and reconstruction; outer reconstruction stays disabled.
+  Coarse closed loops retain at least three targets and insufficient output
+  topology fails transactionally. Simultaneous bounded proportional allocation
+  plus exact-sum guards preserve budgets with mixed closed/open piece minima.
+- Added InnerResampleLength to the SDK, Python binding and WASM option sources;
+  USD reader scales authored values into mm and validates positive finite values.
+  Alice2 parses/defaults it; mm/metre fixtures exercise .3 mm equivalence and
+  legacy fixture covers omitted default 20 mm. Packaged JS/WASM preserved; only
+  native Alice2/runtime verification was requested and rebuilt.
+- Updated shared-assets/slicer_inputs/example_facetags_3-6.usda: inserted only
+  custom double printSyn:InnerResampleLength = 20. Existing outer spacing 10,
+  angle threshold 165, geometry and all other bytes remain unchanged. Before
+  SHA256 b351c2dd507603146fbf425c58df118459c0d24ff96297c5e658606f22d80d2d;
+  after c33e98dbf1e0753eae1c3cfdc4e1fa8cb5ea3985ee947f03f8187510122b5603.
+  Backup and diagnostics remain generated local build files.
+- Verification: build_surface_height Release and all 26 native checks passed;
+  both code repositories pass git diff --check; independent review confirmed
+  endpoint/attribute/cyclic-run handling and the corrected bounded allocator.
+  Tests cover outer uniformity including first/last interval, split budgets,
+  restored inner intersections, independent 20 mm counts, unit conversion,
+  invalid values/rollback, coarse open/closed topology, and normal/cache behavior.
+- Updated actual USD, 61 harmonic layers, relaxed/height optimization disabled
+  only in the isolated sampling diagnostic: 16,555 targets, 244 junctions (same
+  four pairs on every layer). Outer budgets {3:52,4:21,5:52,6:22} and unique
+  labels {3:52,4:20,5:51,6:20} match on all layers. Inner counts vary 116..143
+  (22 distinct counts); 122 private inner reconstruction calls. Uniform source
+  chart-arc intervals verified against raw contours (worst ~0.1008% from the
+  existing 0.01 mm cleanup). Actual outer first/last chord lengths are
+  94.76..100.87% of their piece mean after 3D mapping. No edges below 0.01 mm.
+  Nominal inner maximum chord is 20.0099 mm due to endpoint coincidence cleanup.
+  Upward first-layer normals and original USD geometry/settings retained.
+- Output: alice2/build_surface_height/bin/Release/alice2.exe, run using
+  alice2\run_with_zspace.bat build_surface_height. No GUI launch or new commits.
+
+## 2026-10-29: Publish current junction and sampling changes
+
+- User explicitly requested commit and push of the current code.
+- Scope: reviewed Toolsets TASK-008 and Alice2 TASK-006 source, tests, fixtures
+  and workflow notes for outer junction features, uniform outer sampling and
+  independent inner spacing/reconstruction. Exclude generated build folders
+  and unrelated webviewer changes; Core has no changes.
+- Verification: existing Release build and all 26 native checks passed;
+  git diff --check passed in both repositories. No behavior changes in this
+  publication step; corrected one stale API comment about inner reconstruction.
+- Shared example USD remains updated on the shared server; it is outside these
+  two code repositories.
+- Publication: commit and push both current contributor branches, then verify
+  their remote heads match the local commits.

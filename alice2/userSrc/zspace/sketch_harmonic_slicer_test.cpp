@@ -818,7 +818,7 @@ private:
         };
         std::ostringstream info;
         info << (raw ? "Raw contour layer " : "Sampled path layer ") << l << " / " << (count - 1)
-             << " (up/down arrow)" << (raw ? " | before corner reconstruction / resampling" : faceTags ? " | FaceTag colours" : " | targets: black | features: yellow");
+             << " (up/down arrow)" << (raw ? " | before sampling" : faceTags ? " | FaceTag colours" : " | targets: black | outer junctions: yellow");
         if (l < static_cast<int>(layers3D.size())) {
             info << " | paths: " << layers3D[l].size();
             for (size_t k = 0; k < layers3D[l].size(); ++k) {
@@ -999,7 +999,7 @@ private:
                         glEnd();glPointSize(1.f);
                     }
                     const zSpace::zIntArray emptyFeatures;
-                    const auto& corners = showFeatures ? path.FeatureIds : emptyFeatures;
+                    const auto& junctions = showFeatures ? path.FeatureIds : emptyFeatures;
                     if (showFeatures) {
                         glPointSize(4.0f);
                         glColor4f(0.0f, 0.0f, 0.0f, 1.0f);
@@ -1012,7 +1012,7 @@ private:
                     glPointSize(7.0f);
                     glColor4f(1.0f, 0.85f, 0.0f, 1.0f);
                     glBegin(GL_POINTS);
-                    for (int id : corners) {
+                    for (int id : junctions) {
                         if (id < 0 || static_cast<size_t>(id) >= pathPoints.size()) continue;
                         const auto point = toScreen(pathPoints[id]);
                         glVertex2f(point.first, point.second);

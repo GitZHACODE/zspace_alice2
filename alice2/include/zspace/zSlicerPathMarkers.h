@@ -9,7 +9,7 @@ struct PrintPathMarkers {
     zSpace::zPointArray Features;
 };
 
-// Use the final graph's positions and re-detected geometric corners. Never
+// Use the final graph's positions and outer FaceTag junctions. Never
 // reconstruct targets from the source contour, or change the printpath itself.
 inline PrintPathMarkers printPathMarkers(const zSpace::PrintPath& path, float featureAngle)
 {

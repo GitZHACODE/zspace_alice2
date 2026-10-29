@@ -1,6 +1,7 @@
 #pragma once
 #include <zspace/slicing.h>
 #include <nlohmann/json.hpp>
+#include <cmath>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -34,6 +35,7 @@ inline zSpace::PrintSynSetting defaultPrintSynSettings()
 {
     zSpace::PrintSynSetting s;
     s.ResampleLength = 5.0f;
+    s.InnerResampleLength = 20.0f;
     s.SurfaceChordTolerance = 0.1;
     s.FeatureAngleTol = 120.0f;
     s.SeamOffset = 40.0f;
@@ -93,6 +95,11 @@ inline void applyPrintSynJson(const nlohmann::json& obj, zSpace::PrintSynSetting
         const std::string& key = it.key();
         const nlohmann::json& v = it.value();
         if (key == "ResampleLength") s.ResampleLength = v.get<float>();
+        else if (key == "InnerResampleLength") {
+            s.InnerResampleLength = v.get<float>();
+            if (!std::isfinite(s.InnerResampleLength) || s.InnerResampleLength < zSpace::zTsField::MinPhysicalParameter)
+                throw std::runtime_error("InnerResampleLength must be finite and at least 0.0001 mm.");
+        }
         else if (key == "SurfaceChordTolerance") s.SurfaceChordTolerance = v.get<double>();
         else if (key == "FeatureAngleTol") s.FeatureAngleTol = v.get<float>();
         else if (key == "SeamOffset") s.SeamOffset = v.get<float>();
