@@ -1,0 +1,2 @@
+alice2_add_sketch(sketch_mesh_bricks SOURCES sketch_mesh_bricks.cpp LIBRARIES alice2_bricks)
+target_compile_definitions(sketch_mesh_bricks PRIVATE ALICE2_BRICKS_INPUT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")

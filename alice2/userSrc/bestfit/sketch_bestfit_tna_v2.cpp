@@ -20,7 +20,7 @@ using namespace alice2;
 class OffsetCableNetworkSketch : public ISketch {
 public:
     std::string getName() const override { return "Offset Cable Network (3D)"; }
-    std::string getDescription() const override { return "Colored mesh + height-scaled cable network, spatial force-density fitting"; }
+    std::string getDescription() const override { return "Colored mesh + height-scaled normal-offset cable network, spatial force-density fitting"; }
     std::string getAuthor() const override { return "alice2 User"; }
     ~OffsetCableNetworkSketch() override { stop(); }
     void setup() override {
@@ -180,13 +180,15 @@ private:
             float highestZ = welded.vertices.front().position.z;
             for (const auto& vertex : welded.vertices)
                 highestZ = std::max(highestZ, vertex.position.z);
-            const float factor = highestZ == 0.f ? 0.f : -m_offset / highestZ;
             for (int v = 0; v < m_network.surfaceVertexCount; ++v) {
                 const int cable = m_network.cableNode[v];
                 if (cable < m_network.surfaceVertexCount) continue; // Boundary yellow vertices stay shared.
-                const auto& source = welded.vertices[v].position;
-                m_network.form.mesh.vertices[cable].position =
-                    Vec3(source.x, source.y, source.z == 0.f ? 0.f : source.z * (1.f - factor));
+                const auto& source = m_network.form.mesh.vertices[v];
+                const Vec3 normal = source.normal.normalized();
+                const float verticalOffset = highestZ == 0.f ? 0.f : m_offset * (source.position.z / highestZ);
+                // Project the height-scaled vertical displacement onto the vertex normal.
+                const float normalOffset = verticalOffset * normal.z;
+                m_network.form.mesh.vertices[cable].position = source.position + normal * normalOffset;
             }
             m_settings = offsetCableSettings(m_network, m_load, m_density);
             m_settings.maximumIterations = std::max(1, int(std::lround(m_iterations)));
@@ -337,7 +339,7 @@ private:
     OffsetCableNetwork m_network;
     BestFitForceDensitySettings m_settings;
     BestFitForceDensityResult m_result;
-    float m_offset{-.05f}, m_iterations{50}, m_attraction{1}, m_load{.001f}, m_density{1};
+    float m_offset{-.45f}, m_iterations{50}, m_attraction{1}, m_load{.001f}, m_density{1};
     float m_supportForceScale{.4f}, m_slidingMovementPenalty{0.0f}, m_yellowMovementPenalty{50};
     bool m_showForces{false}, m_showInput{true};
     std::array<float, 7> m_applied{};

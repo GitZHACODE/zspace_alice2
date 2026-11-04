@@ -207,6 +207,14 @@ else()
     endif()
 
     set(EIGEN_DIR "${ALICE2_DEPENDS_DIR}/eigen")
+    # The legacy Eigen bundle omits unsupported modules required by libigl heat.
+    # Use a complete release, including indexed-vector support used by libigl.
+    if(NOT EXISTS "${EIGEN_DIR}/unsupported/Eigen/SparseExtra")
+        set(EIGEN_DIR "${ALICE2_DEPENDS_DIR}/eigen-3.4.0")
+        if(NOT EXISTS "${EIGEN_DIR}/unsupported/Eigen/SparseExtra")
+            alice2_download_dependency("https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz")
+        endif()
+    endif()
     if(NOT EXISTS ${EIGEN_DIR}/eigen)
         message(FATAL_ERROR "Eigen headers not found at ${EIGEN_DIR}")
     endif()
