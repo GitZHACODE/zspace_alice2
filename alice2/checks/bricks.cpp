@@ -6,6 +6,7 @@
 #include <stdexcept>
 
 using namespace alice2::bricks;
+void checkBrickPopulation();
 void require(bool value, const char* message) { if (!value) throw std::runtime_error(message); }
 template<class F> void rejects(F action) {
     bool rejected = false;
@@ -14,6 +15,7 @@ template<class F> void rejects(F action) {
 }
 int main(int argc, char** argv) {
     try {
+        checkBrickPopulation();
         constexpr int nx = 21, ny = 7;
         Eigen::MatrixXd v(nx*ny,3);
         Eigen::MatrixXi f((nx-1)*(ny-1)*2,3);
@@ -103,9 +105,11 @@ int main(int argc, char** argv) {
             for (auto method : {FieldMethod::Height, FieldMethod::ExactGeodesic, FieldMethod::ExactBlend}) {
                 g.computeField(method);
                 g.extractContours((g.field().maxCoeff()-g.field().minCoeff())/20);
+                g.generateBricks(BrickOptions{});
                 std::cout << "Input method " << static_cast<int>(method) << ": " << g.vertices().rows()
                           << " vertices, " << g.triangles().rows() << " triangles, red " << g.startVertices().size()
-                          << ", blue " << g.endVertices().size() << ", " << g.contours().edges.rows() << " contour edges\n";
+                          << ", blue " << g.endVertices().size() << ", " << g.contours().edges.rows()
+                          << " contour edges, " << g.bricks().size() << " bricks\n";
             }
         }
         std::cout << "Brick fields checks passed; planar exact max error: " << exactError << '\n';
