@@ -38,7 +38,7 @@ void checkBrickPopulation() {
         }
     }
     BrickGenerator g;
-    const BrickOptions options{0.02,0.04,0.20,0.10};
+    const BrickOptions options{0.02,0.04,0.04,0.20,0.10};
     rejects([&] { g.generateBricks(options); });
     g.setMesh(v,f); g.computeField(FieldMethod::Height); g.extractContours(0.1); g.generateBricks(options);
     check(g.contourPaths().size() == 9, "Planar wall should have nine open courses");
@@ -64,12 +64,39 @@ void checkBrickPopulation() {
     check(firstA && nextHeader && std::abs(firstA->origin.x()-nextHeader->origin.x())<1e-10,
           "Flemish header should center under adjacent stretcher");
     const auto originalCount=g.bricks().size();
-    g.generateBricks({0.02,0.04,0.10,0.05});
+    const auto fullPattern=g.bricks();
+    size_t aCount=0,bCount=0;
+    for(const auto& brick:fullPattern)(brick.isLengthA?aCount:bCount)++;
+    g.generateBricks({0.02,0.02,0.07,0.20,0.10});
+    check(g.bricks().size()==originalCount,"Changing depths must preserve the layout");
+    for(size_t i=0;i<fullPattern.size();++i) {
+        const auto& b=g.bricks()[i];
+        checkBox(b);
+        check(b.depth==(b.isLengthA?0.02:0.07),"Each type must use its own depth");
+        check((b.origin-fullPattern[i].origin).norm()<1e-12,"Depth edits must not move brick bases");
+    }
+    g.generateBricks({0.02,0,0.07,0.20,0.10});
+    check(g.bricks().size()==bCount,"Zero depth A must remove only A bricks");
+    size_t visible=0;
+    for(const auto& original:fullPattern)if(!original.isLengthA) {
+        const auto& b=g.bricks()[visible++];
+        check(!b.isLengthA && b.depth==0.07,"B must remain with its selected depth");
+        check(b.startDistance==original.startDistance && b.endDistance==original.endDistance &&
+              (b.origin-original.origin).norm()<1e-12,"Removing A must not repack B");
+    }
+    g.generateBricks({0.02,0.02,0,0.20,0.10});
+    check(g.bricks().size()==aCount,"Zero depth B must remove only B bricks");
+    for(const auto& b:g.bricks())check(b.isLengthA && b.depth==0.02,"A must remain with its selected depth");
+    g.generateBricks({0.02,0,0,0.20,0.10});
+    check(g.bricks().empty() && g.contourPaths().size()==9,"Both depths zero must omit all solids and retain paths");
+    g.generateBricks({0.02,0.04,0.04,0.10,0.05});
     check(g.bricks().size()>originalCount, "Length sliders change population");
-    rejects([&] { g.generateBricks({0.1,0.04,0.2,0.1}); });
+    rejects([&] { g.generateBricks({0.1,0.04,0.04,0.2,0.1}); });
     check(g.bricks().empty(), "Invalid options clear stale bricks");
-    rejects([&] { g.generateBricks({0.01,0,0.2,0.1}); });
-    rejects([&] { g.generateBricks({0.01,0.04,std::numeric_limits<double>::quiet_NaN(),0.1}); });
+    rejects([&] { g.generateBricks({0.01,-0.01,0.04,0.2,0.1}); });
+    rejects([&] { g.generateBricks({0.01,0.04,-0.01,0.2,0.1}); });
+    rejects([&] { g.generateBricks({0.01,0.04,std::numeric_limits<double>::infinity(),0.2,0.1}); });
+    rejects([&] { g.generateBricks({0.01,0.04,0.04,std::numeric_limits<double>::quiet_NaN(),0.1}); });
 
     // Curved wall: independently compute area-weighted normals and verify the
     // barycentric interpolant, including points whose normal differs from a face.

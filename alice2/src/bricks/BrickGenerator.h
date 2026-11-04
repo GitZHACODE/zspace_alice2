@@ -18,9 +18,15 @@ struct Contours {
 
 struct BrickOptions {
     double gap = 0.01;
-    double depth = 0.05;
+    double depthA = 0.05;
+    double depthB = 0.05;
     double lengthA = 0.20;
     double lengthB = 0.10;
+};
+
+struct AlignmentPlane {
+    Eigen::Vector3d origin = Eigen::Vector3d::Zero();
+    Eigen::Vector3d normal = Eigen::Vector3d::UnitX();
 };
 
 struct ContourPath {
@@ -30,18 +36,28 @@ struct ContourPath {
     double length = 0;
 };
 
+struct ContourSegment {
+    int pathIndex = -1, levelIndex = -1;
+    int startPlane = -1, endPlane = -1; // -1 denotes an original path endpoint.
+    double startDistance = 0, endDistance = 0; // Closed wrap intervals can exceed path length.
+    std::vector<Eigen::Vector3d> points;
+};
+
 struct Brick {
     // Base rectangle 0..3 CCW about normal; top 4..7 = base + depth*normal.
     std::array<Eigen::Vector3d, 8> vertices;
     Eigen::Vector3d origin, tangent, widthDirection, normal;
-    Eigen::Vector3d barycentric; // Closest triangle weights at origin.
+    Eigen::Vector3d referencePoint; // Layout reference; on the plane for joined bricks.
+    Eigen::Vector3d barycentric; // Closest triangle weights at referencePoint.
     double length = 0, width = 0, depth = 0;
     double startDistance = 0, endDistance = 0; // Occupied interval along the path.
+    double referenceDistance = 0;
     int levelIndex = -1, pathIndex = -1, triangleIndex = -1;
+    int segmentIndex = -1, alignmentPlaneIndex = -1;
     bool isLengthA = true, trimmed = false;
 };
 
-// Mesh -> field -> contours -> Flemish bond bricks (no plane splitting yet).
+// Mesh -> field -> contours -> plane segments -> Flemish bond bricks.
 // No viewer dependency. Inputs and outputs retain original mesh units.
 // setMesh preserves vertex IDs; loadObj welds identical positions and returns welded IDs.
 class BrickGenerator {
@@ -59,6 +75,10 @@ public:
     void setBoundaryVertices(const std::vector<int>& start, const std::vector<int>& end);
     void computeField(FieldMethod method);
     void extractContours(double spacing);
+    void setAlignmentPlanes(const std::vector<AlignmentPlane>& planes);
+    // OBJ l / degree-1 curv: plane X = line direction, Y = world Z.
+    // Planar OBJ faces are also supported. Coincident planes are deduplicated.
+    void loadPlanesObj(const std::string& path);
     // Course centerlines follow contours. A/B alternate with a half-repeat shift
     // on odd levels. Terminal bricks are shortened; closed paths have one seam.
     void generateBricks(const BrickOptions& options);
@@ -71,6 +91,8 @@ public:
     const Contours& contours() const { return contours_; }
     const std::vector<ContourPath>& contourPaths() const { return paths_; }
     const std::vector<Brick>& bricks() const { return bricks_; }
+    const std::vector<AlignmentPlane>& alignmentPlanes() const { return planes_; }
+    const std::vector<ContourSegment>& contourSegments() const { return segments_; }
     // ExactBlend range is the mean of the two opposite-boundary mean distances.
     double blendLength() const { return blendLength_; }
 
@@ -82,6 +104,8 @@ private:
     Contours contours_;
     std::vector<ContourPath> paths_;
     std::vector<Brick> bricks_;
+    std::vector<AlignmentPlane> planes_;
+    std::vector<ContourSegment> segments_;
     double contourSpacing_ = 0;
     double blendLength_ = 0;
 };

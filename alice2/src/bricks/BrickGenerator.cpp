@@ -50,7 +50,7 @@ void BrickGenerator::setMesh(const Eigen::MatrixXd& v, const Eigen::MatrixXi& f)
         throw std::runtime_error("Use one connected mesh without unused vertices.");
     vertices_ = v; triangles_ = f;
     start_.clear(); end_.clear(); field_.resize(0); fromStart_.resize(0); fromEnd_.resize(0);
-    contours_ = {}; paths_.clear(); bricks_.clear(); contourSpacing_ = 0; blendLength_ = 0;
+    contours_ = {}; paths_.clear(); bricks_.clear(); segments_.clear(); contourSpacing_ = 0; blendLength_ = 0;
 }
 
 void BrickGenerator::loadObj(const std::string& path) {
@@ -106,7 +106,7 @@ void BrickGenerator::loadObj(const std::string& path) {
     std::swap(vertices_, loaded.vertices_); std::swap(triangles_, loaded.triangles_);
     std::swap(start_, loaded.start_); std::swap(end_, loaded.end_);
     field_.resize(0); fromStart_.resize(0); fromEnd_.resize(0);
-    contours_ = {}; paths_.clear(); bricks_.clear(); contourSpacing_ = 0; blendLength_ = 0;
+    contours_ = {}; paths_.clear(); bricks_.clear(); segments_.clear(); contourSpacing_ = 0; blendLength_ = 0;
 }
 
 void BrickGenerator::setBoundaryVertices(const std::vector<int>& start, const std::vector<int>& end) {
@@ -116,11 +116,11 @@ void BrickGenerator::setBoundaryVertices(const std::vector<int>& start, const st
     for (int id : s) if (e.count(id)) throw std::runtime_error("Start and end sets overlap.");
     start_.assign(s.begin(), s.end()); end_.assign(e.begin(), e.end());
     fromStart_.resize(0); fromEnd_.resize(0); field_.resize(0);
-    contours_ = {}; paths_.clear(); bricks_.clear(); contourSpacing_ = 0; blendLength_ = 0;
+    contours_ = {}; paths_.clear(); bricks_.clear(); segments_.clear(); contourSpacing_ = 0; blendLength_ = 0;
 }
 
 void BrickGenerator::computeField(FieldMethod method) {
-    field_.resize(0); contours_ = {}; paths_.clear(); bricks_.clear(); contourSpacing_ = 0;
+    field_.resize(0); contours_ = {}; paths_.clear(); bricks_.clear(); segments_.clear(); contourSpacing_ = 0;
     if (vertices_.rows() == 0) throw std::runtime_error("Load a mesh first.");
     if (method == FieldMethod::Height) { field_ = vertices_.col(2).array() - vertices_.col(2).minCoeff(); return; }
     if (method != FieldMethod::ExactBlend && method != FieldMethod::ExactGeodesic)
@@ -163,7 +163,7 @@ void BrickGenerator::computeField(FieldMethod method) {
 }
 
 void BrickGenerator::extractContours(double spacing) {
-    contours_ = {}; paths_.clear(); bricks_.clear(); contourSpacing_ = 0;
+    contours_ = {}; paths_.clear(); bricks_.clear(); segments_.clear(); contourSpacing_ = 0;
     if (field_.size() == 0) throw std::runtime_error("Compute a field first.");
     if (!std::isfinite(spacing) || spacing <= 0) throw std::runtime_error("Spacing must be positive and finite.");
     const double low = field_.minCoeff(), high = field_.maxCoeff();

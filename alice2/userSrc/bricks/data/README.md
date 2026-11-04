@@ -19,3 +19,10 @@ and red/blue marks are combined across copies. A position marked both red and bl
 is rejected. Welding uses exact coordinates and does not modify the source OBJ.
 Triangles are preferred; convex planar polygons are fan-triangulated on import.
 Runtime `input.obj` or `data/input.obj` overrides this source folder.
+
+Optional `planes.obj` belongs beside whichever `input.obj` is loaded. Each OBJ
+line (`l`) or Rhino degree-1 two-point curve (`curv`) defines a vertical plane:
+X follows the line, Y is world Z. Coincident planes are deduplicated. R reloads
+mesh and planes without reframing. Use planes toggles alignment; Mesh cuts
+displays thin hot-pink intersection lines on the mesh. Boundary vertices toggles
+the red/blue vertex marks. The mesh boundary always appears as thick black lines.

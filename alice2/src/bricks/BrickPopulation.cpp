@@ -1,4 +1,5 @@
 #include "BrickGenerator.h"
+#include "BrickLayout.h"
 #include <Eigen/Geometry>
 #include <igl/AABB.h>
 #include <igl/per_vertex_normals.h>
@@ -62,6 +63,7 @@ std::vector<ContourPath> orderPaths(const Contours& c) {
 }
 
 Eigen::Vector3d sample(const ContourPath& path, const std::vector<double>& arc, double distance) {
+    if (path.closed) { distance=std::fmod(distance,path.length); if(distance<0)distance+=path.length; }
     distance = std::clamp(distance, 0.0, arc.back());
     const auto next = std::upper_bound(arc.begin(), arc.end(), distance);
     const size_t i = std::min(static_cast<size_t>(next-arc.begin()), arc.size()-1);
@@ -72,13 +74,30 @@ Eigen::Vector3d sample(const ContourPath& path, const std::vector<double>& arc, 
 }
 
 void BrickGenerator::generateBricks(const BrickOptions& options) {
-    bricks_.clear(); paths_.clear();
+    bricks_.clear(); paths_.clear(); segments_.clear();
     if (contourSpacing_ <= 0) throw std::runtime_error("Extract contours before generating bricks.");
-    for (double value : {options.gap, options.depth, options.lengthA, options.lengthB})
+    for (double value : {options.gap, options.lengthA, options.lengthB})
         if (!std::isfinite(value) || value <= 0) throw std::runtime_error("Brick dimensions and gap must be positive and finite.");
+    for(double value:{options.depthA,options.depthB})
+        if(!std::isfinite(value) || value<0)throw std::runtime_error("Brick depths must be finite and nonnegative.");
     if (options.gap >= contourSpacing_) throw std::runtime_error("Gap must be smaller than contour spacing.");
     paths_ = orderPaths(contours_);
     if (paths_.empty()) return;
+
+    std::vector<std::vector<double>> pathArcs(paths_.size());
+    for(size_t i=0;i<paths_.size();++i) {
+        auto& arc=pathArcs[i];arc.push_back(0);
+        for(size_t k=1;k<paths_[i].points.size();++k)
+            arc.push_back(arc.back()+(paths_[i].points[k]-paths_[i].points[k-1]).norm());
+    }
+    detail::EqualDivisions equalDivisions;
+    const bool equalLengths=std::abs(options.lengthA-options.lengthB)<=std::max(options.lengthA,options.lengthB)*1e-6;
+    if(equalLengths && !planes_.empty()) {
+        std::vector<ContourSegment> provisional;
+        for(int i=0;i<static_cast<int>(paths_.size());++i)
+            detail::layoutPath(paths_[i],i,pathArcs[i],planes_,options,provisional);
+        equalDivisions=detail::equalDivisionCounts(provisional,options);
+    }
 
     igl::AABB<Eigen::MatrixXd,3> tree;
     tree.init(vertices_, triangles_);
@@ -87,35 +106,34 @@ void BrickGenerator::generateBricks(const BrickOptions& options) {
     igl::per_vertex_normals(vertices_, triangles_, igl::PER_VERTEX_NORMALS_WEIGHTING_TYPE_AREA, normals);
     std::vector<Brick> result;
     const double width = contourSpacing_ - options.gap;
-    const double repeat = options.lengthA + options.lengthB + 2*options.gap;
-    const double epsilon = std::min({options.lengthA,options.lengthB,width,options.depth})*1e-8;
+    const double epsilon = std::min({options.lengthA,options.lengthB,width})*1e-8;
     constexpr size_t maxBricks = 250000;
     for (int pi = 0; pi < static_cast<int>(paths_.size()); ++pi) {
         const auto& path = paths_[pi];
-        std::vector<double> arc{0};
-        for (size_t i = 1; i < path.points.size(); ++i)
-            arc.push_back(arc.back()+(path.points[i]-path.points[i-1]).norm());
-        const double phase = path.levelIndex % 2 ? repeat/2 : 0;
-        // Gap is shared equally between cells, including the end/seam margin.
-        // Odd courses begin with the clipped tail of the previous repeat.
-        double cellStart = -phase;
-        bool isA = true;
-        while (cellStart < path.length) {
-            const double nominal = isA ? options.lengthA : options.lengthB;
-            const double begin = std::max(options.gap/2, cellStart+options.gap/2);
-            const double end = std::min(path.length-options.gap/2, cellStart+options.gap/2+nominal);
+        const auto& arc=pathArcs[pi];
+        const auto spans=detail::layoutPath(path,pi,arc,planes_,options,segments_,equalLengths?&equalDivisions:nullptr);
+        for (const auto& span:spans) {
+            const double depth=span.isA?options.depthA:options.depthB;
+            if(depth==0)continue; // Keep the layout cells, omit only this type's solid.
+            const double nominal = span.isA ? options.lengthA : options.lengthB;
+            const double begin=span.begin,end=span.end;
             if (end-begin > epsilon) {
                 if (result.size() >= maxBricks) throw std::runtime_error("More than 250000 bricks; increase dimensions or contour spacing.");
                 Brick brick;
-                brick.length = end-begin; brick.width = width; brick.depth = options.depth;
+                brick.length = end-begin; brick.width = width; brick.depth = depth;
                 brick.startDistance = begin; brick.endDistance = end;
-                brick.levelIndex = path.levelIndex; brick.pathIndex = pi; brick.isLengthA = isA;
-                brick.trimmed = brick.length < nominal-epsilon;
+                brick.levelIndex = path.levelIndex; brick.pathIndex = pi; brick.isLengthA = span.isA;
+                brick.segmentIndex=span.segment; brick.alignmentPlaneIndex=span.plane;
+                const bool hasReference=std::isfinite(span.reference);
+                brick.trimmed = hasReference?span.boundaryHalf:brick.length < nominal-epsilon;
                 const double middle = (begin+end)/2;
-                const Eigen::RowVector3d query = sample(path,arc,middle);
+                const double reference=hasReference?span.reference:middle;
+                brick.referenceDistance=reference;
+                const Eigen::RowVector3d query = sample(path,arc,reference);
                 Eigen::RowVector3d closest;
                 tree.squared_distance(vertices_,triangles_,query,brick.triangleIndex,closest);
-                brick.origin = closest;
+                brick.referencePoint = closest;
+                brick.origin = brick.referencePoint;
                 const int face = brick.triangleIndex;
                 if (face < 0) throw std::runtime_error("Cannot find closest mesh triangle for brick.");
                 const Eigen::Vector3d a = vertices_.row(triangles_(face,0));
@@ -132,23 +150,21 @@ void BrickGenerator::generateBricks(const BrickOptions& options) {
                 if (brick.normal.norm() < 1e-12) brick.normal = e1.cross(e2);
                 brick.normal.normalize();
                 const double probe = std::min(brick.length/4, contourSpacing_/4);
-                brick.tangent = sample(path,arc,middle+probe)-sample(path,arc,middle-probe);
+                brick.tangent = sample(path,arc,reference+probe)-sample(path,arc,reference-probe);
                 brick.tangent -= brick.normal*brick.normal.dot(brick.tangent);
                 if (brick.tangent.norm() < epsilon) throw std::runtime_error("Contour tangent vanished at a brick; check contour branches or mesh folds.");
                 brick.tangent.normalize();
                 brick.widthDirection = brick.normal.cross(brick.tangent).normalized();
+                brick.origin+=(middle-reference)*brick.tangent;
                 const Eigen::Vector3d x = brick.tangent*brick.length/2;
                 const Eigen::Vector3d y = brick.widthDirection*width/2;
                 brick.vertices[0] = brick.origin-x-y;
                 brick.vertices[1] = brick.origin+x-y;
                 brick.vertices[2] = brick.origin+x+y;
                 brick.vertices[3] = brick.origin-x+y;
-                for (int k=0; k<4; ++k) brick.vertices[k+4] = brick.vertices[k]+options.depth*brick.normal;
+                for (int k=0; k<4; ++k) brick.vertices[k+4] = brick.vertices[k]+depth*brick.normal;
                 result.push_back(std::move(brick));
             }
-            const double next = cellStart+nominal+options.gap;
-            if (next <= cellStart) throw std::runtime_error("Brick length is too small for this mesh scale.");
-            cellStart = next; isA = !isA;
         }
     }
     bricks_ = std::move(result);

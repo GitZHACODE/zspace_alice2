@@ -7,6 +7,7 @@
 
 using namespace alice2::bricks;
 void checkBrickPopulation();
+void checkBrickPlanes();
 void require(bool value, const char* message) { if (!value) throw std::runtime_error(message); }
 template<class F> void rejects(F action) {
     bool rejected = false;
@@ -16,6 +17,7 @@ template<class F> void rejects(F action) {
 int main(int argc, char** argv) {
     try {
         checkBrickPopulation();
+        checkBrickPlanes();
         constexpr int nx = 21, ny = 7;
         Eigen::MatrixXd v(nx*ny,3);
         Eigen::MatrixXi f((nx-1)*(ny-1)*2,3);
@@ -102,14 +104,27 @@ int main(int argc, char** argv) {
         rejects([&] { g.setMesh(unused,f); });
         if (argc > 1) {
             g.loadObj(argv[1]);
+            const auto planePath=argc>2?std::filesystem::path(argv[2]):std::filesystem::path(argv[1]).parent_path()/"planes.obj";
+            if(std::filesystem::exists(planePath))g.loadPlanesObj(planePath.string());
             for (auto method : {FieldMethod::Height, FieldMethod::ExactGeodesic, FieldMethod::ExactBlend}) {
                 g.computeField(method);
                 g.extractContours((g.field().maxCoeff()-g.field().minCoeff())/20);
                 g.generateBricks(BrickOptions{});
+                int aligned=0;
+                for(const auto& brick:g.bricks())if(brick.alignmentPlaneIndex>=0) {
+                    const auto& plane=g.alignmentPlanes()[brick.alignmentPlaneIndex];
+                    require(std::abs(plane.normal.dot(brick.referencePoint-plane.origin))<1e-6,"OBJ brick reference must lie on alignment plane");
+                    require(brick.isLengthA==(brick.levelIndex%2==0),"OBJ plane brick must alternate A/B by course");
+                    ++aligned;
+                }
                 std::cout << "Input method " << static_cast<int>(method) << ": " << g.vertices().rows()
                           << " vertices, " << g.triangles().rows() << " triangles, red " << g.startVertices().size()
                           << ", blue " << g.endVertices().size() << ", " << g.contours().edges.rows()
-                          << " contour edges, " << g.bricks().size() << " bricks\n";
+                          << " contour edges, " << g.bricks().size() << " bricks, " << g.alignmentPlanes().size()
+                          << " planes, " << g.contourSegments().size() << " segments, " << aligned << " aligned centers\n";
+                g.generateBricks(BrickOptions{0.01,0.05,0.05,0.10,0.10});
+                for(const auto& brick:g.bricks())require(brick.length>0 && brick.origin.allFinite(),"Equal bond OBJ geometry must remain valid");
+                std::cout << "Equal-length bond: " << g.bricks().size() << " bricks\n";
             }
         }
         std::cout << "Brick fields checks passed; planar exact max error: " << exactError << '\n';
