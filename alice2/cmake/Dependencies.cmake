@@ -35,7 +35,9 @@ if(ALICE2_USE_SYSTEM_DEPS)
     find_package(glfw3 CONFIG QUIET)
     find_package(Eigen3 CONFIG QUIET)
     find_package(nlohmann_json CONFIG QUIET)
-    find_package(igl CONFIG QUIET)
+    if(ALICE2_BUILD_RESEARCH)
+        find_package(igl CONFIG QUIET)
+    endif()
     find_path(STB_INCLUDE_DIR
         NAMES stb_image_write.h stb_truetype.h
         PATH_SUFFIXES stb
@@ -86,85 +88,87 @@ if(NOT ALICE2_HAS_SYSTEM_DEPS)
     endif()
 endif()
 
-if(ALICE2_HAS_SYSTEM_LIBIGL)
-    set(LIBIGL_INCLUDE_DIRS "")
-    set(ALICE2_LIBIGL_TARGETS igl::core)
-else()
-    set(LIBIGL_DIR "${ALICE2_DEPENDS_DIR}/libigl")
-if(NOT EXISTS "${LIBIGL_DIR}/include/igl/igl_inline.h")
-        alice2_download_dependency("${LIBIGL_URL}")
-        if(EXISTS "${ALICE2_DEPENDS_DIR}/libigl-2.5.0")
-            file(RENAME "${ALICE2_DEPENDS_DIR}/libigl-2.5.0" "${LIBIGL_DIR}")
-        endif()
-    endif()
-    if(NOT EXISTS "${LIBIGL_DIR}/include/igl/igl_inline.h")
-        message(FATAL_ERROR "libigl headers not found at ${LIBIGL_DIR}/include")
-    endif()
-    set(LIBIGL_INCLUDE_DIRS "${LIBIGL_DIR}/include")
-    set(ALICE2_LIBIGL_TARGETS "")
-endif()
-
-set(ALICE2_DIRECTIONAL_INCLUDE_DIRS "")
-if(ALICE2_ENABLE_DIRECTIONAL)
-    set(DIRECTIONAL_DIR "${ALICE2_DEPENDS_DIR}/directional")
-    if(NOT EXISTS "${DIRECTIONAL_DIR}/include/directional/PCFaceTangentBundle.h")
-        include(FetchContent)
-        FetchContent_Declare(
-            directional
-            GIT_REPOSITORY https://github.com/avaxman/Directional.git
-            GIT_TAG 25738730958f0bfa68289ae628a5cd3c4b719d61
-            GIT_SHALLOW TRUE
-        )
-        FetchContent_Populate(directional)
-        set(DIRECTIONAL_DIR "${directional_SOURCE_DIR}")
-    endif()
-    if(NOT EXISTS "${DIRECTIONAL_DIR}/include/directional/PCFaceTangentBundle.h")
-        message(FATAL_ERROR "Directional headers not found at ${DIRECTIONAL_DIR}/include")
-    endif()
-    set(ALICE2_DIRECTIONAL_INCLUDE_DIRS "${DIRECTIONAL_DIR}/include")
-endif()
-
-# MIQ is provided by libigl's GPL/copyleft CoMiSo module. Keep it explicit so
-# core libigl users do not acquire the dependency accidentally.
-set(ALICE2_MIQ_TARGET "")
-if(ALICE2_ENABLE_MIQ_REMESH)
+if(ALICE2_BUILD_RESEARCH)
     if(ALICE2_HAS_SYSTEM_LIBIGL)
-        if(NOT TARGET igl_copyleft::comiso)
-            message(FATAL_ERROR
-                "ALICE2_ENABLE_MIQ_REMESH requires a system libigl with igl_copyleft::comiso. "
-                "Configure with -DALICE2_ENABLE_MIQ_REMESH=OFF to omit this experiment.")
-        endif()
+        set(LIBIGL_INCLUDE_DIRS "")
+        set(ALICE2_LIBIGL_TARGETS igl::core)
     else()
-        set(LIBIGL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-        set(LIBIGL_BUILD_TUTORIALS OFF CACHE BOOL "" FORCE)
-        set(LIBIGL_COPYLEFT_CORE ON CACHE BOOL "" FORCE)
-        set(LIBIGL_COPYLEFT_COMISO ON CACHE BOOL "" FORCE)
-        add_subdirectory("${LIBIGL_DIR}" "${CMAKE_BINARY_DIR}/libigl-miq" EXCLUDE_FROM_ALL)
-    endif()
-    if(NOT TARGET igl_copyleft::comiso)
-        message(FATAL_ERROR "libigl MIQ support was requested but igl_copyleft::comiso was not created")
-    endif()
-    # CoMiSo's bundled GMM 4.2 still uses the C++17-removed `register`
-    # keyword. Clang promotes that diagnostic to an error in C++20 mode.
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND TARGET CoMISo)
-        target_compile_options(CoMISo PRIVATE -Wno-register)
-    endif()
-    if(MSVC AND TARGET CoMISo)
-        # GMM 4.2 uses std::divides/multiplies without including <functional>.
-        target_compile_options(CoMISo PRIVATE /FIfunctional)
-        # This obsolete storage qualifier is rejected by MSVC in C++20 mode.
-        # Patch the fetched header so the fix also covers libigl's MIQ adapter.
-        get_target_property(ALICE2_COMISO_SOURCE_DIR CoMISo SOURCE_DIR)
-        set(ALICE2_GMM_DOMAIN_HEADER "${ALICE2_COMISO_SOURCE_DIR}/ext/gmm-4.2/include/gmm/gmm_domain_decomp.h")
-        if(EXISTS "${ALICE2_GMM_DOMAIN_HEADER}")
-            file(READ "${ALICE2_GMM_DOMAIN_HEADER}" ALICE2_GMM_DOMAIN_SOURCE)
-            string(REPLACE "register double a" "double a" ALICE2_GMM_DOMAIN_PATCHED "${ALICE2_GMM_DOMAIN_SOURCE}")
-            if(NOT ALICE2_GMM_DOMAIN_SOURCE STREQUAL ALICE2_GMM_DOMAIN_PATCHED)
-                file(WRITE "${ALICE2_GMM_DOMAIN_HEADER}" "${ALICE2_GMM_DOMAIN_PATCHED}")
+        set(LIBIGL_DIR "${ALICE2_DEPENDS_DIR}/libigl")
+    if(NOT EXISTS "${LIBIGL_DIR}/include/igl/igl_inline.h")
+            alice2_download_dependency("${LIBIGL_URL}")
+            if(EXISTS "${ALICE2_DEPENDS_DIR}/libigl-2.5.0")
+                file(RENAME "${ALICE2_DEPENDS_DIR}/libigl-2.5.0" "${LIBIGL_DIR}")
             endif()
         endif()
+        if(NOT EXISTS "${LIBIGL_DIR}/include/igl/igl_inline.h")
+            message(FATAL_ERROR "libigl headers not found at ${LIBIGL_DIR}/include")
+        endif()
+        set(LIBIGL_INCLUDE_DIRS "${LIBIGL_DIR}/include")
+        set(ALICE2_LIBIGL_TARGETS "")
     endif()
-    set(ALICE2_MIQ_TARGET igl_copyleft::comiso)
+
+    set(ALICE2_DIRECTIONAL_INCLUDE_DIRS "")
+    if(ALICE2_ENABLE_DIRECTIONAL)
+        set(DIRECTIONAL_DIR "${ALICE2_DEPENDS_DIR}/directional")
+        if(NOT EXISTS "${DIRECTIONAL_DIR}/include/directional/PCFaceTangentBundle.h")
+            include(FetchContent)
+            FetchContent_Declare(
+                directional
+                GIT_REPOSITORY https://github.com/avaxman/Directional.git
+                GIT_TAG 25738730958f0bfa68289ae628a5cd3c4b719d61
+                GIT_SHALLOW TRUE
+            )
+            FetchContent_Populate(directional)
+            set(DIRECTIONAL_DIR "${directional_SOURCE_DIR}")
+        endif()
+        if(NOT EXISTS "${DIRECTIONAL_DIR}/include/directional/PCFaceTangentBundle.h")
+            message(FATAL_ERROR "Directional headers not found at ${DIRECTIONAL_DIR}/include")
+        endif()
+        set(ALICE2_DIRECTIONAL_INCLUDE_DIRS "${DIRECTIONAL_DIR}/include")
+    endif()
+
+    # MIQ is provided by libigl's GPL/copyleft CoMiSo module. Keep it explicit so
+    # core libigl users do not acquire the dependency accidentally.
+    set(ALICE2_MIQ_TARGET "")
+    if(ALICE2_ENABLE_MIQ_REMESH)
+        if(ALICE2_HAS_SYSTEM_LIBIGL)
+            if(NOT TARGET igl_copyleft::comiso)
+                message(FATAL_ERROR
+                    "ALICE2_ENABLE_MIQ_REMESH requires a system libigl with igl_copyleft::comiso. "
+                    "Configure with -DALICE2_ENABLE_MIQ_REMESH=OFF to omit this experiment.")
+            endif()
+        else()
+            set(LIBIGL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+            set(LIBIGL_BUILD_TUTORIALS OFF CACHE BOOL "" FORCE)
+            set(LIBIGL_COPYLEFT_CORE ON CACHE BOOL "" FORCE)
+            set(LIBIGL_COPYLEFT_COMISO ON CACHE BOOL "" FORCE)
+            add_subdirectory("${LIBIGL_DIR}" "${CMAKE_BINARY_DIR}/libigl-miq" EXCLUDE_FROM_ALL)
+        endif()
+        if(NOT TARGET igl_copyleft::comiso)
+            message(FATAL_ERROR "libigl MIQ support was requested but igl_copyleft::comiso was not created")
+        endif()
+        # CoMiSo's bundled GMM 4.2 still uses the C++17-removed `register`
+        # keyword. Clang promotes that diagnostic to an error in C++20 mode.
+        if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND TARGET CoMISo)
+            target_compile_options(CoMISo PRIVATE -Wno-register)
+        endif()
+        if(MSVC AND TARGET CoMISo)
+            # GMM 4.2 uses std::divides/multiplies without including <functional>.
+            target_compile_options(CoMISo PRIVATE /FIfunctional)
+            # This obsolete storage qualifier is rejected by MSVC in C++20 mode.
+            # Patch the fetched header so the fix also covers libigl's MIQ adapter.
+            get_target_property(ALICE2_COMISO_SOURCE_DIR CoMISo SOURCE_DIR)
+            set(ALICE2_GMM_DOMAIN_HEADER "${ALICE2_COMISO_SOURCE_DIR}/ext/gmm-4.2/include/gmm/gmm_domain_decomp.h")
+            if(EXISTS "${ALICE2_GMM_DOMAIN_HEADER}")
+                file(READ "${ALICE2_GMM_DOMAIN_HEADER}" ALICE2_GMM_DOMAIN_SOURCE)
+                string(REPLACE "register double a" "double a" ALICE2_GMM_DOMAIN_PATCHED "${ALICE2_GMM_DOMAIN_SOURCE}")
+                if(NOT ALICE2_GMM_DOMAIN_SOURCE STREQUAL ALICE2_GMM_DOMAIN_PATCHED)
+                    file(WRITE "${ALICE2_GMM_DOMAIN_HEADER}" "${ALICE2_GMM_DOMAIN_PATCHED}")
+                endif()
+            endif()
+        endif()
+        set(ALICE2_MIQ_TARGET igl_copyleft::comiso)
+    endif()
 endif()
 
 if(WIN32)

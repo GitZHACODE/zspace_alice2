@@ -1,11 +1,12 @@
 cmake_minimum_required(VERSION 3.21)
 project(alice2 VERSION 1.0.0 LANGUAGES C CXX)
 
-option(ALICE2_BUILD_VIEWER "Build the viewer and research apps" ON)
+option(ALICE2_BUILD_VIEWER "Build the viewer and scene I/O libraries" ON)
 option(ALICE2_ENABLE_CUDA "Enable CUDA build of alice2" OFF)
 option(ALICE2_ENABLE_MIQ_REMESH "Enable libigl/CoMiSo MIQ remeshing" OFF)
 option(ALICE2_ENABLE_DIRECTIONAL "Enable Directional integration" OFF)
 option(ALICE2_USE_SYSTEM_DEPS "Prefer system-installed dependencies" ON)
+option(ALICE2_BUILD_RESEARCH "Build bundled research apps and algorithm targets" ${PROJECT_IS_TOP_LEVEL})
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,7 +24,7 @@ include(cmake/Alice2Sketch.cmake)
 function(alice2_library target)
     add_library(${target} STATIC EXCLUDE_FROM_ALL ${ARGN})
     target_include_directories(${target} PUBLIC
-        "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+        "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/include" "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/src")
     target_compile_features(${target} PUBLIC cxx_std_20)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /wd4100 /wd4244)
@@ -88,9 +89,11 @@ if(TARGET nlohmann_json::nlohmann_json)
 else()
     target_include_directories(alice2_json SYSTEM INTERFACE "${NLOHMANN_JSON_INCLUDE_DIRS}")
 endif()
-add_library(alice2_igl INTERFACE)
-target_link_libraries(alice2_igl INTERFACE alice2_eigen ${ALICE2_LIBIGL_TARGETS})
-target_include_directories(alice2_igl SYSTEM INTERFACE ${LIBIGL_INCLUDE_DIRS})
+if(ALICE2_BUILD_RESEARCH)
+    add_library(alice2_igl INTERFACE)
+    target_link_libraries(alice2_igl INTERFACE alice2_eigen ${ALICE2_LIBIGL_TARGETS})
+    target_include_directories(alice2_igl SYSTEM INTERFACE ${LIBIGL_INCLUDE_DIRS})
+endif()
 
 alice2_library(alice2_viewer
     src/core/Application.cpp src/core/Camera.cpp src/core/FontRenderer.cpp
@@ -116,12 +119,22 @@ target_include_directories(alice2_viewer SYSTEM PRIVATE ${STB_INCLUDE_DIRS} ${GL
 if(WIN32)
     target_compile_definitions(alice2_viewer PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX GLEW_STATIC)
     target_link_libraries(alice2_viewer PRIVATE user32 gdi32 shell32)
+    if(BUILD_SHARED_LIBS AND EXISTS "${GLFW_DIR}/bin/glfw3.dll")
+        set_property(TARGET alice2_viewer PROPERTY ALICE2_EXTRA_RUNTIME_DLLS "${GLFW_DIR}/bin/glfw3.dll")
+    endif()
 endif()
 if(BUILD_TESTING)
     add_executable(alice2_scene_objects_checks EXCLUDE_FROM_ALL checks/scene_objects.cpp)
     target_link_libraries(alice2_scene_objects_checks PRIVATE alice2_viewer)
     alice2_runtime(alice2_scene_objects_checks checks)
     add_test(NAME scene_objects COMMAND alice2_scene_objects_checks)
+endif()
+
+# Available to external applications even when bundled research apps are skipped.
+add_library(alice2_entry OBJECT EXCLUDE_FROM_ALL src/main.cpp)
+target_link_libraries(alice2_entry PRIVATE alice2_viewer)
+if(NOT ALICE2_BUILD_RESEARCH)
+    return()
 endif()
 
 # Existing algorithms remain in their source folders; only requested modules build.
@@ -175,10 +188,6 @@ if(ALICE2_ENABLE_CUDA)
     target_link_libraries(alice2_fields PUBLIC CUDA::cublas CUDA::cudart)
 endif()
 target_compile_definitions(alice2_fields PUBLIC ALICE2_WITH_CUDA=$<BOOL:${ALICE2_ENABLE_CUDA}>)
-
-# Compile the common entry point once, including when several sketch apps are built.
-add_library(alice2_entry OBJECT EXCLUDE_FROM_ALL src/main.cpp)
-target_link_libraries(alice2_entry PRIVATE alice2_viewer)
 
 # All configured research apps and interactive test apps, including future folders.
 add_custom_target(user_all)

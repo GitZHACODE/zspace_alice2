@@ -162,6 +162,21 @@ sketches even if old executables remain in the output folder.
 
 ## Create an experiment
 
+External projects can use alice2 as a submodule and keep their sketches in their
+own repository:
+
+```cmake
+add_subdirectory(external/alice2/alice2 EXCLUDE_FROM_ALL)
+alice2_add_sketch(my_app DEFAULT GROUP app SOURCES sketch.cpp)
+```
+
+When embedded, `ALICE2_BUILD_RESEARCH` defaults to `OFF`: only the core, viewer,
+USD bridge and entry point are configured, without bundled research apps,
+algorithm targets or libigl. Set it to `ON` to enable those targets explicitly.
+Standalone alice2 builds retain the default research configuration. `GROUP`
+selects an external app's runtime folder; runtime staging works from the calling
+project without copying alice2's implementation into the app.
+
 From `alice2/` on Windows:
 
 ```powershell
