@@ -39,7 +39,7 @@ namespace alice2 {
             float length = std::sqrt(vertex.normal.x * vertex.normal.x + 
                                    vertex.normal.y * vertex.normal.y + 
                                    vertex.normal.z * vertex.normal.z);
-            if (length > 0.0001f) {
+            if (length > 0.0f) {
                 vertex.normal = vertex.normal * (1.0f / length);
             } else {
                 vertex.normal = Vec3(0, 0, 1); // Default up normal
@@ -79,7 +79,7 @@ namespace alice2 {
 
         // Normalize
         float length = std::sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
-        if (length > 0.0001f) {
+        if (length > 0.0f) {
             normal = normal * (1.0f / length);
         } else {
             normal = Vec3(0, 0, 1);

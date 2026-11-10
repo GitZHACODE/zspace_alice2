@@ -813,8 +813,9 @@ namespace alice2 {
     void MeshObject::renderNormalShaded(Renderer& renderer, Camera& camera) {
         if (!m_meshData->triangleIndices.empty()) {
             // Get camera view direction (from camera position to origin)
-            Vec3 cameraPos = camera.getPosition();
-            Vec3 viewDir = (Vec3(0, 0, 0) - cameraPos).normalized(); // Simplified: looking towards origin
+            const Vec3 viewDir = camera.getForward().normalized();
+            const Mat4 world = getTransform().getWorldMatrix();
+            const Vec3 worldOrigin = world.transformPoint(Vec3(0, 0, 0));
 
             // Prepare vertex data for normal shaded rendering
             std::vector<Vec3> triangleVertices;
@@ -826,7 +827,9 @@ namespace alice2 {
                     const MeshVertex& vertex = m_meshData->vertices[index];
 
                     // Calculate dot product between vertex normal and view direction
-                    float dotProduct = vertex.normal.dot(viewDir);
+                    // Robot joint transforms are rigid; rotate normals into world space.
+                    const Vec3 worldNormal = (world.transformPoint(vertex.normal) - worldOrigin).normalized();
+                    float dotProduct = worldNormal.dot(viewDir);
 
                     // Blend between front and back colors based on dot product
                     // Positive dot product = facing camera (front), negative = facing away (back)
