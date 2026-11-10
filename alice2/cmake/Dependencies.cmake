@@ -67,25 +67,23 @@ if(NOT ALICE2_HAS_SYSTEM_DEPS AND ALICE2_USE_SYSTEM_DEPS AND NOT MSVC)
     )
 endif()
 
+file(MAKE_DIRECTORY "${ALICE2_DEPENDS_DIR}")
 if(NOT ALICE2_HAS_SYSTEM_DEPS)
-    file(GLOB DEP_FILES "${ALICE2_DEPENDS_DIR}/*")
-    if(NOT DEP_FILES)
-        file(MAKE_DIRECTORY "${ALICE2_DEPENDS_DIR}")
-
-        set(ASSET_URLS
-            "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/eigen.zip"
-            "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/glfw.zip"
-            "${GL2PS_URL}"
-            "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/nlohmann.zip"
-            "https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/stb.zip"
-        )
-
-        foreach(url IN LISTS ASSET_URLS)
-            alice2_download_dependency("${url}")
-        endforeach()
+    # Preparing USD first must not suppress missing base deps.
+    if(NOT EXISTS "${ALICE2_DEPENDS_DIR}/eigen/Eigen/Core" AND
+       NOT EXISTS "${ALICE2_DEPENDS_DIR}/eigen-3.4.0/Eigen/Core")
+        alice2_download_dependency("https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/eigen.zip")
     endif()
-else()
-    file(MAKE_DIRECTORY "${ALICE2_DEPENDS_DIR}")
+    if(NOT EXISTS "${ALICE2_DEPENDS_DIR}/glfw/include/GLFW/glfw3.h")
+        alice2_download_dependency("https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/glfw.zip")
+    endif()
+    if(NOT EXISTS "${ALICE2_DEPENDS_DIR}/nlohmann/include/nlohmann/json.hpp")
+        alice2_download_dependency("https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/nlohmann.zip")
+    endif()
+    if(NOT EXISTS "${ALICE2_DEPENDS_DIR}/stb/stb_image_write.h" OR
+       NOT EXISTS "${ALICE2_DEPENDS_DIR}/stb/stb_truetype.h")
+        alice2_download_dependency("https://github.com/GitZHCODE/zspace_alice2/releases/download/depends/stb.zip")
+    endif()
 endif()
 
 if(ALICE2_HAS_SYSTEM_LIBIGL)
@@ -215,7 +213,7 @@ else()
             alice2_download_dependency("https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz")
         endif()
     endif()
-    if(NOT EXISTS ${EIGEN_DIR}/eigen)
+    if(NOT EXISTS "${EIGEN_DIR}/Eigen/Core")
         message(FATAL_ERROR "Eigen headers not found at ${EIGEN_DIR}")
     endif()
 

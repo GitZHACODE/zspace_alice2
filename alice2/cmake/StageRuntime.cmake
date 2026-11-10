@@ -1,6 +1,17 @@
 # Runtime data and settings belong to the app folder and are never copied or overwritten.
 file(MAKE_DIRECTORY "${OUTPUT}/data" "${OUTPUT}/.user")
 file(LOCK "${OUTPUT}/.user/.stage.lock" GUARD PROCESS TIMEOUT 30)
+if(USD_RESOURCES AND EXISTS "${USD_RESOURCES}")
+    file(COPY "${USD_RESOURCES}/" DESTINATION "${OUTPUT}/usd")
+endif()
+if(USD_BIN)
+    # The legacy USD Lite bundle has no CMake targets for these runtime imports.
+    foreach(name usd_ms.dll tbb.dll tbbmalloc.dll)
+        if(EXISTS "${USD_BIN}/${name}")
+            file(COPY "${USD_BIN}/${name}" DESTINATION "${OUTPUT}")
+        endif()
+    endforeach()
+endif()
 string(REPLACE "|" ";" dlls "${DLLS}")
 foreach(dll IN LISTS dlls)
     get_filename_component(name "${dll}" NAME)

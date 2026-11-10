@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core.h"
+#include "scene_io.h"
 #include "../../src/core/Application.h"
 #include "../../src/core/Scene.h"
 #include "../../src/core/Renderer.h"

@@ -17,8 +17,18 @@ function(alice2_runtime target group)
         endif()
     endif()
     list(JOIN dlls "|" dll_paths)
+    set(usd_resources "")
+    set(usd_bin "")
+    if(TARGET alice2_usd_sdk)
+        get_target_property(usd_resources alice2_usd_sdk ALICE2_USD_RESOURCES)
+        get_target_property(usd_bin alice2_usd_sdk ALICE2_USD_BIN)
+        if(NOT usd_bin)
+            set(usd_bin "")
+        endif()
+    endif()
     set(stage_command ${CMAKE_COMMAND}
         "-DOUTPUT=${output}"
+        "-DUSD_RESOURCES=${usd_resources}" "-DUSD_BIN=${usd_bin}"
         "-DDLLS=${dll_paths}" -P "${PROJECT_SOURCE_DIR}/cmake/StageRuntime.cmake")
     # Direct executable builds stage on link; folder builds also stage without relinking.
     add_custom_command(TARGET ${target} POST_BUILD COMMAND ${stage_command} VERBATIM)

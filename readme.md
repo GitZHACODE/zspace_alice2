@@ -25,6 +25,10 @@ needs, keeping unrelated sketches out of the edit-build-run cycle.
 - OpenGL, GLFW, Eigen, nlohmann/json, STB, and gl2ps; Windows also uses GLEW.
   MSVC can use dependencies prepared under `alice2/depends/`. Clang builds prefer
   system packages. See [dependency setup](alice2/cmake/Dependencies.cmake).
+- Reduced OpenUSD for scene import/export. Windows prepares the existing USD Lite
+  bundle automatically; other platforms can build the pinned reduced SDK with
+  `python scripts/dependencies.py usd` from `alice2/` (requires TBB development files).
+  See [USD scene I/O](documentation/SceneIO.md) for setup and APIs.
 
 MIQ/CoMiSo, Directional, and CUDA are optional and disabled by default. Enable an
 optional integration in CMake before building sketches that require it, for example:
@@ -86,8 +90,9 @@ cd alice2
 
 These scripts use Clang/Ninja, with build directories under `build/clang-release/`
 or `build/clang-debug/`. The `--all` and `--last` shortcuts above are Windows batch
-commands. The current refactor has been build-tested on Windows; native Linux/macOS
-builds have not yet been verified.
+commands. The current refactor has been build-tested on Windows. Core checks, scene
+I/O and the minimal sketch also have native Linux build checks;
+macOS remains unverified.
 
 The editor's default Build/Run tasks use the same regular scripts. The debugger has
 separate Windows and Linux configurations for the base app.
@@ -239,3 +244,4 @@ Third-party dependencies have their own licenses.
 - [libigl](https://github.com/libigl/libigl) / CoMiSo and
   [Directional](https://github.com/avaxman/Directional) support optional geometry integrations.
 - [CUDA Toolkit](https://developer.nvidia.com/cuda-toolkit) supports optional GPU computation.
+- [OpenUSD](https://github.com/PixarAnimationStudios/OpenUSD) supplies scene file I/O.

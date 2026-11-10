@@ -61,6 +61,20 @@ if(ALICE2_ENABLE_CUDA)
     endif()
 endif()
 include(cmake/Dependencies.cmake)
+include(cmake/USD.cmake)
+
+alice2_library(alice2_scene_io src/io/SceneIO.cpp)
+add_library(alice2::scene_io ALIAS alice2_scene_io)
+target_link_libraries(alice2_scene_io PUBLIC alice2_core PRIVATE alice2_usd_sdk)
+if(ALICE2_USD_PLUGIN_DIR)
+    target_compile_definitions(alice2_scene_io PRIVATE ALICE2_USD_PLUGIN_DIR="${ALICE2_USD_PLUGIN_DIR}")
+endif()
+if(BUILD_TESTING)
+    add_executable(alice2_scene_io_checks EXCLUDE_FROM_ALL checks/scene_io.cpp)
+    target_link_libraries(alice2_scene_io_checks PRIVATE alice2_scene_io)
+    alice2_runtime(alice2_scene_io_checks checks)
+    add_test(NAME scene_io COMMAND alice2_scene_io_checks)
+endif()
 
 add_library(alice2_eigen INTERFACE)
 if(TARGET Eigen3::Eigen)
@@ -85,10 +99,11 @@ alice2_library(alice2_viewer
     src/ui/SimpleUI.cpp src/sketches/SketchManager.cpp
     src/objects/SceneObject.cpp src/objects/PrimitiveObject.cpp
     src/objects/ZSpaceObject.cpp src/objects/MeshObject.cpp src/objects/GraphObject.cpp
+    src/io/SceneObjects.cpp
     src/computeGeom/ComputeMesh.cpp src/computeGeom/ComputeGraph.cpp
     ${GL2PS_SOURCE})
 add_library(alice2::viewer ALIAS alice2_viewer)
-target_link_libraries(alice2_viewer PUBLIC alice2_core ${OPENGL_LIBRARIES} ${GLEW_LIBRARIES}
+target_link_libraries(alice2_viewer PUBLIC alice2_core alice2_scene_io ${OPENGL_LIBRARIES} ${GLEW_LIBRARIES}
     PRIVATE alice2_json)
 if(TARGET glfw)
     target_link_libraries(alice2_viewer PUBLIC glfw)
@@ -101,6 +116,12 @@ target_include_directories(alice2_viewer SYSTEM PRIVATE ${STB_INCLUDE_DIRS} ${GL
 if(WIN32)
     target_compile_definitions(alice2_viewer PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX GLEW_STATIC)
     target_link_libraries(alice2_viewer PRIVATE user32 gdi32 shell32)
+endif()
+if(BUILD_TESTING)
+    add_executable(alice2_scene_objects_checks EXCLUDE_FROM_ALL checks/scene_objects.cpp)
+    target_link_libraries(alice2_scene_objects_checks PRIVATE alice2_viewer)
+    alice2_runtime(alice2_scene_objects_checks checks)
+    add_test(NAME scene_objects COMMAND alice2_scene_objects_checks)
 endif()
 
 # Existing algorithms remain in their source folders; only requested modules build.
@@ -178,7 +199,8 @@ if(BUILD_TESTING)
         src/fdm/ProjectedMixedFDMChecks.cpp src/tna/BestFitTnaChecks.cpp src/tna/TnaOffsetChecks.cpp)
     target_link_libraries(alice2_checks PRIVATE alice2_tna alice2_fdm)
     alice2_runtime(alice2_checks checks)
-    add_dependencies(user_all alice2_checks_runtime alice2_core_checks_runtime)
+    add_dependencies(user_all alice2_checks_runtime alice2_core_checks_runtime
+        alice2_scene_io_checks_runtime alice2_scene_objects_checks_runtime)
 
     add_test(NAME projected_mixed_fdm COMMAND alice2_checks --check-projected-mixed-fdm)
     add_test(NAME bestfit_tna COMMAND alice2_checks --check-bestfit-tna)

@@ -115,8 +115,18 @@ namespace alice2 {
             if (!object) continue;
 
             object->calculateBounds();
-            Vec3 objMin = object->getBoundsMin();
-            Vec3 objMax = object->getBoundsMax();
+            const Vec3 localMin = object->getBoundsMin();
+            const Vec3 localMax = object->getBoundsMax();
+            const auto& world = object->getTransform().getWorldMatrix();
+            Vec3 objMin(std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
+            Vec3 objMax(-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max());
+            for (int corner = 0; corner < 8; ++corner) {
+                const auto p = world.transformPoint({corner & 1 ? localMax.x : localMin.x,
+                    corner & 2 ? localMax.y : localMin.y, corner & 4 ? localMax.z : localMin.z});
+                objMin.x = std::min(objMin.x, p.x); objMax.x = std::max(objMax.x, p.x);
+                objMin.y = std::min(objMin.y, p.y); objMax.y = std::max(objMax.y, p.y);
+                objMin.z = std::min(objMin.z, p.z); objMax.z = std::max(objMax.z, p.z);
+            }
 
             if (first) {
                 m_boundsMin = objMin;
