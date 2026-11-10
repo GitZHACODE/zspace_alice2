@@ -29,6 +29,8 @@ if(WIN32 AND EXISTS "${ALICE2_USD_ROOT}/lib/usd_ms.lib" AND
         INTERFACE_INCLUDE_DIRECTORIES "${ALICE2_USD_ROOT}/include"
         INTERFACE_COMPILE_DEFINITIONS "PXR_MONOLITHIC_BUILD;NOMINMAX;ALICE2_USD_LEGACY_TBB")
     target_link_libraries(alice2_usd_sdk INTERFACE alice2_usd_monolithic)
+    # Legacy TBB headers request tbb.lib through MSVC's auto-link pragmas.
+    target_link_directories(alice2_usd_sdk INTERFACE "${ALICE2_USD_ROOT}/lib")
     set_property(TARGET alice2_usd_sdk PROPERTY ALICE2_USD_BIN "${ALICE2_USD_ROOT}/bin")
 else()
     if(EXISTS "${ALICE2_USD_ROOT}/pxrConfig.cmake")
