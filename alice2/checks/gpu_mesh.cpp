@@ -11,6 +11,18 @@
 
 using namespace alice2;
 namespace {
+    class LayerProbe : public SceneObject {
+    public:
+        LayerProbe(std::vector<int>& order, int id, bool overlay)
+            : order_(order), id_(id), overlay_(overlay) {}
+        bool isOverlay() const override { return overlay_; }
+        void renderImpl(Renderer&, Camera&) override { order_.push_back(id_); }
+    private:
+        std::vector<int>& order_;
+        int id_;
+        bool overlay_;
+    };
+
     void require(bool condition, const char* message) {
         if (!condition) throw std::runtime_error(message);
     }
@@ -198,6 +210,19 @@ int main(int argc, char** argv) {
         camera.setPerspective(45, 1, 0.1f, 100);
         camera.setOrbitCenter({0, 0, 0});
         camera.setOrbitDistance(3.5f);
+        {
+            std::vector<int> order;
+            Scene scene;
+            scene.setShowAxes(false); scene.setShowGrid(false);
+            scene.addObject(std::make_shared<LayerProbe>(order,3,true));
+            scene.addObject(std::make_shared<LayerProbe>(order,1,false));
+            scene.addObject(std::make_shared<LayerProbe>(order,4,true));
+            scene.addObject(std::make_shared<LayerProbe>(order,2,false));
+            auto hidden=std::make_shared<LayerProbe>(order,5,true);
+            hidden->setVisible(false); scene.addObject(hidden);
+            renderer.beginFrame(); renderer.setCamera(camera); scene.render(renderer,camera); renderer.endFrame();
+            require(order==std::vector<int>({1,2,3,4}), "Overlay render order/visibility failed");
+        }
         checkRawArrays(renderer, camera);
         {
             MeshObject mesh;

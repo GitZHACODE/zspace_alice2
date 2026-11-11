@@ -60,6 +60,9 @@ namespace alice2 {
         float getOpacity() const { return m_color.a; }
 
         // Rendering
+        // Overlay objects are rendered after scene geometry. They control their
+        // own depth policy (for example, coordinate-frame gizmos).
+        virtual bool isOverlay() const { return false; }
         virtual void render(Renderer& renderer, Camera& camera);
         virtual void update(float /*deltaTime*/) {}
 

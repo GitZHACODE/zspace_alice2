@@ -85,10 +85,13 @@ namespace alice2 {
             renderAxes(renderer);
         }
         
-        // Render all objects
-        for (auto& object : m_objects) {
-            if (object && object->isVisible()) {
-                object->render(renderer, camera);
+        // Render geometry first, then gizmos/annotations. Two stable passes keep
+        // insertion order within each layer without sorting or allocating.
+        for (bool overlay : {false, true}) {
+            for (auto& object : m_objects) {
+                if (object && object->isVisible() && object->isOverlay() == overlay) {
+                    object->render(renderer, camera);
+                }
             }
         }
     }
