@@ -4,11 +4,18 @@
 #include <iterator>
 #include <map>
 #include <set>
+#include <atomic>
 
 namespace alice2 {
 
     // MeshData implementation
+    void MeshData::markRenderDirty() {
+        static std::atomic<std::uint64_t> revision{0};
+        renderRevision = revision.fetch_add(1, std::memory_order_relaxed) + 1;
+    }
+
     void MeshData::clear() {
+        markRenderDirty();
         vertices.clear();
         edges.clear();
         faces.clear();
@@ -17,6 +24,7 @@ namespace alice2 {
     }
 
     void MeshData::calculateNormals() {
+        markRenderDirty();
         // Reset vertex normals
         for (auto& vertex : vertices) {
             vertex.normal = Vec3(0, 0, 0);
@@ -89,6 +97,7 @@ namespace alice2 {
     }
 
     void MeshData::triangulate() {
+        markRenderDirty();
         triangleIndices.clear();
 
         for (const auto& face : faces) {

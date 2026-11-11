@@ -49,6 +49,7 @@ namespace alice2 {
 
         // Initialize OpenGL state
         setupOpenGL();
+        initializeMeshBuffers();
 
         // Initialize font renderer
         if (!m_fontRenderer->initialize()) {
@@ -67,6 +68,7 @@ namespace alice2 {
     }
 
     void Renderer::shutdown() {
+        shutdownMeshBuffers();
         m_initialized = false;
     }
 
@@ -84,6 +86,7 @@ namespace alice2 {
 
     void Renderer::endFrame() {
         if (!m_initialized) return;
+        collectMeshBuffers();
 
         // Note: Buffer swapping is now handled by GLFW in the main loop
         checkErrors();

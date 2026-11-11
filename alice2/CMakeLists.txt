@@ -7,6 +7,7 @@ option(ALICE2_ENABLE_MIQ_REMESH "Enable libigl/CoMiSo MIQ remeshing" OFF)
 option(ALICE2_ENABLE_DIRECTIONAL "Enable Directional integration" OFF)
 option(ALICE2_USE_SYSTEM_DEPS "Prefer system-installed dependencies" ON)
 option(ALICE2_BUILD_RESEARCH "Build bundled research apps and algorithm targets" ${PROJECT_IS_TOP_LEVEL})
+option(ALICE2_BUILD_GPU_CHECKS "Build mesh rendering checks/benchmark (requires an OpenGL display)" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -97,7 +98,7 @@ endif()
 
 alice2_library(alice2_viewer
     src/core/Application.cpp src/core/Camera.cpp src/core/FontRenderer.cpp
-    src/core/Renderer.cpp src/core/Scene.cpp
+    src/core/Renderer.cpp src/core/GpuMeshRenderer.cpp src/core/Scene.cpp
     src/input/InputManager.cpp src/input/CameraController.cpp
     src/ui/SimpleUI.cpp src/sketches/SketchManager.cpp
     src/objects/SceneObject.cpp src/objects/PrimitiveObject.cpp
@@ -128,6 +129,16 @@ if(BUILD_TESTING)
     target_link_libraries(alice2_scene_objects_checks PRIVATE alice2_viewer)
     alice2_runtime(alice2_scene_objects_checks checks)
     add_test(NAME scene_objects COMMAND alice2_scene_objects_checks)
+endif()
+
+# Available to external applications even when bundled research apps are skipped.
+if(ALICE2_BUILD_GPU_CHECKS)
+    add_executable(alice2_gpu_mesh_checks EXCLUDE_FROM_ALL checks/gpu_mesh.cpp)
+    target_link_libraries(alice2_gpu_mesh_checks PRIVATE alice2_viewer)
+    alice2_runtime(alice2_gpu_mesh_checks checks)
+    if(BUILD_TESTING)
+        add_test(NAME gpu_mesh COMMAND alice2_gpu_mesh_checks)
+    endif()
 endif()
 
 # Available to external applications even when bundled research apps are skipped.

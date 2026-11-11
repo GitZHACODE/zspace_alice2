@@ -132,6 +132,7 @@ namespace alice2 {
         }
 
         void updateVertexColors(MeshData& data, const std::vector<float>& values, float minValue, float maxValue) {
+            data.markRenderDirty();
             const size_t count = std::min(data.vertices.size(), values.size());
             for (size_t i = 0; i < count; ++i) {
                 data.vertices[i].color = scalarToColor(values[i], minValue, maxValue);
@@ -421,13 +422,19 @@ namespace alice2 {
 
     void MeshObject::renderImpl(Renderer& renderer, Camera& camera) {
         if (!m_meshData || m_meshData->vertices.empty()) {
-            // Render placeholder when no mesh data
-            std::cout << "MeshObject::renderImpl: No mesh data" << std::endl;
+            // Clearing a live mesh should also release its resident GPU data.
+            if (m_meshData) renderer.drawMeshBuffered(m_meshData, false, m_frontColor, m_backColor, false);
             return;
         }
 
         // Ensure triangulation is up to date
         ensureTriangulation();
+
+        // Static geometry stays resident on the GPU, including view-mode
+        // overrides and edge/vertex overlays. Export retains the legacy path.
+        if (renderer.drawMeshBuffered(m_meshData, m_renderMode == MeshRenderMode::NormalShaded,
+                m_frontColor, m_backColor, m_useFaceColors, m_showFaces, m_showEdges,
+                m_showVertices, m_edgeWidth, m_vertexSize)) return;
 
         if (renderer.getSceneRenderMode() != SceneRenderMode::Regular) {
             renderSceneModeOverride(renderer, camera);
@@ -455,6 +462,7 @@ namespace alice2 {
         }
 
         Vec3 minBounds, maxBounds;
+        m_meshData->markRenderDirty();
         m_meshData->updateBounds(minBounds, maxBounds);
         setBounds(minBounds, maxBounds);
     }
@@ -1176,6 +1184,7 @@ namespace alice2 {
     // Generate edges from faces
     void MeshObject::generateEdgesFromFaces() {
         if (!m_meshData) return;
+        m_meshData->markRenderDirty();
 
         m_meshData->edges.clear();
         std::set<std::pair<int, int>> edgeSet;

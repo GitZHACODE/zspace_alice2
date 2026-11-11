@@ -2,6 +2,7 @@
 
 #include "../utils/Math.h"
 #include <vector>
+#include <cstdint>
 
 namespace alice2 {
 
@@ -46,6 +47,11 @@ namespace alice2 {
         // Triangulated data for rendering (generated from n-gon faces)
         std::vector<int> triangleIndices;
         bool triangulationDirty = true;
+
+        // Direct edits to public vertex/face/edge arrays must call this method.
+        // Camera/object transforms and material changes need no mesh upload.
+        std::uint64_t renderRevision = 0;
+        void markRenderDirty();
         
         // Methods
         void clear();

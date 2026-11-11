@@ -7,6 +7,7 @@
 #include "../utils/OpenGL.h"
 #include <stack>
 #include <memory>
+#include <cstdint>
 
 
 
@@ -14,6 +15,16 @@ namespace alice2 {
 
     class Camera;
     class FontRenderer;
+    class GpuMeshRenderer;
+    struct MeshData;
+
+    struct MeshRenderStats {
+        std::uint64_t uploads = 0;
+        std::uint64_t uploadedBytes = 0;
+        std::uint64_t drawCalls = 0;
+        std::uint64_t triangles = 0;
+        std::size_t cachedMeshes = 0;
+    };
 
     enum class RenderMode {
         Points,
@@ -110,6 +121,14 @@ namespace alice2 {
         void drawTriangles(const Vec3* vertices, int vertexCount, const int* indices = nullptr, int indexCount = 0);
 
         // Mesh rendering
+        // Returns false when the compatibility/export path should be used.
+        bool drawMeshBuffered(const std::shared_ptr<MeshData>& mesh, bool normalShaded,
+                              const Color& front, const Color& back, bool faceColors,
+                              bool showFaces = true, bool showEdges = false, bool showVertices = false,
+                              float edgeWidth = 1.0f, float vertexSize = 3.0f);
+        void setBufferedMeshesEnabled(bool enabled) { m_bufferedMeshesEnabled = enabled; }
+        bool getBufferedMeshesEnabled() const { return m_bufferedMeshesEnabled; }
+        const MeshRenderStats& getMeshRenderStats() const { return m_meshRenderStats; }
         void drawMesh(const Vec3* vertices, const Vec3* normals, const Color* colors, int vertexCount, const int* indices = nullptr, int indexCount = 0, bool enableLighting = false);
         void drawMeshWireframe(const Vec3* vertices, const Color* colors, int vertexCount, const int* indices = nullptr, int indexCount = 0);
         void drawMeshEdges(const Vec3* vertices, const int* edgeIndices, const Color* edgeColors, int edgeCount);
@@ -134,6 +153,12 @@ namespace alice2 {
         void checkErrors() const;
 
     private:
+        bool m_bufferedMeshesEnabled = true;
+        std::shared_ptr<GpuMeshRenderer> m_gpuMeshes;
+        MeshRenderStats m_meshRenderStats;
+        void initializeMeshBuffers();
+        void shutdownMeshBuffers();
+        void collectMeshBuffers();
         bool m_initialized;
         
         // Viewport
