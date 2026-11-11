@@ -69,6 +69,7 @@ public:
     };
     GLFWwindow* context = glfwGetCurrentContext();
     GLuint program = 0;
+    GLuint streamingBuffers[4] = {};
     GLint normalUniform = -1, frontUniform = -1, backUniform = -1, constantUniform = -1, alphaUniform = -1;
     std::unordered_map<const MeshData*, Entry> entries;
 
@@ -220,9 +221,70 @@ void Renderer::shutdownMeshBuffers() {
     if (glfwGetCurrentContext() == m_gpuMeshes->context) {
         for (auto& item : m_gpuMeshes->entries) GpuMeshRenderer::release(item.second);
         glDeleteProgram(m_gpuMeshes->program);
+        glDeleteBuffers(4, m_gpuMeshes->streamingBuffers);
     }
     m_gpuMeshes.reset();
     m_meshRenderStats.cachedMeshes = 0;
+}
+
+// Pointer-only callers provide no ownership or revision information. Stream the
+// current arrays on every draw so in-place edits and reused addresses stay safe.
+// Fixed-function arrays retain drawMesh's existing lighting and colour semantics.
+bool Renderer::drawMeshArraysBuffered(const Vec3* vertices, const Vec3* normals,
+                                      const Color* colors, int vertexCount,
+                                      const int* indices, int indexCount) {
+    if (!m_initialized || !m_bufferedMeshesEnabled || m_vectorExportMode || !m_gpuMeshes ||
+        glfwGetCurrentContext() != m_gpuMeshes->context || vertexCount <= 0) return false;
+    const bool indexed = indices && indexCount > 0;
+    if (indexed && (indexCount % 3 || std::any_of(indices, indices + indexCount,
+        [vertexCount](int i) { return i < 0 || i >= vertexCount; }))) return false;
+
+    GLint oldVertices = 0, oldIndices = 0;
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &oldVertices);
+    glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &oldIndices);
+    glPushClientAttrib(GL_CLIENT_VERTEX_ARRAY_BIT);
+    const auto restore = [&] {
+        glPopClientAttrib();
+        glBindBuffer(GL_ARRAY_BUFFER, oldVertices);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, oldIndices);
+    };
+    auto& buffers = m_gpuMeshes->streamingBuffers;
+    if (!buffers[0]) glGenBuffers(4, buffers);
+    std::uint64_t bytes = 0;
+    const auto upload = [&](int slot, GLenum target, const void* data, std::size_t size) {
+        glBindBuffer(target, buffers[slot]);
+        glBufferData(target, size, data, GL_STREAM_DRAW);
+        bytes += size;
+    };
+    upload(0, GL_ARRAY_BUFFER, vertices, std::size_t(vertexCount) * sizeof(Vec3));
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glVertexPointer(3, GL_FLOAT, sizeof(Vec3), nullptr);
+    glDisableClientState(GL_NORMAL_ARRAY);
+    if (normals) {
+        upload(1, GL_ARRAY_BUFFER, normals, std::size_t(vertexCount) * sizeof(Vec3));
+        glEnableClientState(GL_NORMAL_ARRAY);
+        glNormalPointer(GL_FLOAT, sizeof(Vec3), nullptr);
+    }
+    glDisableClientState(GL_COLOR_ARRAY);
+    if (colors) {
+        upload(2, GL_ARRAY_BUFFER, colors, std::size_t(vertexCount) * sizeof(Color));
+        glEnableClientState(GL_COLOR_ARRAY);
+        glColorPointer(4, GL_FLOAT, sizeof(Color), nullptr);
+    }
+    if (indexed) upload(3, GL_ELEMENT_ARRAY_BUFFER, indices, std::size_t(indexCount) * sizeof(int));
+    if (glGetError() != GL_NO_ERROR) { restore(); return false; }
+    if (indexed) glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, nullptr);
+    else glDrawArrays(GL_TRIANGLES, 0, vertexCount);
+    if (normals) {
+        const auto& last = normals[indexed ? indices[indexCount-1] : vertexCount-1];
+        glNormal3f(last.x, last.y, last.z);
+    }
+    ++m_meshRenderStats.uploads;
+    m_meshRenderStats.uploadedBytes += bytes;
+    ++m_meshRenderStats.drawCalls;
+    m_meshRenderStats.triangles += (indexed ? indexCount : vertexCount) / 3;
+    restore();
+    return true;
 }
 
 void Renderer::collectMeshBuffers() {

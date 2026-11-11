@@ -47,12 +47,14 @@ public:
     void draw(Renderer& r, Camera&) override {
         const auto& v = generator_.vertices();
         const auto& f = generator_.triangles();
-        if (!positions_.empty() && showField_)
+        if (!positions_.empty() && showField_ &&
+            !r.drawMeshBuffered(fieldMesh_,false,Color(1,1,1),Color(0,0,0),false))
             r.drawMesh(positions_.data(), nullptr, colors_.data(), static_cast<int>(positions_.size()),
                        indices_.data(), static_cast<int>(indices_.size()), false);
         if (showWire_) for (int i = 0; i < f.rows(); ++i) for (int j = 0; j < 3; ++j)
             r.drawLine(point(v,f(i,j)), point(v,f(i,(j+1)%3)), Color(0.65f,0.65f,0.65f), 0.5f);
-        if (showBricks_ && !brickPositions_.empty())
+        if (showBricks_ && !brickPositions_.empty() &&
+            !r.drawMeshBuffered(brickMesh_,false,Color(1,1,1),Color(0,0,0),false))
             r.drawMesh(brickPositions_.data(),nullptr,brickColors_.data(),static_cast<int>(brickPositions_.size()),
                        brickIndices_.data(),static_cast<int>(brickIndices_.size()),false);
         if (showBrickEdges_ && !brickEdges_.empty())
@@ -228,6 +230,17 @@ private:
             if (!ui_) makeUI();
         }
     }
+    static std::shared_ptr<MeshData> previewMesh(const std::vector<Vec3>& positions,
+                                                  const std::vector<Color>& colors,
+                                                  const std::vector<int>& indices) {
+        auto mesh = std::make_shared<MeshData>();
+        mesh->vertices.reserve(positions.size());
+        for (std::size_t i = 0; i < positions.size(); ++i)
+            mesh->vertices.emplace_back(positions[i],Vec3(0,0,1),colors[i]);
+        mesh->triangleIndices = indices;
+        mesh->triangulationDirty = false;
+        return mesh;
+    }
     void rebuildField() {
         lastMethod_ = method_;
         clearBrickPreview();
@@ -240,9 +253,11 @@ private:
                 const float t = span > 0 ? static_cast<float>((field(i)-minimum)/span) : 0;
                 colors_[i] = Color(1-t, 0.25f+0.5f*(1-std::abs(2*t-1)), t);
             }
+            fieldMesh_ = previewMesh(positions_,colors_,indices_);
             rebuildContours();
         } catch (const std::exception& e) {
             colors_.assign(positions_.size(), Color(0.8f,0.8f,0.8f));
+            fieldMesh_ = previewMesh(positions_,colors_,indices_);
             lastSpacing_ = spacing_; status_ = e.what();
         }
     }
@@ -255,6 +270,7 @@ private:
         } catch (const std::exception& e) { status_ = e.what(); }
     }
     void clearBrickPreview() {
+        brickMesh_.reset();
         brickPositions_.clear(); brickColors_.clear(); brickIndices_.clear(); brickEdges_.clear();
     }
     void rebuildBricks() {
@@ -279,6 +295,7 @@ private:
                 for (const auto& face : faces) for (int id : face) brickIndices_.push_back(offset+id);
                 for (const auto& edge : edges) for (int id : edge) brickEdges_.push_back(point(brick.vertices[id]));
             }
+            brickMesh_ = previewMesh(brickPositions_,brickColors_,brickIndices_);
             std::ostringstream text;
             static const char* names[] = {"Height Z", "Exact geodesic", "Exact blend"};
             text << names[method_] << " | " << generator_.vertices().rows() << " vertices | red " << generator_.startVertices().size()
@@ -289,6 +306,7 @@ private:
             status_ = text.str()+planeFileNote_;
         } catch (const std::exception& e) { status_ = e.what(); }
     }
+    std::shared_ptr<MeshData> fieldMesh_, brickMesh_;
     BrickGenerator generator_;
     std::unique_ptr<SimpleUI> ui_;
     std::vector<Vec3> positions_;

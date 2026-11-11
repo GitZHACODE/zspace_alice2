@@ -85,6 +85,58 @@ namespace {
         return mesh;
     }
 
+    void checkRawArrays(Renderer& renderer, Camera& camera) {
+        Vec3 vertices[] = {{-0.8f,-0.7f,0}, {0.8f,-0.7f,0}, {0,0.8f,0}};
+        Vec3 normals[] = {{0,0,1}, {0,0,1}, {0,0,1}};
+        Color colors[] = {{1,0,0}, {0,1,0}, {0,0,1}};
+        int indices[] = {0,1,2};
+        const auto draw = [&](bool buffered, bool indexed, bool attributes, bool lighting) {
+            renderer.setBufferedMeshesEnabled(buffered);
+            renderer.beginFrame();
+            renderer.setViewport(0,0,512,512);
+            renderer.setCamera(camera);
+            renderer.clear();
+            renderer.setColor(Color(0.7f,0.5f,0.3f));
+            glNormal3f(0,0,1);
+            const auto uploads = renderer.getMeshRenderStats().uploads;
+            renderer.drawMesh(vertices, attributes ? normals : nullptr, attributes ? colors : nullptr,
+                              3, indexed ? indices : nullptr, indexed ? 3 : 0, lighting);
+            require(glGetError() == GL_NO_ERROR, "Raw mesh OpenGL error");
+            if (buffered) require(renderer.getMeshRenderStats().uploads > uploads,
+                                  "Raw mesh did not use GPU buffers");
+            renderer.endFrame();
+            glFinish();
+            return pixels();
+        };
+        for (auto mode : {SceneRenderMode::Regular, SceneRenderMode::MeshNormalShaded,
+                          SceneRenderMode::MeshTransparent, SceneRenderMode::MeshGray}) {
+            renderer.setSceneRenderMode(mode);
+            for (bool indexed : {false,true}) for (bool attributes : {false,true})
+                for (bool lighting : {false,true}) {
+                    const auto reference = draw(false,indexed,attributes,lighting);
+                    const auto buffered = draw(true,indexed,attributes,lighting);
+                    double error = 0;
+                    for (std::size_t i = 0; i < reference.size(); ++i)
+                        error += std::abs(int(reference[i])-int(buffered[i]));
+                    require(error/reference.size() < 1.0, "Raw GPU mesh differs from legacy rendering");
+                }
+        }
+        renderer.setSceneRenderMode(SceneRenderMode::Regular);
+        const auto before = draw(true,true,true,false);
+        colors[0] = Color(0,0,0);
+        vertices[2].x = 0.6f;
+        indices[1] = 2; indices[2] = 1;
+        const auto changed = draw(true,true,true,false);
+        require(before != changed, "Raw mesh in-place edits were ignored");
+        const auto reference = draw(false,true,true,false);
+        double error = 0;
+        for (std::size_t i = 0; i < reference.size(); ++i)
+            error += std::abs(int(reference[i])-int(changed[i]));
+        require(error/reference.size() < 1.0, "Edited raw mesh differs from legacy rendering");
+        renderer.setBufferedMeshesEnabled(true);
+        std::cout << "Raw array GPU paths, display modes, lighting and in-place edits passed\n";
+    }
+
     void benchmark(Renderer& renderer, Camera& camera, int resolution, bool buffered, int instances = 1) {
         MeshObject mesh;
         auto data = grid(resolution);
@@ -146,6 +198,7 @@ int main(int argc, char** argv) {
         camera.setPerspective(45, 1, 0.1f, 100);
         camera.setOrbitCenter({0, 0, 0});
         camera.setOrbitDistance(3.5f);
+        checkRawArrays(renderer, camera);
         {
             MeshObject mesh;
             mesh.createSphere(0.8f, 48, 24);

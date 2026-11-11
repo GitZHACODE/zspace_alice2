@@ -1,6 +1,16 @@
 # GPU mesh rendering
 
-`MeshObject` uses a renderer-owned GPU cache by default. Shared vertex attributes
+Mesh rendering uses GPU buffers by default. `MeshObject` uses a renderer-owned
+GPU cache. The raw-array `Renderer::drawMesh()` API uses reusable streaming buffers,
+uploading the supplied arrays each call because pointers carry no lifetime or
+revision information. In-place edits therefore remain visible without explicit
+invalidation. Raw-array lighting continues to use the compatibility pipeline.
+Use persistent `MeshObject`/`MeshData` for large static geometry to avoid per-frame
+uploads; the bricks sketch caches both its field and brick previews this way.
+Changing brick-generation parameters replaces the preview; camera navigation
+reuses its resident buffers. Line/point helpers remain separate drawing APIs.
+
+For cached meshes, Shared vertex attributes
 and triangulated indices are uploaded once and drawn with `glDrawElements`.
 Normal shading runs in a GLSL shader, including the normal transform and
 front/back colour interpolation. Camera navigation and object transforms change

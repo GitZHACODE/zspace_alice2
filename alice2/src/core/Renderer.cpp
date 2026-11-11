@@ -12,6 +12,7 @@
 #include <iostream>
 #include <cmath>
 #include <algorithm>
+#include <vector>
 
 // Debug logging flag - set to true to enable detailed renderer logging
 #define DEBUG_RENDERER_LOGGING false
@@ -645,7 +646,7 @@ namespace alice2 {
     }
 
     void Renderer::drawMesh(const Vec3* vertices, const Vec3* normals, const Color* colors, int vertexCount, const int* indices, int indexCount, bool enableLighting) {
-        if (!vertices || vertexCount == 0) return;
+        if (!vertices || vertexCount <= 0) return;
 
         bool wasLightingEnabled = glIsEnabled(GL_LIGHTING);
         const bool wasPolygonOffsetFillEnabled = glIsEnabled(GL_POLYGON_OFFSET_FILL);
@@ -743,68 +744,84 @@ namespace alice2 {
             glPolygonOffset(1.0f, 1.0f);
         }
 
-        glBegin(GL_TRIANGLES);
+        std::vector<Color> shadedColors;
+        const Color* bufferedColors = (!overrideMesh || transparentMode) ? colors : nullptr;
+        if (m_bufferedMeshesEnabled && !m_vectorExportMode &&
+            ((normalShadedMode && normals) || (transparentMode && colors))) {
+            shadedColors.reserve(vertexCount);
+            for (int i = 0; i < vertexCount; ++i) {
+                if (normalShadedMode) {
+                    const float t = std::clamp(normals[i].z * 0.5f + 0.5f, 0.0f, 1.0f);
+                    shadedColors.emplace_back(0.18f + 0.82f*t, 0.18f + 0.82f*t, 0.18f + 0.82f*t, 1.0f);
+                } else shadedColors.emplace_back(colors[i].r, colors[i].g, colors[i].b, 0.18f);
+            }
+            bufferedColors = shadedColors.data();
+        }
+        if (!drawMeshArraysBuffered(vertices, normals, bufferedColors, vertexCount, indices, indexCount)) {
+            glBegin(GL_TRIANGLES);
 
-        if (indices && indexCount > 0) {
-            for (int i = 0; i < indexCount; i += 3) {
-                for (int j = 0; j < 3; j++) {
-                    int idx = indices[i + j];
-                    if (idx >= 0 && idx < vertexCount) {
-                        if (normals) {
-                            glNormal3f(normals[idx].x, normals[idx].y, normals[idx].z);
+            if (indices && indexCount > 0) {
+                for (int i = 0; i < indexCount; i += 3) {
+                    for (int j = 0; j < 3; j++) {
+                        int idx = indices[i + j];
+                        if (idx >= 0 && idx < vertexCount) {
+                            if (normals) {
+                                glNormal3f(normals[idx].x, normals[idx].y, normals[idx].z);
+                            }
+                            if (normalShadedMode && normals) {
+                                const float t = std::clamp(normals[idx].z * 0.5f + 0.5f, 0.0f, 1.0f);
+                                glColor4f(
+                                    normalBackColor.r + t * (normalFrontColor.r - normalBackColor.r),
+                                    normalBackColor.g + t * (normalFrontColor.g - normalBackColor.g),
+                                    normalBackColor.b + t * (normalFrontColor.b - normalBackColor.b),
+                                    1.0f
+                                );
+                            } else if (normalShadedMode) {
+                                glColor4f(normalFrontColor.r, normalFrontColor.g, normalFrontColor.b, normalFrontColor.a);
+                    } else if (grayMode) {
+                        glColor4f(forcedFaceColor.r, forcedFaceColor.g, forcedFaceColor.b, forcedFaceColor.a);
+                    } else if (transparentMode && colors) {
+                        glColor4f(colors[idx].r, colors[idx].g, colors[idx].b, transparentFaceColor.a);
+                    } else if (transparentMode) {
+                        glColor4f(transparentFaceColor.r, transparentFaceColor.g, transparentFaceColor.b, transparentFaceColor.a);
+                    } else if ((!overrideMesh || transparentMode) && colors) {
+                        glColor4f(colors[idx].r, colors[idx].g, colors[idx].b, colors[idx].a);
+                    }
+                            glVertex3f(vertices[idx].x, vertices[idx].y, vertices[idx].z);
                         }
-                        if (normalShadedMode && normals) {
-                            const float t = std::clamp(normals[idx].z * 0.5f + 0.5f, 0.0f, 1.0f);
-                            glColor4f(
-                                normalBackColor.r + t * (normalFrontColor.r - normalBackColor.r),
-                                normalBackColor.g + t * (normalFrontColor.g - normalBackColor.g),
-                                normalBackColor.b + t * (normalFrontColor.b - normalBackColor.b),
-                                1.0f
-                            );
-                        } else if (normalShadedMode) {
-                            glColor4f(normalFrontColor.r, normalFrontColor.g, normalFrontColor.b, normalFrontColor.a);
-                } else if (grayMode) {
-                    glColor4f(forcedFaceColor.r, forcedFaceColor.g, forcedFaceColor.b, forcedFaceColor.a);
-                } else if (transparentMode && colors) {
-                    glColor4f(colors[idx].r, colors[idx].g, colors[idx].b, transparentFaceColor.a);
-                } else if (transparentMode) {
-                    glColor4f(transparentFaceColor.r, transparentFaceColor.g, transparentFaceColor.b, transparentFaceColor.a);
-                } else if ((!overrideMesh || transparentMode) && colors) {
-                    glColor4f(colors[idx].r, colors[idx].g, colors[idx].b, colors[idx].a);
-                }
-                        glVertex3f(vertices[idx].x, vertices[idx].y, vertices[idx].z);
                     }
                 }
-            }
-        } else {
-            for (int i = 0; i < vertexCount; i++) {
-                if (normals) {
-                    glNormal3f(normals[i].x, normals[i].y, normals[i].z);
+            } else {
+                for (int i = 0; i < vertexCount; i++) {
+                    if (normals) {
+                        glNormal3f(normals[i].x, normals[i].y, normals[i].z);
+                    }
+                    if (normalShadedMode && normals) {
+                        const float t = std::clamp(normals[i].z * 0.5f + 0.5f, 0.0f, 1.0f);
+                        glColor4f(
+                            normalBackColor.r + t * (normalFrontColor.r - normalBackColor.r),
+                            normalBackColor.g + t * (normalFrontColor.g - normalBackColor.g),
+                            normalBackColor.b + t * (normalFrontColor.b - normalBackColor.b),
+                            1.0f
+                        );
+                    } else if (normalShadedMode) {
+                        glColor4f(normalFrontColor.r, normalFrontColor.g, normalFrontColor.b, normalFrontColor.a);
+                    } else if (grayMode) {
+                        glColor4f(forcedFaceColor.r, forcedFaceColor.g, forcedFaceColor.b, forcedFaceColor.a);
+                    } else if (transparentMode && colors) {
+                        glColor4f(colors[i].r, colors[i].g, colors[i].b, transparentFaceColor.a);
+                    } else if (transparentMode) {
+                        glColor4f(transparentFaceColor.r, transparentFaceColor.g, transparentFaceColor.b, transparentFaceColor.a);
+                    } else if ((!overrideMesh || transparentMode) && colors) {
+                        glColor4f(colors[i].r, colors[i].g, colors[i].b, colors[i].a);
+                    }
+                    glVertex3f(vertices[i].x, vertices[i].y, vertices[i].z);
                 }
-                if (normalShadedMode && normals) {
-                    const float t = std::clamp(normals[i].z * 0.5f + 0.5f, 0.0f, 1.0f);
-                    glColor4f(
-                        normalBackColor.r + t * (normalFrontColor.r - normalBackColor.r),
-                        normalBackColor.g + t * (normalFrontColor.g - normalBackColor.g),
-                        normalBackColor.b + t * (normalFrontColor.b - normalBackColor.b),
-                        1.0f
-                    );
-                } else if (normalShadedMode) {
-                    glColor4f(normalFrontColor.r, normalFrontColor.g, normalFrontColor.b, normalFrontColor.a);
-                } else if (grayMode) {
-                    glColor4f(forcedFaceColor.r, forcedFaceColor.g, forcedFaceColor.b, forcedFaceColor.a);
-                } else if (transparentMode && colors) {
-                    glColor4f(colors[i].r, colors[i].g, colors[i].b, transparentFaceColor.a);
-                } else if (transparentMode) {
-                    glColor4f(transparentFaceColor.r, transparentFaceColor.g, transparentFaceColor.b, transparentFaceColor.a);
-                } else if ((!overrideMesh || transparentMode) && colors) {
-                    glColor4f(colors[i].r, colors[i].g, colors[i].b, colors[i].a);
-                }
-                glVertex3f(vertices[i].x, vertices[i].y, vertices[i].z);
             }
+
+            glEnd();
         }
 
-        glEnd();
 
         if (wasPolygonOffsetFillEnabled) {
             glEnable(GL_POLYGON_OFFSET_FILL);
@@ -832,7 +849,7 @@ namespace alice2 {
     }
 
     void Renderer::drawMeshWireframe(const Vec3* vertices, const Color* colors, int vertexCount, const int* indices, int indexCount) {
-        if (!vertices || vertexCount == 0) return;
+        if (!vertices || vertexCount <= 0) return;
 
         // Save current polygon mode
         GLint polygonMode[2];

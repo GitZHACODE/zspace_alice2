@@ -129,6 +129,7 @@ namespace alice2 {
         void setBufferedMeshesEnabled(bool enabled) { m_bufferedMeshesEnabled = enabled; }
         bool getBufferedMeshesEnabled() const { return m_bufferedMeshesEnabled; }
         const MeshRenderStats& getMeshRenderStats() const { return m_meshRenderStats; }
+        // Raw arrays stream through reusable GPU buffers; use MeshObject for resident geometry.
         void drawMesh(const Vec3* vertices, const Vec3* normals, const Color* colors, int vertexCount, const int* indices = nullptr, int indexCount = 0, bool enableLighting = false);
         void drawMeshWireframe(const Vec3* vertices, const Color* colors, int vertexCount, const int* indices = nullptr, int indexCount = 0);
         void drawMeshEdges(const Vec3* vertices, const int* edgeIndices, const Color* edgeColors, int edgeCount);
@@ -156,6 +157,8 @@ namespace alice2 {
         bool m_bufferedMeshesEnabled = true;
         std::shared_ptr<GpuMeshRenderer> m_gpuMeshes;
         MeshRenderStats m_meshRenderStats;
+        bool drawMeshArraysBuffered(const Vec3* vertices, const Vec3* normals, const Color* colors,
+                                    int vertexCount, const int* indices, int indexCount);
         void initializeMeshBuffers();
         void shutdownMeshBuffers();
         void collectMeshBuffers();
