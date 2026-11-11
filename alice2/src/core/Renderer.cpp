@@ -35,7 +35,7 @@ namespace alice2 {
         , m_vectorExportMode(false)
         , m_lightingEnabled(true)
         , m_ambientLight(0.2f, 0.2f, 0.2f, 1.0f)
-        , m_lightDirection(0.0f, -1.0f, -1.0f)
+        , m_lightDirection(0.4f, -0.6f, -1.0f)
         , m_lightColor(1.0f, 1.0f, 1.0f, 1.0f)
         , m_fontRenderer(std::make_unique<FontRenderer>())
     {
@@ -266,6 +266,9 @@ namespace alice2 {
                 break;
             case SceneRenderMode::MeshNormalShaded:
                 std::cout << "[RENDERER] Scene render mode: normal shaded" << std::endl;
+                break;
+            case SceneRenderMode::MeshFlatShaded:
+                std::cout << "[RENDERER] Scene render mode: flat shaded" << std::endl;
                 break;
             case SceneRenderMode::MeshTransparent:
                 std::cout << "[RENDERER] Scene render mode: transparent" << std::endl;
@@ -645,8 +648,58 @@ namespace alice2 {
         setLineWidth(oldWidth);
     }
 
-    void Renderer::drawMesh(const Vec3* vertices, const Vec3* normals, const Color* colors, int vertexCount, const int* indices, int indexCount, bool enableLighting) {
+    void Renderer::drawMesh(const Vec3* vertices, const Vec3* normals, const Color* colors, int vertexCount, const int* indices, int indexCount, bool enableLighting, bool flatShaded, const MeshMaterial& material) {
         if (!vertices || vertexCount <= 0) return;
+        if (flatShaded || m_sceneRenderMode == SceneRenderMode::MeshFlatShaded) {
+            // Compatibility/export and raw-array callers receive the same
+            // geometric lighting. Resident MeshObjects use the GPU shader.
+            Mat4 modelView;
+            glGetFloatv(GL_MODELVIEW_MATRIX, modelView.m);
+            Mat4 projection;
+            glGetFloatv(GL_PROJECTION_MATRIX,projection.m);
+            const auto viewDirection=[&](const Vec3& p) { return projection.m[15]==0 ? (-p).normalized() : Vec3(0,0,1); };
+            const auto light=m_lightDirection.lengthSquared()>1e-12f ? (-m_lightDirection).normalized() : Vec3(0,0,1);
+            const bool indexed=indices && indexCount>0;
+            const int count=indexed ? indexCount : vertexCount;
+            std::vector<Vec3> positions;
+            std::vector<Color> shaded;
+            positions.reserve(count); shaded.reserve(count);
+            for (int i=0;i+2<count;i+=3) {
+                const int ids[]={indexed ? indices[i] : i,indexed ? indices[i+1] : i+1,indexed ? indices[i+2] : i+2};
+                if (std::any_of(std::begin(ids),std::end(ids),[&](int id) { return id<0 || id>=vertexCount; })) continue;
+                const auto a=modelView.transformPoint(vertices[ids[0]]), b=modelView.transformPoint(vertices[ids[1]]), c=modelView.transformPoint(vertices[ids[2]]);
+                auto n=(b-a).cross(c-a);
+                n=n.lengthSquared()>1e-20f ? n.normalized() : Vec3(0,0,1);
+                if (n.dot(viewDirection(a+b+c))<0) n=-n;
+                const float diffuse=std::max(0.0f,n.dot(light));
+                for (int id:ids) {
+                    const auto base=colors ? colors[id] : m_currentColor;
+                    positions.push_back(vertices[id]);
+                    const float metallic=std::clamp(material.metallic,0.0f,1.0f), specular=std::clamp(material.specular,0.0f,1.0f);
+                    float highlight=0;
+                    if (metallic>0 || specular>0) {
+                        auto halfVector=light+viewDirection(modelView.transformPoint(vertices[id]));
+                        const auto h=halfVector.lengthSquared()>1e-12f ? halfVector.normalized() : n;
+                        const float roughness=std::clamp(material.roughness,.08f,1.0f);
+                        const float exponent=std::clamp(2/std::pow(roughness,4.0f)-2,2.0f,2048.0f);
+                        highlight=std::pow(std::max(0.0f,n.dot(h)),exponent)*diffuse;
+                    }
+                    const auto shade=[&](float value,float tint,float ambient,float key) {
+                        const float linear=(material.linearColors ? std::max(0.0f,value) : srgbToLinear(value)) *
+                            (material.linearColors ? std::max(0.0f,tint) : srgbToLinear(tint));
+                        const float f0=(1-metallic)*.08f*specular+metallic*linear;
+                        return linearToSrgb((1-metallic)*linear*(ambient+.8f*key*diffuse)+f0*(.35f*ambient+key*highlight));
+                    };
+                    shaded.emplace_back(shade(base.r,material.baseColor.r,m_ambientLight.r,m_lightColor.r),
+                        shade(base.g,material.baseColor.g,m_ambientLight.g,m_lightColor.g),
+                        shade(base.b,material.baseColor.b,m_ambientLight.b,m_lightColor.b),base.a*material.baseColor.a);
+                }
+            }
+            struct RestoreMode { SceneRenderMode& mode; SceneRenderMode previous; ~RestoreMode() { mode=previous; } } restore{m_sceneRenderMode,m_sceneRenderMode};
+            m_sceneRenderMode=SceneRenderMode::Regular;
+            drawMesh(positions.data(),nullptr,shaded.data(),static_cast<int>(positions.size()));
+            return;
+        }
 
         bool wasLightingEnabled = glIsEnabled(GL_LIGHTING);
         const bool wasPolygonOffsetFillEnabled = glIsEnabled(GL_POLYGON_OFFSET_FILL);

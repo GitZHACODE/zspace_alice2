@@ -214,7 +214,7 @@ GLFW or OpenBLAS dependencies, can be included beside the executable.
 
 ## Checks
 
-Mesh objects use cached GPU vertex/index buffers and GPU normal shading by
+Mesh objects use cached GPU vertex/index buffers and GPU flat shading by
 default. Geometry uploads only after edits; camera movement, object transforms,
 and shading colours reuse the resident buffers. See
 [GPU mesh rendering](documentation/GpuMeshRendering.md) for invalidation rules,

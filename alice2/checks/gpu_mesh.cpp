@@ -121,7 +121,7 @@ namespace {
             return pixels();
         };
         for (auto mode : {SceneRenderMode::Regular, SceneRenderMode::MeshNormalShaded,
-                          SceneRenderMode::MeshTransparent, SceneRenderMode::MeshGray}) {
+                          SceneRenderMode::MeshTransparent, SceneRenderMode::MeshGray, SceneRenderMode::MeshFlatShaded}) {
             renderer.setSceneRenderMode(mode);
             for (bool indexed : {false,true}) for (bool attributes : {false,true})
                 for (bool lighting : {false,true}) {
@@ -149,14 +149,14 @@ namespace {
         std::cout << "Raw array GPU paths, display modes, lighting and in-place edits passed\n";
     }
 
-    void benchmark(Renderer& renderer, Camera& camera, int resolution, bool buffered, int instances = 1) {
+    void benchmark(Renderer& renderer, Camera& camera, int resolution, bool buffered, int instances = 1, bool flat = false) {
         MeshObject mesh;
         auto data = grid(resolution);
         // Direct triangle data is intentional: keep the stress test's CPU memory
         // small and test the same indexed geometry uploaded by imported meshes.
         *mesh.getMeshData() = *data;
         data.reset();
-        mesh.setRenderMode(MeshRenderMode::NormalShaded);
+        mesh.setRenderMode(flat ? MeshRenderMode::FlatShaded : MeshRenderMode::NormalShaded);
         renderer.setBufferedMeshesEnabled(buffered);
         frame(renderer, camera, mesh, instances); // Upload/warm up outside timing.
         require(foregroundPixels(pixels()) > 1000, "Benchmark mesh is outside the framebuffer");
@@ -176,7 +176,7 @@ namespace {
             require(after.triangles - before.triangles == triangles * frames, "Triangle draw count mismatch");
         }
         std::sort(times.begin(), times.end());
-        std::cout << (buffered ? "GPU" : "Legacy") << ", triangles=" << triangles
+        std::cout << (buffered ? "GPU" : "Legacy") << (flat ? " flat" : " normal") << ", triangles=" << triangles
                   << ", instances=" << instances << ", median_ms=" << times[times.size()/2]
                   << ", p95_ms=" << times[std::min(times.size()-1, std::size_t(times.size()*0.95))]
                   << ", navigation_uploads=" << after.uploads - before.uploads << '\n';
@@ -224,6 +224,72 @@ int main(int argc, char** argv) {
             require(order==std::vector<int>({1,2,3,4}), "Overlay render order/visibility failed");
         }
         checkRawArrays(renderer, camera);
+        {
+            require(std::abs(linearToSrgb(.0029380086f)-.03796f)<1e-4f,"Linear black material display conversion incorrect");
+            MeshObject black;
+            black.createSphere(.8f,48,24);
+            for (auto& vertex:black.getMeshData()->vertices) vertex.color={1,1,1};
+            black.getMeshData()->markRenderDirty();
+            black.setMaterial({.35f,.5f,.5f,true});
+            auto blackMaterial=black.getMaterial(); blackMaterial.baseColor={.0029380086f,.0029380086f,.0029380086f};
+            black.setMaterial(blackMaterial);
+            MeshObject matte;
+            matte.setMeshData(black.getMeshData());
+            auto matteMaterial=blackMaterial; matteMaterial.metallic=matteMaterial.specular=0;
+            matte.setMaterial(matteMaterial);
+            comparePaths(renderer,camera,black,"Imported black studio material");
+            const auto lit=pixels();
+            std::vector<float> depth(512*512);
+            glReadPixels(0,0,512,512,GL_DEPTH_COMPONENT,GL_FLOAT,depth.data());
+            int minimum=255,maximum=0; std::size_t count=0;
+            for (std::size_t i=0;i<depth.size();++i) if (depth[i]<.9999f) {
+                minimum=std::min(minimum,int(lit[3*i])); maximum=std::max(maximum,int(lit[3*i])); ++count;
+            }
+            require(count>1000 && minimum>1 && maximum>25 && maximum-minimum>15,"Black material lost its visible shading/highlights");
+            const auto uploads=renderer.getMeshRenderStats().uploads;
+            frame(renderer,camera,matte);
+            require(pixels()!=lit,"Per-object material did not affect shared geometry");
+            require(renderer.getMeshRenderStats().uploads==uploads,"Per-object material change uploaded shared geometry");
+            require(black.getMeshData()==matte.getMeshData() && black.getMaterial().metallic==.35f,"Shared geometry changed another object's material");
+            matteMaterial.baseColor={.7f,.3f,.1f}; matte.setMaterial(matteMaterial);
+            frame(renderer,camera,matte);
+            require(pixels()!=lit && renderer.getMeshRenderStats().uploads==uploads && black.getMaterial().baseColor.r<.003f,
+                "Base colour was not independent of shared geometry");
+            auto rough=black.getMaterial(); rough.roughness=.9f;
+            black.setMaterial(rough); frame(renderer,camera,black);
+            require(pixels()!=lit && renderer.getMeshRenderStats().uploads==uploads,"Roughness did not update independently of geometry");
+            require(black.duplicate().getMaterial().roughness==.9f,"Duplicate lost its object material");
+            std::cout << "Black material display range: " << minimum << ".." << maximum << " / 255\n";
+        }
+        {
+            MeshObject mesh;
+            require(mesh.getRenderMode()==MeshRenderMode::FlatShaded,"Flat shading is not the mesh default");
+            mesh.createCube(1.5f); mesh.weld();
+            require(mesh.getMeshData()->vertices.size()==8,"Flat-shading probe must use shared vertices");
+            for (auto& vertex:mesh.getMeshData()->vertices) vertex.color={.8f,.7f,.6f};
+            mesh.getMeshData()->markRenderDirty();
+            comparePaths(renderer,camera,mesh,"Flat shared-vertex cube");
+            const auto image=pixels();
+            for (auto& vertex:mesh.getMeshData()->vertices) vertex.normal={1,0,0};
+            mesh.getMeshData()->markRenderDirty();
+            frame(renderer,camera,mesh);
+            require(pixels()==image,"Flat shading depends on smoothed vertex normals");
+            const auto uploads=renderer.getMeshRenderStats().uploads;
+            renderer.setDirectionalLight({-1,1,-.2f},{1,1,1});
+            frame(renderer,camera,mesh);
+            require(pixels()!=image,"Directional light has no effect on flat shading");
+            require(renderer.getMeshRenderStats().uploads==uploads,"Lighting change reuploaded geometry");
+            comparePaths(renderer,camera,mesh,"Flat directional light");
+            mesh.getTransform().setMatrix(Mat4::scale({-1.2f,.6f,1.7f}));
+            camera.orbit({0,0,0},25,15,3.5f);
+            comparePaths(renderer,camera,mesh,"Flat mirrored nonuniform scale");
+            renderer.setDirectionalLight({.4f,-.6f,-1},{1,1,1});
+            renderer.setSceneRenderMode(SceneRenderMode::MeshFlatShaded);
+            mesh.setRenderMode(MeshRenderMode::NormalShaded);
+            comparePaths(renderer,camera,mesh,"View mode 4 flat override");
+            renderer.setSceneRenderMode(SceneRenderMode::Regular);
+            camera.setOrbitCenter({0,0,0}); camera.setOrbitDistance(3.5f);
+        }
         {
             MeshObject mesh;
             mesh.createSphere(0.8f, 48, 24);
@@ -291,6 +357,7 @@ int main(int argc, char** argv) {
         benchmark(renderer, camera, 1024, true);
         benchmark(renderer, camera, 1536, true);
         benchmark(renderer, camera, 1024, true, 8);
+        benchmark(renderer, camera, 1024, true, 8, true);
         if (argc > 1 && std::string(argv[1]) == "--large") benchmark(renderer, camera, 2048, true);
         renderer.shutdown();
         require(renderer.getMeshRenderStats().cachedMeshes == 0, "Renderer shutdown retained mesh buffers");

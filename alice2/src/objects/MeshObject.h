@@ -5,6 +5,7 @@
 
 #include "SceneObject.h"
 #include "../geometry/MeshData.h"
+#include "MeshMaterial.h"
 #include <vector>
 #include <memory>
 #include <optional>
@@ -20,7 +21,8 @@ namespace alice2 {
     // Mesh rendering modes
     enum class MeshRenderMode {
         Lit,            // Display using vertex/face colors without lighting
-        NormalShaded    // Conceptual lighting based on normal-camera dot product
+        NormalShaded,   // Conceptual lighting based on normal-camera dot product
+        FlatShaded     // Geometric triangle normals with ambient + directional light
     };
 
     enum class MeshExtrudeMode {
@@ -93,6 +95,8 @@ namespace alice2 {
         // Rendering mode
         void setRenderMode(MeshRenderMode mode) { m_renderMode = mode; }
         MeshRenderMode getRenderMode() const { return m_renderMode; }
+        void setMaterial(const MeshMaterial& material);
+        const MeshMaterial& getMaterial() const { return m_material; }
 
         // Normal shading colors
         void setNormalShadingColors(const Color& frontColor, const Color& backColor) {
@@ -169,6 +173,7 @@ namespace alice2 {
     private:
         std::shared_ptr<MeshData> m_meshData;
         MeshRenderMode m_renderMode;
+        MeshMaterial m_material;
 
         // Normal shading colors
         Color m_frontColor;
@@ -188,7 +193,8 @@ namespace alice2 {
         void renderMesh(Renderer& renderer, Camera& camera);
         void renderSceneModeOverride(Renderer& renderer, Camera& camera);
         void renderWireframe(Renderer& renderer);  // Keep for backward compatibility
-        void renderLit(Renderer& renderer);
+        void renderLit(Renderer& renderer, bool flatShaded = false);
+        Color materialDisplayColor(const Color& color) const;
         void renderNormalShaded(Renderer& renderer, Camera& camera);
 
         // Overlay rendering methods

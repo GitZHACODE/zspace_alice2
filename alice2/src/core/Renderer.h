@@ -5,6 +5,7 @@
 
 #include "../utils/Math.h"
 #include "../utils/OpenGL.h"
+#include "../objects/MeshMaterial.h"
 #include <stack>
 #include <memory>
 #include <cstdint>
@@ -39,7 +40,8 @@ namespace alice2 {
         MeshWireframeWithVertices,
         MeshNormalShaded,
         MeshTransparent,
-        MeshGray
+        MeshGray,
+        MeshFlatShaded
     };
 
     class Renderer {
@@ -84,6 +86,8 @@ namespace alice2 {
         void enableLighting(bool enable);
         void setAmbientLight(const Color& color);
         void setDirectionalLight(const Vec3& direction, const Color& color);
+        // Flat mesh lighting uses a camera-space ray direction. Ambient and key
+        // light defaults work without creating any scene light objects.
 
         // Rendering modes
         void setRenderMode(RenderMode mode);
@@ -125,12 +129,12 @@ namespace alice2 {
         bool drawMeshBuffered(const std::shared_ptr<MeshData>& mesh, bool normalShaded,
                               const Color& front, const Color& back, bool faceColors,
                               bool showFaces = true, bool showEdges = false, bool showVertices = false,
-                              float edgeWidth = 1.0f, float vertexSize = 3.0f);
+                              float edgeWidth = 1.0f, float vertexSize = 3.0f, bool flatShaded = false, const MeshMaterial& material = {});
         void setBufferedMeshesEnabled(bool enabled) { m_bufferedMeshesEnabled = enabled; }
         bool getBufferedMeshesEnabled() const { return m_bufferedMeshesEnabled; }
         const MeshRenderStats& getMeshRenderStats() const { return m_meshRenderStats; }
         // Raw arrays stream through reusable GPU buffers; use MeshObject for resident geometry.
-        void drawMesh(const Vec3* vertices, const Vec3* normals, const Color* colors, int vertexCount, const int* indices = nullptr, int indexCount = 0, bool enableLighting = false);
+        void drawMesh(const Vec3* vertices, const Vec3* normals, const Color* colors, int vertexCount, const int* indices = nullptr, int indexCount = 0, bool enableLighting = false, bool flatShaded = false, const MeshMaterial& material = {});
         void drawMeshWireframe(const Vec3* vertices, const Color* colors, int vertexCount, const int* indices = nullptr, int indexCount = 0);
         void drawMeshEdges(const Vec3* vertices, const int* edgeIndices, const Color* edgeColors, int edgeCount);
 

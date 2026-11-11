@@ -374,7 +374,7 @@ namespace alice2 {
     MeshObject::MeshObject(const std::string& name)
         : SceneObject(name)
         , m_meshData(std::make_shared<MeshData>())
-        , m_renderMode(MeshRenderMode::Lit)
+        , m_renderMode(MeshRenderMode::FlatShaded)
         , m_frontColor(1.0f, 1.0f, 1.0f)  // Default: white
         , m_backColor(0.0f, 0.0f, 0.0f)   // Default: black
         , m_useFaceColors(false)
@@ -413,6 +413,7 @@ namespace alice2 {
 
         // Rendering properties
         copy.setRenderMode(m_renderMode);
+        copy.setMaterial(m_material);
         copy.m_vertexSize = m_vertexSize;
         copy.m_edgeWidth = m_edgeWidth;
         copy.m_vertexSize = m_vertexSize;
@@ -434,7 +435,7 @@ namespace alice2 {
         // overrides and edge/vertex overlays. Export retains the legacy path.
         if (renderer.drawMeshBuffered(m_meshData, m_renderMode == MeshRenderMode::NormalShaded,
                 m_frontColor, m_backColor, m_useFaceColors, m_showFaces, m_showEdges,
-                m_showVertices, m_edgeWidth, m_vertexSize)) return;
+                m_showVertices, m_edgeWidth, m_vertexSize, m_renderMode == MeshRenderMode::FlatShaded, m_material)) return;
 
         if (renderer.getSceneRenderMode() != SceneRenderMode::Regular) {
             renderSceneModeOverride(renderer, camera);
@@ -648,6 +649,10 @@ namespace alice2 {
 
     void MeshObject::renderSceneModeOverride(Renderer& renderer, Camera& camera) {
         const SceneRenderMode mode = renderer.getSceneRenderMode();
+        if (mode == SceneRenderMode::MeshFlatShaded) {
+            renderLit(renderer, true);
+            return;
+        }
         const Color edgeColor(0.0f, 0.0f, 0.0f, 1.0f);
         const Color vertexColor(1.0f, 0.0f, 120.0f / 255.0f, 1.0f);
         const float transparentAlpha = 0.18f;
@@ -680,7 +685,7 @@ namespace alice2 {
             for (int index : m_meshData->triangleIndices) {
                 if (index >= 0 && index < static_cast<int>(m_meshData->vertices.size())) {
                     const MeshVertex& vertex = m_meshData->vertices[index];
-                    Color color = mode == SceneRenderMode::MeshGray ? faceColor : vertex.color;
+                    Color color = mode == SceneRenderMode::MeshGray ? faceColor : materialDisplayColor(vertex.color);
                     color.a = transparentAlpha;
                     triangleVertices.push_back(vertex.position);
                     triangleNormals.push_back(vertex.normal);
@@ -740,6 +745,9 @@ namespace alice2 {
             case MeshRenderMode::NormalShaded:
                 renderNormalShaded(renderer, camera);
                 break;
+            case MeshRenderMode::FlatShaded:
+                renderLit(renderer, true);
+                break;
         }
     }
 
@@ -776,7 +784,15 @@ namespace alice2 {
         }
     }
 
-    void MeshObject::renderLit(Renderer& renderer) {
+    void MeshObject::setMaterial(const MeshMaterial& material) {
+        for (float value : {material.metallic,material.roughness,material.specular})
+            if (!std::isfinite(value) || value<0 || value>1) throw std::invalid_argument("Mesh material parameters must be finite and within 0..1");
+        for (float value : {material.baseColor.r,material.baseColor.g,material.baseColor.b,material.baseColor.a})
+            if (!std::isfinite(value) || value<0 || value>1) throw std::invalid_argument("Mesh material colour must be finite and within 0..1");
+        m_material=material;
+    }
+
+    void MeshObject::renderLit(Renderer& renderer, bool flatShaded) {
         if (!m_meshData->triangleIndices.empty()) {
             // Prepare vertex data for lit rendering
             std::vector<Vec3> triangleVertices;
@@ -806,16 +822,24 @@ namespace alice2 {
             }
 
             if (!triangleVertices.empty()) {
+                if (!flatShaded) for (auto& color:triangleColors) color=materialDisplayColor(color);
                 renderer.drawMesh(
                     triangleVertices.data(),
                     triangleNormals.data(),
                     triangleColors.data(),
                     static_cast<int>(triangleVertices.size()),
                     nullptr, 0,
-                    false  // No lighting for lit mode
+                    false, flatShaded, m_material
                 );
             }
         }
+    }
+
+    Color MeshObject::materialDisplayColor(const Color& color) const {
+        const auto combine=[&](float a,float b) { return linearToSrgb((m_material.linearColors ? a : srgbToLinear(a)) *
+            (m_material.linearColors ? b : srgbToLinear(b))); };
+        return {combine(color.r,m_material.baseColor.r),combine(color.g,m_material.baseColor.g),
+            combine(color.b,m_material.baseColor.b),color.a*m_material.baseColor.a};
     }
 
     void MeshObject::renderNormalShaded(Renderer& renderer, Camera& camera) {

@@ -431,7 +431,7 @@ namespace alice2 {
             }
 
             if (key == GLFW_KEY_4) {
-                s_instance->m_renderer->setSceneRenderMode(SceneRenderMode::MeshNormalShaded);
+                s_instance->m_renderer->setSceneRenderMode(SceneRenderMode::MeshFlatShaded);
                 return;
             }
 

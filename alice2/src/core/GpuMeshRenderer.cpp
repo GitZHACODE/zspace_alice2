@@ -34,9 +34,24 @@ uniform vec4 frontColor;
 uniform vec4 backColor;
 uniform vec4 constantColor;
 uniform float alphaOverride;
+uniform vec4 surfaceMaterial;
+uniform vec4 surfaceBaseColor;
+uniform int useSurface;
 varying vec4 meshColor;
+varying vec3 viewPosition;
+varying vec3 viewToCamera;
+vec3 decodeSRGB(vec3 c) {
+    c = max(c, 0.0);
+    return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
+}
+vec3 encodeSRGB(vec3 c) {
+    c = clamp(c, 0.0, 1.0);
+    return mix(12.92 * c, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
+}
 void main() {
     gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+    viewPosition = (gl_ModelViewMatrix * gl_Vertex).xyz;
+    viewToCamera = gl_ProjectionMatrix[3][3] == 0.0 ? -viewPosition : vec3(0.0, 0.0, 1.0);
     meshColor = gl_Color;
     if (normalShaded == 1) {
         vec3 n = gl_NormalMatrix * gl_Normal;
@@ -48,12 +63,58 @@ void main() {
         meshColor = mix(backColor, frontColor, t);
     }
     if (normalShaded == 2) meshColor = constantColor;
+    if (normalShaded == 3 || (normalShaded == 0 && useSurface == 1)) {
+        vec3 vertex = surfaceMaterial.w > 0.5 ? meshColor.rgb : decodeSRGB(meshColor.rgb);
+        vec3 base = surfaceMaterial.w > 0.5 ? surfaceBaseColor.rgb : decodeSRGB(surfaceBaseColor.rgb);
+        meshColor.rgb = normalShaded == 3 ? vertex * base : encodeSRGB(vertex * base);
+        meshColor.a *= surfaceBaseColor.a;
+    }
     if (alphaOverride >= 0.0) meshColor.a = alphaOverride;
 }
 )glsl";
     constexpr const char* fragmentShader = R"glsl(#version 120
 varying vec4 meshColor;
-void main() { gl_FragColor = meshColor; }
+varying vec3 viewPosition;
+varying vec3 viewToCamera;
+uniform int normalShaded;
+uniform vec3 ambientLight;
+uniform vec3 keyLight;
+uniform vec3 directionToLight;
+uniform vec4 surfaceMaterial;
+vec3 encodeSRGB(vec3 c) {
+    c = clamp(c, 0.0, 1.0);
+    return mix(12.92 * c, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
+}
+void main() {
+    vec4 color = meshColor;
+    if (normalShaded == 3) {
+        // Position derivatives give a constant geometric normal per triangle,
+        // independent of shared vertices, imported normals or welding.
+        vec3 n = cross(dFdx(viewPosition), dFdy(viewPosition));
+        float magnitude = length(n);
+        n = magnitude > 0.0 ? n / magnitude : vec3(0.0, 0.0, 1.0);
+        vec3 v = normalize(viewToCamera);
+        if (dot(n, v) < 0.0) n = -n;
+        vec3 l = normalize(directionToLight);
+        float diffuse = max(dot(n, l), 0.0);
+        vec3 base = max(color.rgb, 0.0);
+        float metallic = surfaceMaterial.x;
+        vec3 reflected = vec3(0.0);
+        if (metallic > 0.0 || surfaceMaterial.z > 0.0) {
+            vec3 halfVector = l + v;
+            vec3 h = length(halfVector) > 0.000001 ? normalize(halfVector) : n;
+            float roughness = max(surfaceMaterial.y, 0.08);
+            float exponent = clamp(2.0 / pow(roughness, 4.0) - 2.0, 2.0, 2048.0);
+            float highlight = pow(max(dot(n, h), 0.0), exponent) * diffuse;
+            vec3 f0 = mix(vec3(0.08 * surfaceMaterial.z), base, metallic);
+            // Broad ambient reflection keeps dark finishes readable without
+            // changing their diffuse colour or inventing an environment map.
+            reflected = f0 * (0.35 * ambientLight + keyLight * highlight);
+        }
+        color.rgb = encodeSRGB((1.0 - metallic) * base * (ambientLight + 0.8 * keyLight * diffuse) + reflected);
+    }
+    gl_FragColor = color;
+}
 )glsl";
 }
 
@@ -71,6 +132,9 @@ public:
     GLuint program = 0;
     GLuint streamingBuffers[4] = {};
     GLint normalUniform = -1, frontUniform = -1, backUniform = -1, constantUniform = -1, alphaUniform = -1;
+    GLint ambientUniform = -1, keyUniform = -1, directionUniform = -1;
+    GLint materialUniform = -1;
+    GLint baseColorUniform = -1, useSurfaceUniform = -1;
     std::unordered_map<const MeshData*, Entry> entries;
 
     static void release(Entry& entry) {
@@ -109,6 +173,12 @@ public:
         backUniform = glGetUniformLocation(program, "backColor");
         constantUniform = glGetUniformLocation(program, "constantColor");
         alphaUniform = glGetUniformLocation(program, "alphaOverride");
+        ambientUniform = glGetUniformLocation(program, "ambientLight");
+        keyUniform = glGetUniformLocation(program, "keyLight");
+        directionUniform = glGetUniformLocation(program, "directionToLight");
+        materialUniform = glGetUniformLocation(program, "surfaceMaterial");
+        baseColorUniform = glGetUniformLocation(program, "surfaceBaseColor");
+        useSurfaceUniform = glGetUniformLocation(program, "useSurface");
         return true;
     }
 
@@ -302,7 +372,7 @@ void Renderer::collectMeshBuffers() {
 bool Renderer::drawMeshBuffered(const std::shared_ptr<MeshData>& mesh, bool normalShaded,
                                 const Color& front, const Color& back, bool faceColors,
                                 bool showFaces, bool showEdges, bool showVertices,
-                                float edgeWidth, float vertexSize) {
+                                float edgeWidth, float vertexSize, bool flatShaded, const MeshMaterial& material) {
     if (!m_initialized || !m_bufferedMeshesEnabled || m_vectorExportMode || !m_gpuMeshes ||
         glfwGetCurrentContext() != m_gpuMeshes->context || !mesh) return false;
     if (mesh->vertices.empty()) {
@@ -318,13 +388,15 @@ bool Renderer::drawMeshBuffered(const std::shared_ptr<MeshData>& mesh, bool norm
     static_assert(std::is_standard_layout_v<MeshVertex>);
     const bool overrideMode = m_sceneRenderMode != SceneRenderMode::Regular;
     const bool globalNormals = m_sceneRenderMode == SceneRenderMode::MeshNormalShaded;
+    const bool globalFlat = m_sceneRenderMode == SceneRenderMode::MeshFlatShaded;
     const bool gray = m_sceneRenderMode == SceneRenderMode::MeshGray;
     const bool transparentMode = m_sceneRenderMode == SceneRenderMode::MeshTransparent;
     if (overrideMode) {
-        showFaces = globalNormals || gray || transparentMode;
-        showEdges = !globalNormals;
+        showFaces = globalNormals || globalFlat || gray || transparentMode;
+        showEdges = !(globalNormals || globalFlat);
         showVertices = m_sceneRenderMode == SceneRenderMode::MeshWireframeWithVertices;
         normalShaded = globalNormals;
+        flatShaded = globalFlat;
     }
 
     GLint oldProgram = 0, oldVertices = 0, oldIndices = 0, oldDepthFunc = GL_LESS;
@@ -351,20 +423,29 @@ bool Renderer::drawMeshBuffered(const std::shared_ptr<MeshData>& mesh, bool norm
         entry.edgeCount != mesh->edges.size()) {
         if (!m_gpuMeshes->upload(entry, mesh, m_meshRenderStats)) { restore(); return false; }
     }
-    const bool useFaces = faceColors && !normalShaded && !overrideMode;
+    const bool useFaces = faceColors && !normalShaded && (!overrideMode || globalFlat);
     if (showFaces && useFaces && !entry.faceVertices && !m_gpuMeshes->uploadFaceColors(entry, *mesh, m_meshRenderStats)) {
         restore(); return false;
     }
     if (showEdges && !mesh->edges.empty() && !entry.edgeVertices &&
         !m_gpuMeshes->uploadEdges(entry, *mesh, m_meshRenderStats)) { restore(); return false; }
-    const bool transparent = gray || transparentMode || m_currentColor.a < 1.0f || (normalShaded
+    const bool transparent = gray || transparentMode || m_currentColor.a < 1.0f ||
+        ((!overrideMode || globalFlat) && !normalShaded && material.baseColor.a<1.0f) || (normalShaded
         ? front.a < 1.0f || back.a < 1.0f : useFaces ? entry.faceTransparent : entry.transparent);
     if (transparent) { glDepthMask(GL_FALSE); glDisable(GL_CULL_FACE); }
     glDisable(GL_LIGHTING);
     glEnable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(1.0f, 1.0f);
     glUseProgram(m_gpuMeshes->program);
-    glUniform1i(m_gpuMeshes->normalUniform, gray ? 2 : normalShaded ? 1 : 0);
+    glUniform1i(m_gpuMeshes->normalUniform, gray ? 2 : flatShaded ? 3 : normalShaded ? 1 : 0);
+    glUniform3f(m_gpuMeshes->ambientUniform, m_ambientLight.r, m_ambientLight.g, m_ambientLight.b);
+    glUniform3f(m_gpuMeshes->keyUniform, m_lightColor.r, m_lightColor.g, m_lightColor.b);
+    const auto direction=m_lightDirection.lengthSquared()>1e-12f ? -m_lightDirection : Vec3(0,0,1);
+    glUniform3f(m_gpuMeshes->directionUniform, direction.x, direction.y, direction.z);
+    glUniform4f(m_gpuMeshes->materialUniform, std::clamp(material.metallic,0.0f,1.0f),
+        std::clamp(material.roughness,0.0f,1.0f),std::clamp(material.specular,0.0f,1.0f),material.linearColors ? 1.0f : 0.0f);
+    glUniform4f(m_gpuMeshes->baseColorUniform,material.baseColor.r,material.baseColor.g,material.baseColor.b,material.baseColor.a);
+    glUniform1i(m_gpuMeshes->useSurfaceUniform,!overrideMode || globalFlat || transparentMode ? 1 : 0);
     glUniform4f(m_gpuMeshes->constantUniform, 0.5f, 0.5f, 0.5f, 0.18f);
     glUniform1f(m_gpuMeshes->alphaUniform, gray || transparentMode ? 0.18f : -1.0f);
     const auto frontColor = globalNormals ? Color(1, 1, 1, 1) : front;
@@ -395,6 +476,7 @@ bool Renderer::drawMeshBuffered(const std::shared_ptr<MeshData>& mesh, bool norm
     // are uniforms/state changes, never uploads.
     glDepthMask(oldDepthMask);
     glUniform1f(m_gpuMeshes->alphaUniform, -1.0f);
+    glUniform1i(m_gpuMeshes->useSurfaceUniform,0);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
     auto drawVertices = [&] {
         glDisableClientState(GL_NORMAL_ARRAY);

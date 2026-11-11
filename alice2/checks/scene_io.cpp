@@ -23,6 +23,8 @@ int main() {
         meshItem.color = {0.2f, 0.4f, 0.6f, 0.5f};
         meshItem.visible = false;
         meshItem.useFaceColors = true;
+        meshItem.material={.35f,.5f,.5f,true};
+        meshItem.material.baseColor={.002938f,.002938f,.002938f,.8f};
         auto& mesh = std::get<alice2::MeshData>(meshItem.geometry);
         for (auto p : {alice2::Vec3(0, 0, 0), alice2::Vec3(1, 0, 0), alice2::Vec3(1, 1, 0), alice2::Vec3(0, 1, 0)})
             mesh.vertices.emplace_back(p);
@@ -47,6 +49,8 @@ int main() {
             require(restored.size() == 2, "Object count changed");
             require(restored[0].name == meshItem.name && !restored[0].visible, "Object identity/visibility changed");
             require(restored[0].useFaceColors, "Mesh color mode changed");
+            require(near(restored[0].material.metallic,.35f) && near(restored[0].material.roughness,.5f) &&
+                near(restored[0].material.specular,.5f) && restored[0].material.linearColors && near(restored[0].material.baseColor.r,.002938f),"Object material did not round trip");
             for (int i = 0; i < 16; ++i)
                 require(near(restored[0].transform.m[i], meshItem.transform.m[i]), "Transform changed");
             require(near(restored[0].color.a, 0.5f), "Object opacity changed");
@@ -90,6 +94,9 @@ def Material "Paint" {
         uniform token info:id = "UsdPreviewSurface"
         color3f inputs:diffuseColor = (0.2, 0.3, 0.4)
         float inputs:opacity = 0.6
+        float inputs:metallic = 0.35
+        float inputs:roughness = 0.5
+        float inputs:specular = 0.5
         token outputs:surface
     }
 }
@@ -98,7 +105,8 @@ def Material "Paint" {
         require(external.size() == 2, "External objects missing");
         auto p = external[0].transform.transformPoint({0, 0, 0});
         require(near(p.x, 1) && near(p.y, -3) && near(p.z, 2), "Units, up axis or parent transform wrong");
-        require(near(std::get<alice2::MeshData>(external[0].geometry).vertices[0].color.r, 0.2f), "Basic material color lost");
+        require(near(external[0].material.baseColor.r,.2f) && near(std::get<alice2::MeshData>(external[0].geometry).vertices[0].color.r,1), "Material colour was not separated from geometry");
+        require(external[0].material.linearColors && near(external[0].material.metallic,.35f) && near(external[0].material.specular,.5f),"USD surface material not imported");
         require(std::get<alice2::GraphData>(external[1].geometry).edges.size() == 3, "Periodic curve not closed");
         auto invalid = items;
         std::get<alice2::MeshData>(invalid[0].geometry).faces[0].vertices[0] = 999;

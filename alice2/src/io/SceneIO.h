@@ -2,6 +2,7 @@
 
 #include "../geometry/MeshData.h"
 #include "../geometry/GraphData.h"
+#include "../objects/MeshMaterial.h"
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -22,6 +23,7 @@ struct SceneItem {
     Color edgeColor{1, 1, 1, 1}; // GraphObject's uniform edge color.
     bool visible = true;
     bool useFaceColors = false;
+    MeshMaterial material; // Per-object surface, independent of geometry.
     std::variant<MeshData, GraphData> geometry;
 };
 

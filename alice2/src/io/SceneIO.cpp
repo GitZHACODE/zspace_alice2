@@ -34,6 +34,8 @@ const TfToken objectName("alice2:name"), objectColor("alice2:color");
 const TfToken vertexColors("alice2:vertexColors"), faceColors("alice2:faceColors");
 const TfToken useFaceColors("alice2:useFaceColors");
 const TfToken edgeColor("alice2:edgeColor");
+const TfToken materialParameters("alice2:material:parameters"), linearColors("alice2:material:linearColors");
+const TfToken materialBaseColor("alice2:material:baseColor");
 
 void initializeUSD() {
     static std::once_flag once;
@@ -68,6 +70,39 @@ Color materialColor(const UsdPrim& prim) {
     return {rgb[0], rgb[1], rgb[2], alpha};
 }
 
+MeshMaterial readMaterial(const UsdPrim& prim) {
+    MeshMaterial result;
+    result.baseColor=materialColor(prim);
+    // External USD colour inputs/primvars are linear. Older alice2 snapshots
+    // carry exact display colours; retain their previous convention.
+    result.linearColors=!prim.HasAttribute(vertexColors);
+    const auto material=UsdShadeMaterialBindingAPI(prim).ComputeBoundMaterial();
+    if (material) if (const auto shader=material.ComputeSurfaceSource()) {
+        result.specular=.5f;
+        shader.GetInput(TfToken("metallic")).Get(&result.metallic);
+        shader.GetInput(TfToken("roughness")).Get(&result.roughness);
+        shader.GetInput(TfToken("specular")).Get(&result.specular);
+    }
+    GfVec3f parameters(result.metallic,result.roughness,result.specular);
+    prim.GetAttribute(materialParameters).Get(&parameters);
+    prim.GetAttribute(linearColors).Get(&result.linearColors);
+    // Explicit geometry colours override the material-colour fallback, as in
+    // earlier imports. Native snapshots retain the two factors independently.
+    const UsdGeomGprim gprim(prim);
+    if (gprim.GetDisplayColorPrimvar().GetAttr().HasAuthoredValueOpinion() || prim.HasAttribute(vertexColors) || prim.HasAttribute(faceColors)) {
+        result.baseColor.r=result.baseColor.g=result.baseColor.b=1;
+    }
+    if (gprim.GetDisplayOpacityPrimvar().GetAttr().HasAuthoredValueOpinion() || prim.HasAttribute(vertexColors) || prim.HasAttribute(faceColors))
+        result.baseColor.a=1;
+    GfVec4f base=usdColor(result.baseColor);
+    prim.GetAttribute(materialBaseColor).Get(&base);
+    result.baseColor=color(base);
+    for (int i=0;i<4;++i) require(std::isfinite(base[i]) && base[i]>=0 && base[i]<=1,"invalid material colour");
+    for (int i=0;i<3;++i) require(std::isfinite(parameters[i]) && parameters[i]>=0 && parameters[i]<=1,"invalid mesh material");
+    result.metallic=parameters[0]; result.roughness=parameters[1]; result.specular=parameters[2];
+    return result;
+}
+
 Mat4 matrix(const GfMatrix4d& value) {
     Mat4 result;
     for (int column = 0; column != 4; ++column)
@@ -96,6 +131,10 @@ void validate(const SceneItem& item) {
         require(value >= 0 && static_cast<std::size_t>(value) < count, "invalid topology: " + item.name);
     };
     if (const auto* mesh = std::get_if<MeshData>(&item.geometry)) {
+        for (float value:{item.material.metallic,item.material.roughness,item.material.specular})
+            require(std::isfinite(value) && value>=0 && value<=1,"invalid mesh material: "+item.name);
+        for (float value:{item.material.baseColor.r,item.material.baseColor.g,item.material.baseColor.b,item.material.baseColor.a})
+            require(std::isfinite(value) && value>=0 && value<=1,"invalid material colour: "+item.name);
         for (const auto& vertex : mesh->vertices) validPoint(vertex);
         for (const auto& face : mesh->faces) {
             require(face.vertices.size() >= 3, "face has fewer than three vertices: " + item.name);
@@ -112,14 +151,14 @@ void validate(const SceneItem& item) {
 }
 
 template<class Vertices>
-void readColors(const UsdGeomGprim& prim, Vertices& vertices, std::vector<MeshFace>* faces = nullptr) {
+void readColors(const UsdGeomGprim& prim, Vertices& vertices, std::vector<MeshFace>* faces = nullptr, bool useMaterialFallback = true) {
     VtArray<GfVec3f> colors;
     VtArray<float> opacity;
     const auto pv = prim.GetDisplayColorPrimvar();
     const auto alpha = prim.GetDisplayOpacityPrimvar();
     pv.ComputeFlattened(&colors);
     alpha.ComputeFlattened(&opacity);
-    auto fallback = materialColor(prim.GetPrim());
+    auto fallback = useMaterialFallback ? materialColor(prim.GetPrim()) : Color(1,1,1,1);
     if (opacity.size() == 1) fallback.a = opacity[0];
     for (auto& vertex : vertices) vertex.color = fallback;
     if (faces) for (auto& face : *faces) face.color = fallback;
@@ -146,14 +185,21 @@ void readColors(const UsdGeomGprim& prim, Vertices& vertices, std::vector<MeshFa
         for (std::size_t i = 0; i < faces->size(); ++i) (*faces)[i].color = color(exact[i]);
 }
 
+Color portableColor(const Color& color, const MeshMaterial* material) {
+    if (!material) return color;
+    const auto linear=[&](float value) { return material->linearColors ? value : srgbToLinear(value); };
+    return {linear(color.r)*linear(material->baseColor.r),linear(color.g)*linear(material->baseColor.g),
+        linear(color.b)*linear(material->baseColor.b),color.a*material->baseColor.a};
+}
 template<class Vertices>
-void writeColors(const UsdGeomGprim& prim, const Vertices& vertices) {
+void writeColors(const UsdGeomGprim& prim, const Vertices& vertices, const MeshMaterial* material = nullptr) {
     VtArray<GfVec3f> rgb;
     VtArray<float> alpha;
     VtArray<GfVec4f> exact;
     for (const auto& vertex : vertices) {
         const auto& c = vertex.color;
-        rgb.push_back({c.r, c.g, c.b}); alpha.push_back(c.a); exact.push_back(usdColor(c));
+        const auto portable=portableColor(c,material);
+        rgb.push_back({portable.r,portable.g,portable.b}); alpha.push_back(portable.a); exact.push_back(usdColor(c));
     }
     prim.CreateDisplayColorPrimvar(UsdGeomTokens->vertex).Set(rgb);
     prim.CreateDisplayOpacityPrimvar(UsdGeomTokens->vertex).Set(alpha);
@@ -195,6 +241,7 @@ std::vector<SceneItem> readSceneFile(const std::filesystem::path& path) {
             mesh.GetFaceVertexCountsAttr().Get(&counts);
             mesh.GetFaceVertexIndicesAttr().Get(&indices);
             MeshData data;
+            item.material=readMaterial(prim);
             data.vertices.reserve(positions.size());
             for (const auto& p : positions) data.vertices.emplace_back(point(p));
             std::size_t offset = 0;
@@ -209,7 +256,7 @@ std::vector<SceneItem> readSceneFile(const std::filesystem::path& path) {
                 offset += count;
             }
             require(offset == indices.size(), "unused face indices at " + item.name);
-            readColors(gprim, data.vertices, &data.faces);
+            readColors(gprim, data.vertices, &data.faces, false);
             item.useFaceColors = gprim.GetDisplayColorPrimvar().GetInterpolation() == UsdGeomTokens->uniform;
             prim.GetAttribute(useFaceColors).Get(&item.useFaceColors);
             item.geometry = std::move(data);
@@ -285,9 +332,18 @@ void writeSceneFile(const std::filesystem::path& path, const std::vector<SceneIt
         if (const auto* data = std::get_if<MeshData>(&item.geometry)) {
             auto mesh = UsdGeomMesh::Define(stage, primPath);
             gprim = UsdGeomGprim(mesh);
+            gprim.GetPrim().CreateAttribute(materialParameters,SdfValueTypeNames->Float3,true).Set(
+                GfVec3f(item.material.metallic,item.material.roughness,item.material.specular));
+            gprim.GetPrim().CreateAttribute(linearColors,SdfValueTypeNames->Bool,true).Set(item.material.linearColors);
+            gprim.GetPrim().CreateAttribute(materialBaseColor,SdfValueTypeNames->Color4f,true).Set(usdColor(item.material.baseColor));
             VtArray<GfVec3f> positions, normals;
             VtArray<int> counts, indices;
             VtArray<GfVec4f> colors;
+            // VtArray::insert grows to the exact new size. Reserve once to
+            // avoid copying all previous indices for every face of a large mesh.
+            std::size_t indexCount = 0;
+            for (const auto& face : data->faces) indexCount += face.vertices.size();
+            indices.reserve(indexCount);
             for (const auto& vertex : data->vertices) {
                 positions.push_back(usdPoint(vertex.position)); normals.push_back(usdPoint(vertex.normal));
             }
@@ -302,13 +358,14 @@ void writeSceneFile(const std::filesystem::path& path, const std::vector<SceneIt
             mesh.CreateSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
             mesh.CreateNormalsAttr().Set(normals);
             mesh.SetNormalsInterpolation(UsdGeomTokens->vertex);
-            writeColors(gprim, data->vertices);
+            writeColors(gprim, data->vertices, &item.material);
             if (item.useFaceColors) {
                 VtArray<GfVec3f> rgb;
                 VtArray<float> opacity;
                 for (const auto& face : data->faces) {
-                    rgb.push_back({face.color.r, face.color.g, face.color.b});
-                    opacity.push_back(face.color.a);
+                    const auto portable=portableColor(face.color,&item.material);
+                    rgb.push_back({portable.r,portable.g,portable.b});
+                    opacity.push_back(portable.a);
                 }
                 gprim.CreateDisplayColorPrimvar(UsdGeomTokens->uniform).Set(rgb);
                 gprim.CreateDisplayOpacityPrimvar(UsdGeomTokens->uniform).Set(opacity);

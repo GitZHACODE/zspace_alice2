@@ -1,5 +1,37 @@
 # GPU mesh rendering
 
+Meshes default to `MeshRenderMode::FlatShaded`. View key **4** selects the global
+`SceneRenderMode::MeshFlatShaded` override (replacing normal shading on that key).
+Each triangle gets a geometric normal in the fragment shader from view-position
+derivatives. Shared/welded vertices and smooth/imported normals do not soften its
+edges. This uses the compact indexed buffers without expanded normal streams.
+
+The default matte light is a camera-relative key above-left plus 20% ambient fill.
+No scene light objects are needed. `Renderer::setDirectionalLight(direction,color)`
+sets the camera-space ray direction and key colour; `setAmbientLight(color)` sets
+the fill (scene rendering supplies the scene's ambient colour). Visible back faces
+are lit from their visible side. Lighting and navigation only update uniforms and
+matrices. `Lit` retains unlit colours; `NormalShaded` remains available explicitly
+through the mesh/renderer APIs.
+
+`MeshObject::getMaterial()` / `setMaterial()` own the surface independently of
+`MeshData`. A material holds base colour/opacity, metallic, roughness, specular
+and the colour convention; vertex/face colours remain geometry attributes. Two
+objects can share one mesh buffer with different finishes. `duplicate()` and USD
+scene snapshots retain the material. `SceneItem` carries it through import/export.
+
+Flat shading evaluates diffuse lighting in linear RGB, adds a restrained
+roughness-dependent Blinn highlight and broad ambient reflection, then encodes
+the result to sRGB for display. It is compact studio shading, not a full PBR or
+environment-map renderer. Imported `UsdPreviewSurface` base colour, opacity,
+metallic, roughness and specular inputs are retained; source linear Rec.709/sRGB
+primaries are assumed. Native snapshot attributes preserve those values. Portable
+USD display colours combine material and geometry colours while exact attributes
+keep their original factors for alice2. Procedural display colours are decoded
+before lighting; unlit UI/graph colours are unaffected. Raw arrays and the
+compatibility/vector-export path bake matching lighting at triangle vertices;
+the GPU evaluates highlights per fragment with geometric triangle normals.
+
 Mesh rendering uses GPU buffers by default. `MeshObject` uses a renderer-owned
 GPU cache. The raw-array `Renderer::drawMesh()` API uses reusable streaming buffers,
 uploading the supplied arrays each call because pointers carry no lifetime or

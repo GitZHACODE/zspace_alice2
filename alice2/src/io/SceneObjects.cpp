@@ -24,6 +24,7 @@ std::shared_ptr<SceneObject> makeSceneObject(SceneItem item) {
         auto result = std::make_shared<MeshObject>(item.name);
         result->setMeshData(std::make_shared<MeshData>(std::move(*mesh)));
         result->setUseFaceColors(item.useFaceColors);
+        result->setMaterial(item.material);
         object = result;
     } else {
         auto& graph = std::get<GraphData>(item.geometry);
@@ -63,6 +64,7 @@ void saveScene(const Scene& scene, const std::filesystem::path& path) {
             if (!mesh->getMeshData()) throw std::runtime_error("Cannot export mesh without geometry: " + item.name);
             item.geometry = *mesh->getMeshData();
             item.useFaceColors = mesh->getUseFaceColors();
+            item.material = mesh->getMaterial();
         } else if (const auto graph = std::dynamic_pointer_cast<GraphObject>(object)) {
             if (!graph->getGraphData()) throw std::runtime_error("Cannot export graph without geometry: " + item.name);
             item.geometry = *graph->getGraphData();
