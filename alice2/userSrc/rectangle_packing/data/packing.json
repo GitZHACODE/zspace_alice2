@@ -1,0 +1,29 @@
+{
+  "polygon": [[0,0],[100,20],[83,60],[75,60],[75,90],[0,90]],
+  "mask": [[35,30],[55,30],[55,50],[35,50]],
+  "rectangles": [
+    {"id":"A","w":24,"h":16,"targetShare":0.6},
+    {"id":"B","w":12,"h":8,"targetShare":0.2},
+    {"id":"C","w":16,"h":8,"targetShare":0.2}
+  ],
+  "attractors": [
+    {"type":"A", "point":[25,65], "radius":28, "strength":1.0},
+    {"type":"B", "point":[70,30], "radius":16, "strength":1.0},
+    {"type":"C", "point":[65,70], "radius":18, "strength":1.0}
+  ],
+  "settings": {
+    "mode":"type",
+    "gridSpacing":2,
+    "gridAngleDegrees":0,
+    "allowRotation90":true,
+    "targetCoverage":0.85,
+    "shareTolerance":0.05,
+    "attempts":30,
+    "seed":42,
+    "boundaryField": {
+      "source":"both",
+      "influenceWidth":12,
+      "strength":1.0
+    }
+  }
+}
