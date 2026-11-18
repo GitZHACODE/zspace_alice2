@@ -6,7 +6,7 @@ echo Alice2 3D Viewer - zSpace Run Script
 echo ========================================
 echo.
 
-set "BUILD_DIR=build_zspace_v3"
+set "BUILD_DIR=build_seam_side\review-build"
 if not "%~1"=="" set "BUILD_DIR=%~1"
 set "BIN_DIR=%BUILD_DIR%\bin\Release"
 set "EXE_PATH=%BIN_DIR%\alice2.exe"
