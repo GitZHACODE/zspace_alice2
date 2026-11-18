@@ -1,7 +1,7 @@
 param(
-  [string]$BuildDir = "$PSScriptRoot/../build_zspace_v3",
+  [string]$BuildDir = "$PSScriptRoot/../build_seam_side/harmonic-topology",
   [string]$CoreDir = "$PSScriptRoot/../../../zspace_core",
-  [string]$ToolsetsDir = "$PSScriptRoot/../../../zspace_toolsets",
+  [string]$ToolsetsDir = '',
   [string]$TetgenIncludeDir = "$PSScriptRoot/../../../zspace_toolsets/wasm/cache/tetgen",
   [string]$TetgenLibrary = "",
   [string]$OpenUSDRoot = '',
@@ -12,6 +12,13 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 try {
+  if (!$ToolsetsDir) {
+    $ToolsetsDir = "$PSScriptRoot/../../../zspace_toolsets"
+    $localSlicer = Join-Path $ToolsetsDir 'build/worktrees/slicer-sampling-tcp'
+    if (Test-Path -LiteralPath "$localSlicer/CMakeLists.txt") {
+      $ToolsetsDir = $localSlicer
+    }
+  }
   $BuildDir = [IO.Path]::GetFullPath($BuildDir)
   $CoreDir = [IO.Path]::GetFullPath($CoreDir)
   $ToolsetsDir = [IO.Path]::GetFullPath($ToolsetsDir)

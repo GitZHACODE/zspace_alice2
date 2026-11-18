@@ -3,7 +3,7 @@
 
 #include <zspace/interface.h>
 #include <zspace/slicing.h>
-#include <zspace/zSlicingSettings.h>
+#include <zspace/zToolsets/fabrication/slicing/utils/IO.h>
 #include <zspace/zSlicerViewValidation.h>
 #include <zspace/zSlicerPathMarkers.h>
 #include <zspace/zSlicerTiming.h>
@@ -22,7 +22,6 @@
 // Loads a USD input and runs the two-method comparison pipeline on it
 // (Methods 1-2 + cross-method metrics), not just a compile/link probe.
 
-#include <nlohmann/json.hpp>
 #include <cctype>
 #include <stdexcept>
 
@@ -67,14 +66,14 @@ const char* displayModeName(int slicer, int mode)
         "Input mesh (colored top/bottom)", "Tetrahedra volume mesh",
         "Method 2 (u,v) check",
         "Tracing curves (failed red, top success green)",
-        "Print paths + path / width / FaceTag fields", "Print mesh (rectangle lofts)",
+        "Print paths + path / width / FaceTag fields", "Print mesh (TCP-aligned beads)",
         "Sampled path per layer (up/down: layer) - 3D + 2D targets",
         "Raw SDF contour per layer (up/down: layer) - before PrintSyn",
         "FaceTag samples + ownership field (up/down: layer)"};
     static const char* topology[kTopologyModeCount] = {
         "Input preview (transparent block, bracing, slot point)",
         "Input mesh (colored top/bottom)", "V-loops + vertex value t (blue 0 -> red 1)",
-        "Section meshes", "Print paths + path / width / FaceTag fields", "Print mesh (rectangle lofts)",
+        "Section meshes", "Print paths + path / width / FaceTag fields", "Print mesh (TCP-aligned beads)",
         "Sampled path per layer (up/down: layer) - 3D + 2D targets",
         "Raw SDF contour per layer (up/down: layer) - before PrintSyn",
         "FaceTag samples + ownership field (up/down: layer)"};
@@ -84,10 +83,8 @@ const char* displayModeName(int slicer, int mode)
     return slicer == kSlicerTopology ? topology[m] : harmonic[m];
 }
 
-using alice2::slicing::defaultSlicerSettings;
-using alice2::slicing::defaultPrintSynSettings;
-using alice2::slicing::applySlicerJson;
-using alice2::slicing::applyPrintSynJson;
+using zSpace::zTsIO::defaultSlicerSettings;
+using zSpace::zTsIO::defaultPrintSynSettings;
 
 // Native Windows "Open File" dialog, same pattern as userSrc/zspace/sketch.cpp.
 // Returns true and fills outPath if the user picked an existing file; false
@@ -133,9 +130,6 @@ public:
             m_inputMeshPath = m_viewValidation.Input;
             loadInputs();
             if (!m_inputLoaded) throw std::runtime_error("Validation input did not load.");
-            m_settings._HIsoRelaxIterations = m_viewValidation.RelaxIterations;
-            if(m_viewValidation.HeightOptimization>=0)m_settings.HPrintHeight.Enabled=m_viewValidation.HeightOptimization!=0;
-            if(m_viewValidation.HeightSurfaces>=0)m_settings.HPrintHeight.OptimizeSurfaces=m_viewValidation.HeightSurfaces!=0;
             m_slicerChoice = m_lastSlicerChoice = m_viewValidation.Topology ? kSlicerTopology : kSlicerHarmonic;
             runSelectedSlicer();
             zSpace::zSlicer* slicer = m_viewValidation.Topology ? static_cast<zSpace::zSlicer*>(m_topoSlicer.get()) : static_cast<zSpace::zSlicer*>(m_slicer.get());
@@ -145,7 +139,7 @@ public:
             if (!complete) std::cerr << "[SlicerViewValidation] PARTIAL, noncompliant: " << slicer->getStatus() << std::endl;
             if (!m_viewValidation.Output.empty()) {
                 std::string error;
-                if (!complete || !zSpace::zTsIO::exportPrintPathUSD(slicer->getResultantPrintPath(), m_inputMeshPath,
+                if (!complete || !zSpace::zTsIO::exportUSD(slicer->getResultantPrintPath(), m_inputMeshPath,
                     m_viewValidation.Output, static_cast<int>(slicer->getPrintPaths3D().size()), &error, 0, &slicer->getPrintPaths3D()))
                     throw std::runtime_error("Validation USD export failed: " + error);
             }
@@ -158,7 +152,7 @@ public:
             if (m_displayMode == printMeshMode) app->getRenderer().setSceneRenderMode(SceneRenderMode::Regular);
             m_validationCaptureFrame = app->getFrameCount() + 4;
             std::cout << "[SlicerViewValidation] mode=" << (m_viewValidation.Topology ? "topology" : "harmonic")
-                      << " relaxIterations=" << m_viewValidation.RelaxIterations << " heightSurfaces=" << m_settings.HPrintHeight.OptimizeSurfaces << " view=F1 printLayers=" << slicer->getPrintPaths3D().size() << std::endl;
+                      << " view=F1 printLayers=" << slicer->getPrintPaths3D().size() << std::endl;
           } catch (const std::exception& error) {
             std::cerr << "[SlicerViewValidation] FAILED: " << error.what() << std::endl;
             Application::getInstance()->quit();
@@ -365,7 +359,7 @@ private:
         }
         std::string error;
         if (!alice2::slicing::timeSlicerMethod("exportPrintPathUSD", [&] {
-                return zSpace::zTsIO::exportPrintPathUSD(path, m_inputMeshPath, fileBuffer,
+                return zSpace::zTsIO::exportUSD(path, m_inputMeshPath, fileBuffer,
                     static_cast<int>(slicer->getPrintPaths3D().size()), &error, 0, &slicer->getPrintPaths3D()); }))
             logFail("Export USD", error);
         else
@@ -715,9 +709,6 @@ private:
         glBegin(GL_POINTS);
         for (const auto& p : markers.Features) glVertex3f(p.x, p.y, p.z);
         glEnd();
-        glColor4f(1.f,0.f,0.f,1.f);glBegin(GL_POINTS);
-        for(const auto& p:markers.OutsideDomain)glVertex3f(p.x,p.y,p.z);
-        glEnd();
         glPopAttrib();
     }
 
@@ -790,7 +781,7 @@ private:
         const alice2::slicing::SlicerMethodTimer timer("cacheRawContourLayer");
         m_rawContourReady[layer] = 1;
         const int section=layer+printSectionOffset();
-        const auto extract = [&](auto& op, const zSpace::zFloatArray* heights, const zSpace::zVectorArray* normals) {
+        const auto extract = [&](auto& op, const zSpace::zFloatArray* heights) {
             const auto& fields = op.getPathFields(); const auto& widths = op.getWidthFields(); const auto& tracks = op.getTrackFields();
             const auto& charts = op.getIsoMeshes2D(); const auto& sections = op.getIsoMeshes();
             if (static_cast<size_t>(section) >= fields.size() || widths.size() != fields.size() || tracks.size() != fields.size()
@@ -798,13 +789,12 @@ private:
             std::vector<std::string> messages;
             if (!zSpace::zTsField::extractPrintPaths(op.getScalarField(), fields[section], widths[section], tracks[section], m_rawContours2D[layer], layer, &messages)) return false;
             return zSpace::zTsField::mapPrintPaths(m_rawContours2D[layer], const_cast<zSpace::zObjMesh&>(charts[section]),
-                const_cast<zSpace::zObjMesh&>(sections[section]), heights, m_rawContours3D[layer], layer, normals);
+                const_cast<zSpace::zObjMesh&>(sections[section]), heights, m_rawContours3D[layer], layer);
         };
         bool ok = false;
         if (m_slicerChoice == kSlicerHarmonic && m_slicer && static_cast<size_t>(section) < m_slicer->getVertexLayerHeights().size())
-            ok = extract(*m_slicer, &m_slicer->getVertexLayerHeights()[section],
-                static_cast<size_t>(section) < m_slicer->getVertexLayerNormals().size() ? &m_slicer->getVertexLayerNormals()[section] : nullptr);
-        else if (m_slicerChoice == kSlicerTopology && m_topoSlicer) ok = extract(*m_topoSlicer, &m_topoSlicer->getVertexLayerHeights(), nullptr);
+            ok = extract(*m_slicer, &m_slicer->getVertexLayerHeights()[section]);
+        else if (m_slicerChoice == kSlicerTopology && m_topoSlicer) ok = extract(*m_topoSlicer, &m_topoSlicer->getVertexLayerHeights());
         if (!ok) {m_rawContours2D[layer].clear();m_rawContours3D[layer].clear();logFail("Raw contour", "Extraction/mapping failed on layer " + std::to_string(layer));return;}
         for (const auto& path : m_rawContours3D[layer])
             m_rawInspector3D[layer].push_back(alice2::slicing::inspectorPathSnapshot(path, m_printSettings.FeatureAngleTol));
@@ -1297,10 +1287,9 @@ private:
                 m_processedInspector2D[k].push_back(alice2::slicing::inspectorPathSnapshot(path, m_printSettings.FeatureAngleTol));
             for (const zSpace::PrintPath& path : layers[k]) {
                 m_processedInspector3D[k].push_back(alice2::slicing::inspectorPathSnapshot(path, m_printSettings.FeatureAngleTol));
-                const auto markers = alice2::slicing::printPathMarkers(path, m_printSettings.FeatureAngleTol, &m_settings.HPrintHeight);
+                const auto markers = alice2::slicing::printPathMarkers(path, m_printSettings.FeatureAngleTol);
                 m_processedMarkers[k].Targets.insert(m_processedMarkers[k].Targets.end(), markers.Targets.begin(), markers.Targets.end());
                 m_processedMarkers[k].Features.insert(m_processedMarkers[k].Features.end(), markers.Features.begin(), markers.Features.end());
-                m_processedMarkers[k].OutsideDomain.insert(m_processedMarkers[k].OutsideDomain.end(),markers.OutsideDomain.begin(),markers.OutsideDomain.end());
                 zSpace::zFnGraph fn(const_cast<zSpace::zObjGraph&>(path.graph));
                 zSpace::zPointArray positions;
                 zSpace::zIntArray edges;
@@ -1340,30 +1329,15 @@ private:
         zSpace::zTsIO::SlicerUSDInput input;
         std::string error;
         logInput("File: " + m_inputMeshPath);
-        if (!alice2::slicing::timeSlicerMethod("readSlicerInputUSD", [&] { return zSpace::zTsIO::readSlicerInputUSD(m_inputMeshPath, input, &error); })) {
+        if (!alice2::slicing::timeSlicerMethod("importUSD", [&] { return zSpace::zTsIO::importUSD(m_inputMeshPath, input, &error); })) {
             logFail("Input", error);
             return;
         }
         try {
-            const auto settings = nlohmann::json::parse(input.SettingsJSON);
-            m_settings = defaultSlicerSettings();
-            m_printSettings = defaultPrintSynSettings();
-            std::vector<std::string> unknown;
-            applySlicerJson(settings.at("slicer"), m_settings, unknown);
-            applyPrintSynJson(settings.at("printSyn"), m_printSettings, unknown);
-#if defined(ALICE2_SLICER_DISABLE_SURFACE_HEIGHT)
-            m_settings.HPrintHeight.OptimizeSurfaces = false;
-            logInput("Height mode: global layer scheduling; local surface correction disabled.");
-#endif
-            if(!input.PrintHeightDomain.empty()){
-                m_settings.HPrintHeight.Enabled=true;
-                m_settings.HPrintHeight.Minimum=input.PrintHeightDomain[0];
-                m_settings.HPrintHeight.Maximum=input.PrintHeightDomain[1];
-                logInput("Harmonic target printheightdomain = ["+std::to_string(input.PrintHeightDomain[0])+", "+std::to_string(input.PrintHeightDomain[1])+"] mm, tolerance +/-"+std::to_string(m_settings.HPrintHeight.Tolerance)+" mm");
-            }
-            for (const auto& key : unknown) logFail("Settings", "ignoring unknown setting '" + key + "'");
-            m_settings.BracingCurveWidths = input.BracingPrintWidths;
-            if (!input.BracingPrintWidths.empty()) m_settings.BracingWidth = input.BracingPrintWidths.front();
+            m_settings = input.Settings;
+            m_printSettings = input.PrintSettings;
+            for (const auto& key : input.UnknownSettings)
+                logInput("Ignoring unknown setting '" + key + "'.");
             m_faceTags = input.FaceTags;
             m_faceWidthIds = input.FaceWidthIds;
             if (m_settings.BoundaryWidth.empty()) throw std::runtime_error("Block has no side faces.");
@@ -1373,25 +1347,16 @@ private:
             source.getVertexPositions(points);
             source.getPolygonData(connects, counts);
             zSpace::zFnMesh(m_inputMesh).create(points, counts, connects);
-            points.clear(); connects.clear();
-            for (auto& curve : input.BracingCurves) {
-                zSpace::zPointArray localPoints;
-                zSpace::zIntArray localEdges;
-                zSpace::zFnGraph graph(curve);
-                graph.getVertexPositions(localPoints); graph.getEdgeData(localEdges);
-                const int offset = static_cast<int>(points.size());
-                points.insert(points.end(), localPoints.begin(), localPoints.end());
-                for (int id : localEdges) connects.push_back(offset + id);
-            }
-            zSpace::zFnGraph(m_bracingGraph).create(points, connects);
-            m_haveBracing = !connects.empty();
+            m_bracingGraph = std::move(input.Bracing);
+            zSpace::zFnGraph bracing(m_bracingGraph);
+            m_haveBracing = bracing.numEdges() > 0;
             m_slotAnchor = input.StartPoint;
             m_haveSlotAnchor = true;
             m_layerSpacing = m_lastLayerSpacing = m_settings.LayerSpacing;
             std::string groups;
             buildInputGroups(groups);
             logInput("block Mesh: vertices=" + std::to_string(source.numVertices()) + " faces=" + std::to_string(source.numPolygons()) + " | face groups:" + groups);
-            logInput("bracing Curves: ribs=" + std::to_string(input.BracingCurves.size()) + " vertices=" + std::to_string(points.size()) + " edges=" + std::to_string(connects.size()/2));
+            logInput("bracing Curves: ribs=" + std::to_string(input.BracingCurveCount) + " vertices=" + std::to_string(bracing.numVertices()) + " edges=" + std::to_string(bracing.numEdges()));
             logInput("slotpoint Points: points=1");
             logOk("Settings", "Loaded /Slicer_setting; geometry and dimensional settings normalized to mm (source metersPerUnit=" + std::to_string(input.MetersPerUnit) + ").");
             m_inputLoaded = true;

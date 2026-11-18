@@ -25,9 +25,6 @@ inline zSpace::SlicerSettings defaultSlicerSettings()
     s._HEqualiseIterations = 2;
     s._HArapIterations = 10;
     s._HUnrollStart = 0;
-    s.HPrintHeight.Tolerance = 0.05; // Approved project fabrication allowance, in mm.
-    s.HPrintHeight.Iterations = 32; // Larger batches avoid repeated path reconstruction.
-    s.HPrintHeight.AllowLayerCountChange = true;
     return s;
 }
 
@@ -82,8 +79,6 @@ inline void applySlicerJson(const nlohmann::json& obj, zSpace::SlicerSettings& s
         else if (key == "_HEqualiseIterations" || key == "HEqualiseIterations") s._HEqualiseIterations = v.get<int>();
         else if (key == "_HArapIterations" || key == "HArapIterations") s._HArapIterations = v.get<int>();
         else if (key == "_HUnrollStart" || key == "HUnrollStart") s._HUnrollStart = v.get<int>();
-        else if (key == "HPrintHeightAllowLayerCountChange") s.HPrintHeight.AllowLayerCountChange = v.get<bool>();
-        else if (key == "HPrintHeightOptimizeSurfaces") s.HPrintHeight.OptimizeSurfaces = v.get<bool>();
         else unknown.push_back("slicer." + it.key());
     }
 }

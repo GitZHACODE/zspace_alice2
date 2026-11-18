@@ -15,3 +15,4 @@
 /alice2/build_modern_tests/
 /alice2/build_zspace_v3/
 /alice2/baseline-*.log
+/alice2/build_*/

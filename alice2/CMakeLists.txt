@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.21)
 project(alice2 VERSION 3.0.0 LANGUAGES C CXX)
 
 option(ALICE2_ENABLE_CUDA "Enable CUDA build of alice2" OFF)
-option(ALICE2_SLICER_SURFACE_HEIGHT_CORRECTION "Enable local surface-height correction in the slicer sketch" OFF)
+option(ALICE2_WITH_TS3DP_USD "Enable native OpenUSD slicer input/export" ON)
 option(ALICE2_WITH_ZSPACE_CORE "Enable zSpace integration" ON)
 option(ALICE2_USE_ZSPACE_SOURCE "Build zSpace from a local source checkout" ON)
 set(ZSPACE_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../zspace_core" CACHE PATH "Path to local zspace_core checkout")
@@ -51,6 +51,7 @@ if(ALICE2_WITH_ZSPACE_CORE)
         set(ZSPACE_BUILD_SHARED ON CACHE BOOL "Build zSpace DLLs" FORCE)
         set(ZSPACE_WITH_OPENGL OFF CACHE BOOL "Disable zSpace display OpenGL for alice2 integration" FORCE)
 
+        set(ZSPACE_IO_WITH_OPENUSD ${ALICE2_WITH_TS3DP_USD} CACHE BOOL "Enable native Core USD IO" FORCE)
         add_subdirectory("${ZSPACE_CORE_DIR}" "${CMAKE_BINARY_DIR}/zspace_core_build")
 
         set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -336,9 +337,6 @@ group_sources_by_folder("Source Files" "${ALICE2_SOURCES}")
 group_sources_by_folder("Header Files" "${ALICE2_HEADERS}")
 
 add_executable(alice2 ${ALICE2_SOURCES} ${ALICE2_HEADERS})
-if(NOT ALICE2_SLICER_SURFACE_HEIGHT_CORRECTION)
-    target_compile_definitions(alice2 PRIVATE ALICE2_SLICER_DISABLE_SURFACE_HEIGHT)
-endif()
 
 target_precompile_headers(alice2 PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/src/core/pch.h>")
 

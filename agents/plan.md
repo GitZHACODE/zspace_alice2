@@ -699,3 +699,37 @@ alice2\build_with_zspace.bat
 - Exclude generated builds/prototypes, packaged runtimes, the external research
   journal and unrelated webviewer changes. Publish on the existing contributor
   branches and verify local commit IDs against remote heads.
+
+## 2026-11-18 Harmonic and Topology slicer consolidation
+- User requests remote-baseline layer generation with Harmonic and Topology only,
+  retaining print-path sampling and TCP alignment. Report and approval precede push.
+- Root handles local Alice2 integration and native verification. Toolsets changes
+  are isolated on codex/slicer-sampling-tcp at build/worktrees/slicer-sampling-tcp,
+  based on refreshed origin/slicer 3dbb30b8.
+- Preserve the continuity runtime and stereotomy workflows. Existing tracked Alice2
+  experiments are saved in stash 54dd5a4b82e6501814fd7cdad12002d505094470.
+- Expected files are slicer UI/settings/verification, Core USD IO build wiring,
+  and Toolsets sampling/seam/TCP post-processing with focused regression checks.
+- Build through alice2/build_with_zspace.bat with the isolated Toolsets checkout,
+  native OpenUSD and TetGen, output beneath build_seam_side/harmonic-topology.
+- Check both methods, input units, independent inner spacing, outer junctions,
+  opening-side seam continuity, substrate/top TCP indexing, normals/heights, export,
+  repeatability, retained runtime hashes and final local diffs.
+- Status implementation and verification in progress. Combined WASM build was
+  attempted and requires the missing Core OpenUSD wasm32 SDK.
+- Native verification complete: standard build succeeds and all23 registered
+  tests pass. Both methods export the supplied example_facetags_3-6.usda model.
+  At8mm spacing, Harmonic has61printedlayers/16395targets/244junctionmarkers,
+  Topology65printedlayers/17719targets/260junctionmarkers. Measured TCP heights
+  are5.8766..31.9897mm and6.7389..23.7294mm respectively.
+- Real Alice2 saved-F1 screenshots verify the two method buttons, sampled targets,
+  FaceTag junctions and the rectangular TCP-aligned print mesh. Original six
+  reference executable/DLL SHA-256 hashes match the pre-change values.
+- Launcher now selects build_seam_side/harmonic-topology. Default build output
+  stays under build_seam_side and discovers the local review Toolsets checkout.
+  Stereotomy source/build directories remain preserved.
+- Remote generic Core USD IO uses stable TDP_printmesh/TDP_printpath prim names.
+  The prior displayName metadata is absent with this remote IO implementation.
+- User approved publication on 18 November. Toolsets companion commit is
+  d11e47e4202884f156e574e65643c1c170e60407, targeting slicer. Alice2 targets
+  zspace_slicer. Browser verification requires the unavailable OpenUSD wasm32 SDK.

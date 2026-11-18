@@ -5,7 +5,6 @@ if(ALICE2_BUILD_SLICING_TESTS)
     include(CTest)
 endif()
 
-option(ALICE2_WITH_TS3DP_USD "Enable native OpenUSD slicer input/export" ON)
 if(ALICE2_WITH_ZSPACE_CORE)
     if(NOT EXISTS "${ZSPACE_TOOLSETS_DIR}/CMakeLists.txt" OR
        NOT EXISTS "${ZSPACE_TOOLSETS_DIR}/include/zspace/slicing.h")
@@ -13,7 +12,7 @@ if(ALICE2_WITH_ZSPACE_CORE)
     endif()
     option(ZSPACE_TOOLSETS_WITH_TETGEN "Enable desktop harmonic slicing" ON)
     option(ZSPACE_TOOLSETS_SLICING_OPENMP "Enable desktop slicer parallelism" ON)
-    set(ZSPACE_TOOLSETS_SLICING_WITH_OPENUSD ${ALICE2_WITH_TS3DP_USD} CACHE BOOL "Native slicer USD IO" FORCE)
+    set(ZSPACE_TOOLSETS_WITH_USD_IO ${ALICE2_WITH_TS3DP_USD} CACHE BOOL "Native slicer USD IO" FORCE)
     add_subdirectory("${ZSPACE_TOOLSETS_DIR}" "${CMAKE_BINARY_DIR}/zspace_toolsets_build")
 endif()
 

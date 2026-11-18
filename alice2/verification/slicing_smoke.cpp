@@ -4,7 +4,7 @@
 #include <pxr/usd/usdGeom/basisCurves.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <zspace/slicing.h>
-#include <zspace/zSlicingSettings.h>
+#include <zspace/zToolsets/fabrication/slicing/utils/IO.h>
 #include <zspace/zSlicerTiming.h>
 #include <nlohmann/json.hpp>
 #include <cmath>
@@ -88,7 +88,6 @@ static void checkGeometryFile(const std::string& file,const Json& expectedMesh,c
     const pxr::UsdGeomMesh surface(stage->GetPrimAtPath(pxr::SdfPath("/TDP_printmesh")));
     const pxr::UsdGeomBasisCurves curves(stage->GetPrimAtPath(pxr::SdfPath("/TDP_printpath")));
     require(bool(surface)&&bool(curves),"Exported geometry schemas missing");
-    require(surface.GetPrim().GetDisplayName()=="print mesh"&&curves.GetPrim().GetDisplayName()=="print path","Geometry display names changed");
     pxr::TfToken token;
     require(surface.GetSubdivisionSchemeAttr().Get(&token)&&token==pxr::UsdGeomTokens->none,"Mesh must not subdivide");
     require(curves.GetTypeAttr().Get(&token)&&token==pxr::UsdGeomTokens->linear,"Print curves must be linear");
@@ -119,16 +118,11 @@ int main(int argc,char** argv) {
     const std::string modeName=argv[3]; require(modeName=="topology"||modeName=="harmonic","Invalid mode");
     const int mode=modeName=="harmonic";
     zTsIO::SlicerUSDInput input; std::string error;
-    const bool imported=zTsIO::readSlicerInputUSD(argv[1],input,&error);
+    const bool imported=zTsIO::importUSD(argv[1],input,&error);
     require(imported,"USD import: "+error);
-    const Json authored=Json::parse(input.SettingsJSON);
-    auto settings=alice2::slicing::defaultSlicerSettings();
-    auto print=alice2::slicing::defaultPrintSynSettings(); std::vector<std::string> unknown;
-    alice2::slicing::applySlicerJson(authored.at("slicer"),settings,unknown);
-    alice2::slicing::applyPrintSynJson(authored.at("printSyn"),print,unknown);
-    require(unknown.empty(),"Unknown fixture settings");
-    require(!input.BracingPrintWidths.empty(),"Missing bracing widths");
-    settings.BracingCurveWidths=input.BracingPrintWidths; settings.BracingWidth=input.BracingPrintWidths.front();
+    const auto& settings = input.Settings;
+    const auto& print = input.PrintSettings;
+    require(input.UnknownSettings.empty(), "Unknown fixture settings");
     const bool legacy=std::filesystem::path(argv[1]).filename().string().find("legacy-mm")!=std::string::npos;
     require(std::abs(input.MetersPerUnit-(std::string(argv[1]).find("metres")!=std::string::npos?1.0:.001))<1e-12,"Source units changed");
     require(std::abs(settings.LayerSpacing-(legacy?10:.5))<1e-6,"Layer spacing not preserved");
@@ -142,7 +136,7 @@ int main(int argc,char** argv) {
         require(std::abs(hi.x-lo.x-4)<1e-5 && std::abs(hi.y-lo.y-4)<1e-5 && std::abs(hi.z-lo.z-2)<1e-5,"Input geometry not normalized to mm");
         require(std::abs(settings.BracingWidth-.3)<1e-6 && std::abs(print.SeamOffset-.04)<1e-6 && std::abs(print.SeamSize-.02)<1e-6,"Lengths not normalized to mm");
     }
-    zObjGraph bracing; zTsUtils::combineGraphObjects(input.BracingCurves,bracing);
+    auto& bracing = input.Bracing;
     Json wasmSettings={{"layerSpacing",settings.LayerSpacing},{"boundaryWidths",settings.BoundaryWidth},
       {"bracingWidth",settings.BracingWidth},{"bracingCurveWidths",settings.BracingCurveWidths},
       {"overlapWidth",settings.OverlapWidth},{"doubleBoundary",settings.DoubleBoundary},
@@ -165,6 +159,25 @@ int main(int argc,char** argv) {
     require(slicer.hasPrintStatistics() && std::isfinite(slicer.getPrintLength()) && slicer.getPrintLength()>0 && std::isfinite(slicer.getPrintVolume()) && slicer.getPrintVolume()>=0,"Invalid print statistics");
     require(slicer.getPrintVolume()>0,"Printed volume must remain positive with the existing height method");
     Json first=result(slicer,mode); require(first["layers"].size()==size_t(legacy?52:4),"Unexpected printed layer count");
+    if (!legacy) {
+      const auto& layers = slicer.get3DPrintPaths();
+      for (size_t layer = 0; layer < layers.size(); ++layer) {
+        const double expectedZ = 0.5 * (layer + 1);
+        for (const auto& path : layers[layer]) {
+          zPointArray points;
+          zFnGraph(const_cast<zObjGraph&>(path.graph)).getVertexPositions(points);
+          for (size_t i = 0; i < points.size(); ++i) {
+            require(std::abs(points[i].z - expectedZ) < 1e-4,
+                    "TCP target is on the wrong slice");
+            require(std::abs(path.normals[i].z - 1.0) < 1e-4 &&
+                    std::abs(zTsUtils::toEigenVec(path.normals[i]).norm() - 1.0) < 1e-4,
+                    "TCP normal is not a unit axis pointing away from support");
+            require(std::abs(path.heights[i] - 0.5) < 1e-4,
+                    "TCP height does not reach the previous section");
+          }
+        }
+      }
+    }
     {
       const alice2::slicing::SlicerTimingSession timing;
       require(slicer.computeSlicer(false),"Repeated slicing failed");
@@ -185,7 +198,7 @@ int main(int argc,char** argv) {
     const std::filesystem::path output=argv[2];
     if(!output.parent_path().empty()) std::filesystem::create_directories(output.parent_path());
     const auto exported=output.parent_path()/(output.stem().string()+"-export.usda");
-    const bool didExport=zTsIO::exportPrintPathUSD(slicer.getResultantPrintPath(),argv[1],exported.string(),static_cast<int>(first["layers"].size()),&error,0,&slicer.get3DPrintPaths());
+    const bool didExport=zTsIO::exportUSD(slicer.getResultantPrintPath(),argv[1],exported.string(),static_cast<int>(first["layers"].size()),&error,0,&slicer.get3DPrintPaths());
     require(didExport,"USD export: "+error);
     std::ifstream exportedFile(exported);
     const std::string exportedText((std::istreambuf_iterator<char>(exportedFile)),std::istreambuf_iterator<char>());
@@ -202,7 +215,6 @@ int main(int argc,char** argv) {
     exportedArray(exportedText,"points",expectedMesh["vertexPositions"],toSourceUnits,"def Mesh \"TDP_printmesh\"",true);
     exportedArray(exportedText,"faceVertexCounts",expectedMesh["faceCounts"],1,"def Mesh \"TDP_printmesh\"",true);
     exportedArray(exportedText,"faceVertexIndices",expectedMesh["faceConnects"],1,"def Mesh \"TDP_printmesh\"",true);
-    require(exportedText.find("displayName = \"print mesh\"")!=std::string::npos,"Missing print mesh display name");
     Json curvePoints=Json::array(),curveCounts=Json::array(),curveWidths=Json::array();
     for(const auto& layer:slicer.get3DPrintPaths()) for(const auto& p:layer) {
       zPointArray positions; zFnGraph(const_cast<zObjGraph&>(p.graph)).getVertexPositions(positions);
@@ -220,11 +232,10 @@ int main(int argc,char** argv) {
     exportedArray(exportedText,"points",curvePoints,toSourceUnits,"def BasisCurves \"TDP_printpath\"",true);
     exportedArray(exportedText,"curveVertexCounts",curveCounts,1,"def BasisCurves \"TDP_printpath\"",true);
     exportedArray(exportedText,"widths",curveWidths,toSourceUnits,"def BasisCurves \"TDP_printpath\"",true);
-    require(exportedText.find("displayName = \"print path\"")!=std::string::npos,"Missing print path display name");
     checkGeometryFile(exported.string(),expectedMesh,curvePoints,curveCounts,curveWidths,toSourceUnits);
     for(const std::string extension:{".usd",".usdc"}) {
       const auto binary=output.parent_path()/(output.stem().string()+"-export"+extension);
-      require(zTsIO::exportPrintPathUSD(slicer.getResultantPrintPath(),argv[1],binary.string(),static_cast<int>(first["layers"].size()),&error,0,&slicer.get3DPrintPaths()),"Binary export: "+error);
+      require(zTsIO::exportUSD(slicer.getResultantPrintPath(),argv[1],binary.string(),static_cast<int>(first["layers"].size()),&error,0,&slicer.get3DPrintPaths()),"Binary export: "+error);
       checkGeometryFile(binary.string(),expectedMesh,curvePoints,curveCounts,curveWidths,toSourceUnits);
     }
     // Mixed open/closed paths share a nonperiodic BasisCurves prim, with an
@@ -242,41 +253,17 @@ int main(int argc,char** argv) {
       require(zPrintSyn::linkPrintPaths(mixed,linked,status),"Mixed paths did not link");
       zObjMesh mixedMesh; require(zTsUtils::buildPrintMesh(mixed,mixedMesh,&error),"Mixed path loft failed");
       const auto mixedFile=output.parent_path()/(output.stem().string()+"-mixed.usda");
-      require(zTsIO::exportPrintPathUSD(linked,argv[1],mixedFile.string(),2,&error,0,&mixed),"Mixed export: "+error);
+      require(zTsIO::exportUSD(linked,argv[1],mixedFile.string(),2,&error,0,&mixed),"Mixed export: "+error);
       checkGeometryFile(mixedFile.string(),mesh(mixedMesh),
         Json{0,0,0,10,0,0,10,10,0,0,10,0,0,0,0,0,0,10,10,0,10},Json{5,2},Json{2,2,2,2,2,2,2},toSourceUnits);
     }
     // Re-export must replace the previous mesh, rather than accumulate stale prims.
-    require(zTsIO::exportPrintPathUSD(slicer.getResultantPrintPath(),exported.string(),exported.string(),static_cast<int>(first["layers"].size()),&error,0,&slicer.get3DPrintPaths()),"Re-export: "+error);
+    require(zTsIO::exportUSD(slicer.getResultantPrintPath(),exported.string(),exported.string(),static_cast<int>(first["layers"].size()),&error,0,&slicer.get3DPrintPaths()),"Re-export: "+error);
     checkGeometryFile(exported.string(),expectedMesh,curvePoints,curveCounts,curveWidths,toSourceUnits);
     zTsIO::SlicerUSDInput reread;
-    const bool reimported=zTsIO::readSlicerInputUSD(exported.string(),reread,&error);
+    const bool reimported=zTsIO::importUSD(exported.string(),reread,&error);
     require(reimported,"USD exported input reimport: "+error);
-    require(reread.FaceTags==input.FaceTags&&reread.SettingsJSON==input.SettingsJSON,"Export changed source settings/tags");
-    const auto heightRange=std::minmax_element(slicer.getResultantPrintPath().heights.begin(),slicer.getResultantPrintPath().heights.end());
-    require(reread.PrintHeightDomain.size()==2,"Measured output printheightdomain was not imported");
-    require(std::abs(reread.PrintHeightDomain[0]-*heightRange.first)<1e-5&&std::abs(reread.PrintHeightDomain[1]-*heightRange.second)<1e-5,
-      "Output domain lost source-unit precision or did not overwrite the measured range");
-    const auto domainStage=pxr::UsdStage::Open(pxr::SdfLayer::OpenAsAnonymous(exported.string()));
-    require(bool(domainStage),"Cannot prepare domain-input fixture");
-    auto metadata=domainStage->GetRootLayer()->GetCustomLayerData();
-    metadata["printheightdomain"]=pxr::VtValue(pxr::VtArray<double>{6*toSourceUnits,12*toSourceUnits});
-    domainStage->GetRootLayer()->SetCustomLayerData(metadata);
-    const auto domainFile=output.parent_path()/(output.stem().string()+"-domain-input.usda");
-    require(domainStage->GetRootLayer()->Export(domainFile.string()),"Cannot author domain-input fixture");
-    zTsIO::SlicerUSDInput domainInput;
-    require(zTsIO::readSlicerInputUSD(domainFile.string(),domainInput,&error),error);
-    require(domainInput.PrintHeightDomain.size()==2&&std::abs(domainInput.PrintHeightDomain[0]-6)<1e-9&&std::abs(domainInput.PrintHeightDomain[1]-12)<1e-9,
-      "Root double[] printheightdomain is not normalized to mm");
-    const auto rejectDomain=[&](const pxr::VtValue& value){metadata["printheightdomain"]=value;domainStage->GetRootLayer()->SetCustomLayerData(metadata);
-      const auto invalidDomain=output.parent_path()/(output.stem().string()+"-invalid-domain.usda");
-      require(domainStage->GetRootLayer()->Export(invalidDomain.string()),"Cannot author invalid domain");
-      require(!zTsIO::readSlicerInputUSD(invalidDomain.string(),domainInput,&error),"Invalid USD height-domain schema accepted");
-      require(domainInput.PrintHeightDomain.empty()&&domainInput.SettingsJSON.empty(),"Failed domain import retained stale input");};
-    rejectDomain(pxr::VtValue(pxr::VtArray<double>{6}));
-    rejectDomain(pxr::VtValue(pxr::VtArray<float>{6,12}));
-    rejectDomain(pxr::VtValue(pxr::VtArray<double>{12,6}));
-    rejectDomain(pxr::VtValue(pxr::VtArray<double>{-1,12}));
+    require(reread.FaceTags==input.FaceTags&&reread.FaceWidthIds==input.FaceWidthIds && reread.Settings.LayerSpacing==settings.LayerSpacing && reread.PrintSettings.InnerResampleLength==print.InnerResampleLength,"Export changed source settings/tags");
     require(mesh(reread.Block)==mesh(input.Block),"Export changed source mesh");
     require(reread.MetersPerUnit==input.MetersPerUnit,"Export changed source units");
     // A failed read must clear an earlier successful import and report why.
@@ -286,10 +273,10 @@ int main(int argc,char** argv) {
         std::ofstream bad(malformed); require(bool(bad),"Cannot create malformed USD fixture");
         bad<<"not a USD stage\n"; require(bool(bad),"Cannot write malformed USD fixture");
     }
-    const bool acceptedMalformed=zTsIO::readSlicerInputUSD(malformed.string(),reread,&error);
+    const bool acceptedMalformed=zTsIO::importUSD(malformed.string(),reread,&error);
     std::filesystem::remove(malformed);
     require(!acceptedMalformed && !error.empty(),"Malformed USD must fail with a diagnostic");
-    require(zFnMesh(reread.Block).numVertices()==0 && reread.FaceTags.empty() && reread.SettingsJSON.empty(),
+    require(zFnMesh(reread.Block).numVertices()==0 && reread.FaceTags.empty() && reread.UnknownSettings.empty(),
             "Failed USD import retained stale input");
     Json report={{"input",request},{"result",first},{"metersPerUnit",input.MetersPerUnit},{"repeated",true},{"printLength",slicer.getPrintLength()},{"printVolume",slicer.getPrintVolume()},{"exported",exported.string()}};
     std::ofstream file(output); require(bool(file),"Cannot open report"); file<<report.dump(); require(bool(file),"Cannot write report");
