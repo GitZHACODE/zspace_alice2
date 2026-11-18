@@ -1,0 +1,38 @@
+RHINO -> ALICE2 COLORED MESH INPUTS
+
+Run Rhino's RunPythonScript command and select rhino_prepare_pattern_inputs.py.
+Run for Stereotomy. Export a separate Pattern mesh only to override blue.
+
+STEREOTOMY
+Select an all-quad mesh. Choose ExistingColors to keep its vertex colors, or
+JointCurves to select curves following the intended mesh-edge joints. JointCurves
+marks nearby vertices pure red and all other vertices black in the export copy.
+The tolerance is in the current Rhino document units. ExistingColors also
+preserves the green feature marks and the blue displacement values.
+An edge is a joint when BOTH end vertices have red > 0.9. White and yellow also
+have high red: use black away from joints. Joint lines must follow quad edges;
+this script does not split faces where a curve crosses a face interior.
+Save as sterotomy.usda (the existing workflow uses this spelling).
+
+PATTERN
+Select a mesh with existing vertex colors; triangles and quads are accepted.
+Blue is normalized from the Rhino color's 0..255 range to 0..1. Alice2 uses blue
+as the displacement factor. Object, layer and material colors are not accepted
+as substitutes for vertex colors. Save as patterns.usda.
+
+PLACEMENT AND INPUT CHECKS
+Export both from the same world placement. The exporter converts document units
+to metres and declares Rhino's Z-up frame; Alice2 handles its internal frame.
+Do not move one input to the origin separately. Rhino source objects are unchanged.
+For stereotomy only, exactly coincident vertices with matching colors are merged
+in the export copy. Conflicting seam colors, nonmanifold edges, reversed adjacent
+faces, duplicate/degenerate faces, missing colors and triangles are rejected.
+Continuous quad columns and suitable joint boundaries are still required by the
+topology slicer. This exporter checks the input, not every downstream slice.
+
+Save to a location you can access from Alice2. Open Alice2 and choose the
+exported USDA as the stereotomy mesh or the optional pattern mesh.
+
+The result is a self-contained ASCII USD Mesh with unindexed per-vertex colors,
+no active transforms, no external references and original world placement.
+Alice2 computes the slices and pattern, then exports in the source coordinate system.

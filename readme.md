@@ -26,6 +26,26 @@ Optionally the library may also be pre-compiled into a statically  or dynamicall
 
 The default Alice2 build includes zSpace and the modern slicer.
 
+### RGB stereotomy on Windows
+
+Check out `codex/stereotomy-rgb` in Alice2 and the sibling
+`zspace_toolsets` repository. With the usual Core, OpenUSD and TetGen
+dependencies available, build the stereotomy sketch from the Alice2 repo root.
+
+```powershell
+alice2\build_with_zspace.bat -StereotomyBatch
+alice2\build_zspace_v3\bin\Release\alice2.exe
+```
+
+Choose or paste an RGB USDA mesh. Red marks cut edges, green pins feature
+points, and blue controls pattern displacement. A separate pattern mesh can
+override blue. For open surfaces, select the course direction for each region
+before computing. Export or copy the result as USD in the source coordinate
+system. The app saves generated files next to the executable.
+
+The [Rhino input helper](alice2/scripts/Rhino_Alice2_inputs.txt) can export a
+coloured mesh as USDA.
+
 ### Option 1: Building with zSpace Integration (v3.0.0+)
 
 The source build is the default for the modern slicer.

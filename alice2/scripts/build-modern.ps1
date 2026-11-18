@@ -7,6 +7,8 @@ param(
   [string]$OpenUSDRoot = '',
   [string]$OpenUSDPackage = '',
   [ValidateRange(1,32)][int]$Jobs = 6,
+  [switch]$StereotomyBatch,
+  [string]$StereotomyFrameworkDir = "$PSScriptRoot/../../../zspace_toolsets",
   [switch]$WithoutUSD,
   [switch]$Test
 )
@@ -42,11 +44,13 @@ try {
   }
   if (!(Test-Path -LiteralPath $TetgenLibrary)) { throw "Missing native TetGen library: $TetgenLibrary" }
   if ($WithoutUSD -and $Test) { throw '-Test requires native USD; omit -WithoutUSD.' }
+  $stereotomy = if ($StereotomyBatch) { 'ON' } else { 'OFF' }
+  $StereotomyFrameworkDir = [IO.Path]::GetFullPath($StereotomyFrameworkDir)
   $usd = if ($WithoutUSD) { 'OFF' } else { 'ON' }
   $tests = if ($Test) { 'ON' } else { 'OFF' }
   & $cmake -S "$PSScriptRoot/.." -B $BuildDir -G 'Visual Studio 17 2022' -A x64 `
     -DCMAKE_SUPPRESS_REGENERATION=ON -DALICE2_WITH_ZSPACE_CORE=ON `
-    -DALICE2_USE_ZSPACE_SOURCE=ON "-DZSPACE_CORE_DIR=$CoreDir" "-DZSPACE_TOOLSETS_DIR=$ToolsetsDir" `
+    -DALICE2_USE_ZSPACE_SOURCE=ON "-DALICE2_BATCH_PATTERN_SKETCH=$stereotomy" "-DALICE2_STEREOTOMY_FRAMEWORK_DIR=$StereotomyFrameworkDir" "-DZSPACE_CORE_DIR=$CoreDir" "-DZSPACE_TOOLSETS_DIR=$ToolsetsDir" `
     -DZSPACE_TOOLSETS_WITH_TETGEN=ON -DZSPACE_TOOLSETS_SLICING_OPENMP=ON `
     "-DZSPACE_TETGEN_INCLUDE_DIR=$TetgenIncludeDir" "-DZSPACE_TETGEN_LIBRARY=$TetgenLibrary" `
     "-DALICE2_WITH_TS3DP_USD=$usd" "-DZSPACE_OPENUSD_ROOT=$OpenUSDRoot" `

@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.21)
 
 project(alice2 VERSION 3.0.0 LANGUAGES C CXX)
 
+option(ALICE2_BATCH_PATTERN_SKETCH "Build the native stereotomy batch sketch" OFF)
+set(ALICE2_STEREOTOMY_FRAMEWORK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../zspace_toolsets" CACHE PATH "Toolsets checkout containing native stereotomy framework")
 option(ALICE2_ENABLE_CUDA "Enable CUDA build of alice2" OFF)
 option(ALICE2_SLICER_SURFACE_HEIGHT_CORRECTION "Enable local surface-height correction in the slicer sketch" OFF)
 option(ALICE2_WITH_ZSPACE_CORE "Enable zSpace integration" ON)
@@ -271,6 +273,12 @@ if(ALICE2_USING_TEST_MODE)
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp"
     )
     list(APPEND ALICE2_SOURCES ${ALICE2_TEST_SOURCES})
+elseif(ALICE2_BATCH_PATTERN_SKETCH)
+    list(APPEND ALICE2_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/zspace/sketch_stereotomy_batch_pattern.cpp"
+        "${ALICE2_STEREOTOMY_FRAMEWORK_DIR}/src/zToolsets/fabrication/stereotomy/BatchPipeline.cpp"
+        "${ALICE2_STEREOTOMY_FRAMEWORK_DIR}/src/zToolsets/fabrication/slicing/pattern/Pattern.cpp"
+    )
 else()
     file(GLOB_RECURSE POTENTIAL_USER_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/userSrc/*.cpp"
@@ -336,6 +344,16 @@ group_sources_by_folder("Source Files" "${ALICE2_SOURCES}")
 group_sources_by_folder("Header Files" "${ALICE2_HEADERS}")
 
 add_executable(alice2 ${ALICE2_SOURCES} ${ALICE2_HEADERS})
+if(ALICE2_BATCH_PATTERN_SKETCH)
+    target_compile_definitions(alice2 PRIVATE ALICE2_BATCH_PATTERN_SKETCH ZSPACE_PATTERN_STATIC ZSPACE_STEREOTOMY_STATIC)
+    # Keep the selected slicer checkout first; the framework may live separately.
+    target_include_directories(alice2 PRIVATE
+        "${ZSPACE_TOOLSETS_DIR}/include"
+        "${ALICE2_STEREOTOMY_FRAMEWORK_DIR}/include"
+    )
+    target_link_libraries(alice2 PRIVATE comdlg32)
+    zspace_link_openusd(alice2)
+endif()
 if(NOT ALICE2_SLICER_SURFACE_HEIGHT_CORRECTION)
     target_compile_definitions(alice2 PRIVATE ALICE2_SLICER_DISABLE_SURFACE_HEIGHT)
 endif()
@@ -349,13 +367,13 @@ else()
 endif()
 
 
-target_link_libraries(alice2
+target_link_libraries(alice2 PRIVATE
     ${OPENGL_LIBRARIES}
     ${GLEW_LIBRARIES}
     ${GLFW_LIBRARIES}
 )
 if(ALICE2_WITH_ZSPACE_CORE)
-    target_link_libraries(alice2
+    target_link_libraries(alice2 PRIVATE
         zspace::core
         zspace::interface
         zspace::io
@@ -364,13 +382,13 @@ if(ALICE2_WITH_ZSPACE_CORE)
     target_compile_definitions(alice2 PRIVATE ALICE2_WITH_ZSPACE_CORE=1)
 endif()
 if(ALICE2_ENABLE_CUDA)
-    target_link_libraries(alice2 CUDA::cublas CUDA::cudart)
+    target_link_libraries(alice2 PRIVATE CUDA::cublas CUDA::cudart)
 endif()
 
 
 
 if(WIN32)
-    target_link_libraries(alice2 user32 gdi32 shell32)
+    target_link_libraries(alice2 PRIVATE user32 gdi32 shell32)
 endif()
 
 add_custom_command(TARGET alice2 POST_BUILD
@@ -385,7 +403,7 @@ endif()
 
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
-    target_link_libraries(alice2 OpenMP::OpenMP_CXX)
+    target_link_libraries(alice2 PRIVATE OpenMP::OpenMP_CXX)
 endif()
 
 if(MSVC)
