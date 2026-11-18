@@ -37,8 +37,9 @@ alice2\build_with_zspace.bat -StereotomyBatch
 alice2\build_zspace_v3\bin\Release\alice2.exe
 ```
 
-Choose or paste an RGB USDA mesh. Red marks cut edges, green pins feature
-points, and blue controls pattern displacement. A separate pattern mesh can
+Choose or paste an RGB USDA mesh. Red marks cut edges and green identifies
+feature points for sampling. Blue controls displacement at every target,
+including feature points. A separate pattern mesh can
 override blue. For open surfaces, select the course direction for each region
 before computing. Export or copy the result as USD in the source coordinate
 system. The app saves generated files next to the executable.
