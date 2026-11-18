@@ -28,7 +28,7 @@ The default Alice2 build includes zSpace and the modern slicer.
 
 ### RGB stereotomy on Windows
 
-Check out `codex/stereotomy-rgb` in Alice2 and the sibling
+Check out `feature/print-pattern` in Alice2 and the sibling
 `zspace_toolsets` repository. With the usual Core, OpenUSD and TetGen
 dependencies available, build the stereotomy sketch from the Alice2 repo root.
 
