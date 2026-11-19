@@ -225,7 +225,7 @@ public:
     renderer.drawString(modeLine.str(), 10, 50);
     if (!state.inputLoaded) {
       renderer.drawString("Click Import USD to load AG_block, Slicer_bracing, "
-                          "Slicer_slot and Slicer_setting.",
+                          "Slicer_slot, Slicer_setting and optional Slicer_bracing_top.",
                           10, 68);
     } else if (state.slicerChoice == kSlicerNone) {
       renderer.drawString(
@@ -306,7 +306,8 @@ private:
     std::string error;
     if (!zSpace::zTsIO::exportUSD(
             path, state.inputMeshPath, fileBuffer,
-            static_cast<int>(slicer->getPrintPaths3D().size()), &error))
+            static_cast<int>(slicer->getPrintPaths3D().size()), &error, 0,
+            &slicer->getPrintPaths3D()))
       logFail("Export USD", error);
     else
       logOk("Export USD", std::string("Saved ") + fileBuffer);
@@ -400,6 +401,8 @@ private:
         throw std::runtime_error("Block has no side faces.");
       state.inputMesh = std::move(input.Block);
       state.bracingGraph = std::move(input.Bracing);
+      state.topBracingGraph = std::move(input.TopBracing);
+      state.haveTopBracing = input.TopBracingCurveCount > 0;
       zSpace::zFnMesh source(state.inputMesh);
       zSpace::zFnGraph bracing(state.bracingGraph);
       state.haveBracing = bracing.numEdges() > 0;
@@ -414,6 +417,8 @@ private:
           "bracing Curves: ribs=" + std::to_string(input.BracingCurveCount) +
           " vertices=" + std::to_string(bracing.numVertices()) +
           " edges=" + std::to_string(bracing.numEdges()));
+      if (state.haveTopBracing)
+        logInput("top bracing curves: " + std::to_string(input.TopBracingCurveCount));
       logInput("slotpoint Points: points=1");
       logOk("Settings", "Loaded /Slicer_setting; geometry and dimensional "
                         "settings normalized to mm (source metersPerUnit=" +
@@ -435,6 +440,8 @@ private:
     state.displayMode = 0;
     state.inputLoaded = false;
     state.haveBracing = false;
+    state.haveTopBracing = false;
+    zSpace::zFnGraph(state.topBracingGraph).clear();
     state.haveSlotAnchor = false;
     state.slotAnchor = zSpace::zPoint(0, 0, 0);
     zSpace::zFnGraph(state.bracingGraph).clear();
@@ -509,6 +516,10 @@ private:
       state.slicer->setBracingGraph(state.bracingGraph);
     else
       state.slicer->clearBracingGraph();
+    if (state.haveTopBracing)
+      state.slicer->setTopBracingGraph(state.topBracingGraph);
+    else
+      state.slicer->clearTopBracingGraph();
     if (state.haveSlotAnchor)
       state.slicer->setSlotAnchor(state.slotAnchor);
     else
@@ -541,6 +552,10 @@ private:
   // Topology slicer + its post-processing, with the loaded settings
   // (shared entries are read). BoundaryWidth covers the side-face width groups.
   void runTopologyPipeline() {
+    if (state.haveTopBracing) {
+      logFail("TopologySlicer", "Paired top and bottom bracing requires Harmonic.");
+      return;
+    }
     zSpace::SlicerSettings settings = state.settings;
     fitBoundaryWidths(settings, "TopologySlicer");
     state.topoSlicer->setSettings(settings);

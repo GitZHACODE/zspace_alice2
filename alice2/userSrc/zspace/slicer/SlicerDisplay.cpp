@@ -117,6 +117,9 @@ void drawInputPreview(SlicerState &state, Scene &scene) {
   if (state.haveBracing)
     scene.draw(state.bracingGraph,
                Display::lines(Color(0.9f, 0.45f, 0.0f, 1.0f), 6.0f));
+  if (state.haveTopBracing)
+    scene.draw(state.topBracingGraph,
+               Display::lines(Color(0.65f, 0.2f, 0.85f, 1.0f), 6.0f));
 }
 
 void drawBracingGraph(SlicerState &state, Scene &scene) {
@@ -124,6 +127,9 @@ void drawBracingGraph(SlicerState &state, Scene &scene) {
   if (state.haveBracing)
     scene.draw(state.bracingGraph,
                Display::lines(Color(0.9f, 0.45f, 0.0f, 1.0f), 3.0f));
+  if (state.haveTopBracing)
+    scene.draw(state.topBracingGraph,
+               Display::lines(Color(0.65f, 0.2f, 0.85f, 1.0f), 3.0f));
 }
 
 void drawGhostInputMesh(SlicerState &state, Scene &scene) {
@@ -308,10 +314,12 @@ void drawHarmonicFieldMinimap(SlicerState &state, Scene &scene,
     return;
   const auto &pathFields = state.slicer->getPathFields();
   const auto &widthFields = state.slicer->getWidthFields();
-  if (pathFields.empty() || widthFields.empty())
+  const int section = state.slicer->getPrintSectionOffset();
+  if (section >= static_cast<int>(pathFields.size()) ||
+      section >= static_cast<int>(widthFields.size()))
     return;
   drawFieldMinimap(state, scene, renderer, state.slicer->getScalarField(),
-                   pathFields[0], widthFields[0], "Path (layer 0)");
+                   pathFields[section], widthFields[section], "Path (layer 0)");
 }
 
 void drawTopologyFieldMinimap(SlicerState &state, Scene &scene,
@@ -321,10 +329,12 @@ void drawTopologyFieldMinimap(SlicerState &state, Scene &scene,
     return;
   const auto &pathFields = state.topoSlicer->getPathFields();
   const auto &widthFields = state.topoSlicer->getWidthFields();
-  if (pathFields.empty() || widthFields.empty())
+  const int section = state.topoSlicer->getPrintSectionOffset();
+  if (section >= static_cast<int>(pathFields.size()) ||
+      section >= static_cast<int>(widthFields.size()))
     return;
   drawFieldMinimap(state, scene, renderer, state.topoSlicer->getScalarField(),
-                   pathFields[0], widthFields[0], "Path (layer 0)");
+                   pathFields[section], widthFields[section], "Path (layer 0)");
 }
 
 bool isLayerInspectorMode(SlicerState &state, Scene &scene) {
@@ -347,9 +357,9 @@ zSpace::zSlicer *activeSlicer(SlicerState &state, Scene &scene) {
 int inspectorLayerCount(SlicerState &state, Scene &scene) {
 
   if (state.slicerChoice == kSlicerHarmonic && state.slicer)
-    return static_cast<int>(state.slicer->getPathFields().size());
+    return static_cast<int>(state.slicer->getPrintPaths3D().size());
   if (state.slicerChoice == kSlicerTopology && state.topoSlicer)
-    return static_cast<int>(state.topoSlicer->getPathFields().size());
+    return static_cast<int>(state.topoSlicer->getPrintPaths3D().size());
   return 0;
 }
 
@@ -372,7 +382,7 @@ void drawLayerInspector(SlicerState &state, Scene &scene, Renderer &renderer) {
   };
   std::ostringstream info;
   info << "Layer " << l << " / " << (count - 1)
-       << " (up/down arrow) | corners: yellow";
+       << " (up/down arrow) | seam: green, TCP direction: teal, corners: yellow";
   if (l < static_cast<int>(layers3D.size())) {
     info << " | paths: " << layers3D[l].size();
     for (size_t k = 0; k < layers3D[l].size(); ++k) {
@@ -407,6 +417,7 @@ void drawLayerInspector(SlicerState &state, Scene &scene, Renderer &renderer) {
       }
       int openEnds = 0, branches = 0;
       for (size_t v = 0; v < positions.size(); ++v) {
+        renderer.drawPoint(toVec3(positions[v]), Color(0.08f, 0.08f, 0.08f, 1.0f), 3.0f);
         if (degree[v] == 1) {
           ++openEnds;
           renderer.drawPoint(toVec3(positions[v]),
@@ -416,6 +427,14 @@ void drawLayerInspector(SlicerState &state, Scene &scene, Renderer &renderer) {
           renderer.drawPoint(toVec3(positions[v]),
                              Color(1.0f, 0.55f, 0.0f, 1.0f), 10.0f);
         }
+      }
+      if (!path.normals.empty() && !path.heights.empty()) {
+        const auto &start = positions.front();
+        const auto &normal = path.normals.front();
+        const float height = path.heights.front();
+        const Vec3 tip(start.x + normal.x * height, start.y + normal.y * height,
+                       start.z + normal.z * height);
+        renderer.drawLine(toVec3(start), tip, Color(0.0f, 0.55f, 0.55f, 1.0f), 3.0f);
       }
       renderer.drawPoint(toVec3(positions[0]), Color(0.1f, 0.75f, 0.2f, 1.0f),
                          12.0f);
@@ -432,20 +451,22 @@ void drawLayerInspector(SlicerState &state, Scene &scene, Renderer &renderer) {
       (l < static_cast<int>(layers2D.size())) ? &layers2D[l] : nullptr;
   const std::string label = "Path (layer " + std::to_string(l) + ")";
   if (state.slicerChoice == kSlicerHarmonic && state.slicer) {
+    const int section = l + state.slicer->getPrintSectionOffset();
     const auto &pathFields = state.slicer->getPathFields();
     const auto &widthFields = state.slicer->getWidthFields();
-    if (l < static_cast<int>(pathFields.size()) &&
-        l < static_cast<int>(widthFields.size()))
+    if (section < static_cast<int>(pathFields.size()) &&
+        section < static_cast<int>(widthFields.size()))
       drawFieldMinimap(state, scene, renderer, state.slicer->getScalarField(),
-                       pathFields[l], widthFields[l], label.c_str(), paths2D);
+                       pathFields[section], widthFields[section], label.c_str(), paths2D);
   } else if (state.slicerChoice == kSlicerTopology && state.topoSlicer) {
+    const int section = l + state.topoSlicer->getPrintSectionOffset();
     const auto &pathFields = state.topoSlicer->getPathFields();
     const auto &widthFields = state.topoSlicer->getWidthFields();
-    if (l < static_cast<int>(pathFields.size()) &&
-        l < static_cast<int>(widthFields.size()))
+    if (section < static_cast<int>(pathFields.size()) &&
+        section < static_cast<int>(widthFields.size()))
       drawFieldMinimap(state, scene, renderer,
-                       state.topoSlicer->getScalarField(), pathFields[l],
-                       widthFields[l], label.c_str(), paths2D);
+                       state.topoSlicer->getScalarField(), pathFields[section],
+                       widthFields[section], label.c_str(), paths2D);
   }
 
   renderer.setColor(Color(0.08f, 0.09f, 0.12f, 1.0f));
@@ -581,6 +602,14 @@ void drawFieldMinimap(SlicerState &state, Scene &scene, Renderer &renderer,
           const auto pb = toScreen(pathPoints[b]);
           glVertex2f(pa.first, pa.second);
           glVertex2f(pb.first, pb.second);
+        }
+        glEnd();
+        glPointSize(3.0f);
+        glColor4f(0.08f, 0.08f, 0.08f, 1.0f);
+        glBegin(GL_POINTS);
+        for (const auto &target : pathPoints) {
+          const auto point = toScreen(target);
+          glVertex2f(point.first, point.second);
         }
         glEnd();
         const auto corners = zSpace::zPrintSyn::cornerVertexIds(

@@ -54,7 +54,8 @@ struct SlicerState {
   std::string inputMeshPath;
   zSpace::zObjMesh inputMesh;
   // Bracing from the USD stage, in world coordinates.
-  zSpace::zObjGraph bracingGraph;
+  zSpace::zObjGraph bracingGraph, topBracingGraph;
+  bool haveTopBracing = false;
   // Required single point read from /Slicer_slot.
   zSpace::zPoint slotAnchor;
   bool haveSlotAnchor = false;
