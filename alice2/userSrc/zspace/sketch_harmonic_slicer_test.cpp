@@ -499,12 +499,16 @@ private:
         scene().draw(m_inputMesh, display);
         if (m_haveBracing)
             scene().draw(m_bracingGraph, Display::lines(Color(0.9f, 0.45f, 0.0f, 1.0f), 6.0f));
+        if (m_haveTopBracing)
+            scene().draw(m_topBracingGraph, Display::lines(Color(0.65f, 0.2f, 0.85f, 1.0f), 6.0f));
     }
 
     void drawBracingGraph()
     {
         if (m_haveBracing)
             scene().draw(m_bracingGraph, Display::lines(Color(0.9f, 0.45f, 0.0f, 1.0f), 3.0f));
+        if (m_haveTopBracing)
+            scene().draw(m_topBracingGraph, Display::lines(Color(0.65f, 0.2f, 0.85f, 1.0f), 3.0f));
     }
 
     void drawGhostInputMesh()
@@ -1347,6 +1351,9 @@ private:
             source.getVertexPositions(points);
             source.getPolygonData(connects, counts);
             zSpace::zFnMesh(m_inputMesh).create(points, counts, connects);
+            m_topBracingGraph = std::move(input.TopBracing);
+            m_haveTopBracing = input.TopBracingCurveCount > 0;
+            logInput("top bracing Curves: ribs=" + std::to_string(input.TopBracingCurveCount));
             m_bracingGraph = std::move(input.Bracing);
             zSpace::zFnGraph bracing(m_bracingGraph);
             m_haveBracing = bracing.numEdges() > 0;
@@ -1377,6 +1384,8 @@ private:
         m_slicerChoice = m_lastSlicerChoice = kSlicerNone;
         m_displayMode = 0;
         m_inputLoaded = false;
+        m_haveTopBracing = false;
+        zSpace::zFnGraph(m_topBracingGraph).clear();
         m_haveBracing = false;
         m_haveSlotAnchor = false;
         m_slotAnchor = zSpace::zPoint(0, 0, 0);
@@ -1441,6 +1450,8 @@ private:
             fitBoundaryWidths(settings, "HarmonicSlicer");
             m_slicer->setSettings(settings);
             m_slicer->setInputMesh(m_inputMesh, m_faceTags, m_faceWidthIds);
+            if (m_haveTopBracing) m_slicer->setTopBracingGraph(m_topBracingGraph);
+            else m_slicer->clearTopBracingGraph();
             if (m_haveBracing) m_slicer->setBracingGraph(m_bracingGraph);
             else m_slicer->clearBracingGraph();
             if (m_haveSlotAnchor) m_slicer->setSlotAnchor(m_slotAnchor);
@@ -1471,6 +1482,7 @@ private:
     {
         const alice2::slicing::SlicerMethodTimer timer("runTopologyPipeline");
         logOk("TopologySlicer", "run started");
+        if (m_haveTopBracing) { logFail("TopologySlicer","Paired UV bracing requires Harmonic."); return; }
         zSpace::SlicerSettings settings = m_settings;
         settings.LayerSpacing = m_layerSpacing; // "Layer Spacing" slider
         fitBoundaryWidths(settings, "TopologySlicer");
@@ -1535,7 +1547,7 @@ private:
     zSpace::zObjMesh m_inputMesh;
     zSpace::zObjMesh m_printMesh;
     // Bracing from the USD stage, in world coordinates.
-    zSpace::zObjGraph m_bracingGraph;
+    zSpace::zObjGraph m_bracingGraph,m_topBracingGraph;
     // First vertex of object 02; missing object defaults to the world origin.
     zSpace::zPoint m_slotAnchor;
     bool m_haveSlotAnchor = false;
@@ -1551,7 +1563,7 @@ private:
     std::unique_ptr<zSpace::TopologySlicer> m_topoSlicer;
     zSpace::zIntArray m_faceTags;     // from USD FaceTag attributes, shared by both slicers
     zSpace::zIntArray m_faceWidthIds; // width group per face (side_<n> -> BoundaryWidth[n])
-    bool m_haveBracing = false;
+    bool m_haveBracing = false, m_haveTopBracing = false;
     bool m_inputLoaded = false; // mesh read by loadInputs()
     // Input mesh split per face group (bottom, top, side_<n>) and each group's
     // flat color - see buildInputGroups(); m_widthPalette is the width palette
