@@ -41,6 +41,7 @@ namespace alice2 {
 
         // Screenshot functionality
         void takeScreenshot();
+        bool saveScreenshotToFile(const std::string& filename);
         void takeScreenshotAllCameras();
         void takeScreenshotSvg();
         void takeScreenshotAllCamerasSvg();
@@ -62,12 +63,18 @@ namespace alice2 {
         void setFullscreen(bool fullscreen);
         void setMultisampling(int samples);
 
+        // Clipboard access
+        std::string getClipboardText() const;
+        bool setClipboardText(const std::string& text);
+        std::string getClipboardFilePath() const;
+
         // Callbacks (called by GLFW)
         static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
         static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
         static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
         static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos);
         static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset);
+        static void dropCallback(GLFWwindow* window, int count, const char** paths);
         static void errorCallback(int error, const char* description);
 
         // Singleton access

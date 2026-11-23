@@ -1,5 +1,9 @@
 #include "Application.h"
 #include <GLFW/glfw3.h>
+#ifdef _WIN32
+#include <windows.h>
+#include <shellapi.h>
+#endif
 #include <iostream>
 #include <chrono>
 #include <iomanip>
@@ -8,6 +12,7 @@
 #include <vector>
 #include <thread>
 #include <cstdio>
+#include <cstring>
 
 // STB image write for screenshots
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -33,9 +38,9 @@ namespace alice2 {
         : m_running(false)
         , m_initialized(false)
         , m_window(nullptr)
-        , m_windowTitle("alice2 - 3D Scene Viewer")
-        , m_windowWidth(1200)
-        , m_windowHeight(800)
+        , m_windowTitle("zSpace Planariser - Alice2 3D Viewer")
+        , m_windowWidth(1360)
+        , m_windowHeight(880)
         , m_fullscreen(false)
         , m_vsync(true)
         , m_multisampleSamples(4)
@@ -206,6 +211,7 @@ namespace alice2 {
         glfwSetMouseButtonCallback(m_window, mouseButtonCallback);
         glfwSetCursorPosCallback(m_window, cursorPosCallback);
         glfwSetScrollCallback(m_window, scrollCallback);
+        glfwSetDropCallback(m_window, dropCallback);
     }
 
     void Application::update() {
@@ -518,6 +524,55 @@ namespace alice2 {
         }
     }
 
+    void Application::dropCallback(GLFWwindow* /*window*/, int count, const char** paths) {
+        if (s_instance && count > 0 && paths) {
+            std::vector<std::string> dropped;
+            dropped.reserve(static_cast<std::size_t>(count));
+            for (int i = 0; i < count; ++i) {
+                if (paths[i]) dropped.emplace_back(paths[i]);
+            }
+            if (!dropped.empty() && s_instance->m_sketchManager->hasCurrentSketch()) {
+                s_instance->m_sketchManager->forwardFileDrop(dropped);
+            }
+        }
+    }
+
+    std::string Application::getClipboardText() const {
+        if (!m_window) return {};
+        const char* str = glfwGetClipboardString(m_window);
+        return str ? std::string(str) : std::string();
+    }
+
+    bool Application::setClipboardText(const std::string& text) {
+        if (!m_window) return false;
+        glfwSetClipboardString(m_window, text.c_str());
+        return true;
+    }
+
+    std::string Application::getClipboardFilePath() const {
+#ifdef _WIN32
+        if (!IsClipboardFormatAvailable(CF_HDROP)) return {};
+        if (!OpenClipboard(nullptr)) return {};
+        std::string result;
+        HANDLE hData = GetClipboardData(CF_HDROP);
+        if (hData) {
+            HDROP hDrop = static_cast<HDROP>(hData);
+            const UINT len = DragQueryFileA(hDrop, 0, nullptr, 0);
+            if (len > 0) {
+                std::string buf(len + 1, '\0');
+                if (DragQueryFileA(hDrop, 0, buf.data(), len + 1) > 0) {
+                    buf.resize(len);
+                    result = std::move(buf);
+                }
+            }
+        }
+        CloseClipboard();
+        return result;
+#else
+        return {};
+#endif
+    }
+
     // Global entry point
     int run(int argc, char** argv) {
         Application app;
@@ -588,6 +643,33 @@ namespace alice2 {
         } else {
             std::cerr << "[SCREENSHOT] Failed to save screenshot: " << filename << std::endl;
         }
+    }
+
+    bool Application::saveScreenshotToFile(const std::string& filename) {
+        if (!m_initialized || !m_window) return false;
+
+        int width = 0, height = 0;
+        glfwGetFramebufferSize(m_window, &width, &height);
+        if (width <= 0 || height <= 0) return false;
+
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadBuffer(GL_BACK);
+        std::vector<unsigned char> pixels(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 3);
+        glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+
+        std::vector<unsigned char> flipped(pixels.size());
+        const std::size_t rowBytes = static_cast<std::size_t>(width) * 3;
+        for (int y = 0; y < height; ++y) {
+            const std::size_t srcOff = static_cast<std::size_t>(height - 1 - y) * rowBytes;
+            const std::size_t dstOff = static_cast<std::size_t>(y) * rowBytes;
+            std::memcpy(flipped.data() + dstOff, pixels.data() + srcOff, rowBytes);
+        }
+
+        const int ok = stbi_write_png(filename.c_str(), width, height, 3, flipped.data(), width * 3);
+        if (ok) {
+            std::cout << "[SCREENSHOT] Saved guide image: " << filename << std::endl;
+        }
+        return ok != 0;
     }
 
     bool Application::writeCurrentViewSvg(const std::string& filename) {

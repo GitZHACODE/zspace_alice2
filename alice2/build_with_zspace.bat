@@ -8,6 +8,13 @@ set "CMAKE_EXE=cmake"
 set "BUILD_TOOL_ARGS=/m /clp:ErrorsOnly"
 
 if "%ZSPACE_SDK_DIR%"=="" (
+    if exist "%~dp0..\..\zspace_core\CMakeLists.txt" (
+        if exist "%~dp0..\..\zspace_toolsets\CMakeLists.txt" (
+            call "%~dp0build_with_zspace_toolsets.bat"
+            if errorlevel 1 exit /b 1
+            exit /b 0
+        )
+    )
     set "ZSPACE_SDK_DIR=%~dp0sdk\zspace"
 )
 

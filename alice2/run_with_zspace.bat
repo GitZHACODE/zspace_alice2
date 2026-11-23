@@ -7,6 +7,15 @@ echo ========================================
 echo.
 
 set "BUILD_DIR=build_zspace_v3"
+if not "%~1"=="" (
+    if exist "%~f1" (
+        set "SCALE_TRANS_CURVES=%~f1"
+        set "MESH_PATTERN_USD=%~f1"
+    ) else (
+        set "SCALE_TRANS_CURVES=%~1"
+        set "MESH_PATTERN_USD=%~1"
+    )
+)
 if exist "%~dp0%BUILD_DIR%\bin\alice2.exe" (
     set "BIN_DIR=%BUILD_DIR%\bin"
 ) else (

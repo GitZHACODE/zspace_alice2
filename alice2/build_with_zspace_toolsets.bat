@@ -115,7 +115,18 @@ if "%USE_NINJA%"=="1" (
             rmdir /s /q "%BUILD_DIR%"
         )
     )
+    if exist "%BUILD_DIR%\CMakeCache.txt" (
+        findstr /C:"ALICE2_USE_ZSPACE_SOURCE:BOOL=OFF" "%BUILD_DIR%\CMakeCache.txt" >nul
+        if not errorlevel 1 (
+            echo [alice2] Cleaning %BUILD_DIR% because it was previously configured against binary SDK instead of zspace_core source.
+            rmdir /s /q "%BUILD_DIR%"
+        )
+    )
     if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
+    if exist "%BUILD_DIR%\bin\Release\alice2.old.exe" del /f /q "%BUILD_DIR%\bin\Release\alice2.old.exe" >nul 2>nul
+    if exist "%BUILD_DIR%\bin\Release\zSpace_Toolsets.old.dll" del /f /q "%BUILD_DIR%\bin\Release\zSpace_Toolsets.old.dll" >nul 2>nul
+    if exist "%BUILD_DIR%\bin\Release\alice2.exe" move /y "%BUILD_DIR%\bin\Release\alice2.exe" "%BUILD_DIR%\bin\Release\alice2.old.exe" >nul 2>nul
+    if exist "%BUILD_DIR%\bin\Release\zSpace_Toolsets.dll" move /y "%BUILD_DIR%\bin\Release\zSpace_Toolsets.dll" "%BUILD_DIR%\bin\Release\zSpace_Toolsets.old.dll" >nul 2>nul
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\run_sanitized_cmake_build.ps1" -CMakeExe "%CMAKE_EXE%" -BuildDir "%BUILD_DIR%" -Config "%CONFIG%" -ZspaceCoreDir "%ZSPACE_CORE_DIR%" -ZspaceToolsetsDir "%ZSPACE_TOOLSETS_DIR%" -BuildToolArgs "%BUILD_TOOL_ARGS%"
     if errorlevel 1 goto :fail_pop
 )

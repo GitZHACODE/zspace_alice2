@@ -16,6 +16,15 @@ if /I "%~1"=="cuda" (
 if /I "%~1"=="test" (
     set EXTRA_FLAGS=-DALICE2_BUILD_MODE=test
 )
+if "%~1"=="" (
+    if exist "%~dp0..\..\zspace_core\CMakeLists.txt" (
+        if exist "%~dp0..\..\zspace_toolsets\CMakeLists.txt" (
+            call "%~dp0build_with_zspace_toolsets.bat"
+            if errorlevel 1 exit /b 1
+            exit /b 0
+        )
+    )
+)
 
 echo.
 echo [alice2] Configuring into "%BUILD_DIR%" (%CONFIG%) %EXTRA_FLAGS%

@@ -270,6 +270,22 @@ namespace alice2
         return false;
     }
 
+    bool SketchManager::forwardFileDrop(const std::vector<std::string>& paths)
+    {
+        if (m_currentSketch)
+        {
+            try
+            {
+                return m_currentSketch->onFileDrop(paths);
+            }
+            catch (const std::exception &e)
+            {
+                setError("Error in sketch file drop: " + std::string(e.what()));
+            }
+        }
+        return false;
+    }
+
     void SketchManager::checkForChanges()
     {
         // Hot reload not implemented yet

@@ -4,6 +4,7 @@
 #define ALICE2_ISKETCH_H
 
 #include <string>
+#include <vector>
 
 namespace alice2 {
 
@@ -28,6 +29,7 @@ namespace alice2 {
         virtual bool onKeyPress(unsigned char /*key*/, int /*x*/, int /*y*/) { return false; }
         virtual bool onMousePress(int /*button*/, int /*state*/, int /*x*/, int /*y*/) { return false; }
         virtual bool onMouseMove(int /*x*/, int /*y*/) { return false; }
+        virtual bool onFileDrop(const std::vector<std::string>& /*paths*/) { return false; }
 
         // Sketch information
         virtual std::string getName() const = 0;

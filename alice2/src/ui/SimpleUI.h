@@ -27,6 +27,9 @@ namespace alice2 {
         void setTheme(UITheme theme);
         UITheme getTheme() const { return m_theme; }
 
+        // Momentary push button invoking callback on click
+        void addButton(const std::string& label, const UIRect& rect, std::function<void()> onClick);
+
         // Toggle button bound to a boolean
         void addToggle(const std::string& label, const UIRect& rect, bool& bound);
 
@@ -34,9 +37,9 @@ namespace alice2 {
         void addButtonGroup(const std::vector<std::string>& labels, const Vec2& pos,
                             float buttonW, float buttonH, float spacing, int& selectedIdx);
 
-        // Horizontal slider bound to a float in [minV, maxV]
+        // Horizontal slider bound to a float in [minV, maxV] (optional step > 0 snaps dragged values)
         void addSlider(const std::string& label, const Vec2& pos,
-                       float width, float minV, float maxV, float& bound);
+                       float width, float minV, float maxV, float& bound, float step = 0.0f);
 
         // Per-event input forwarding from sketch (recommended)
         bool onMousePress(int button, int state, int x, int y); // return true if consumed
@@ -54,10 +57,19 @@ namespace alice2 {
             Color textSecondary;
             Color border;
             Color fill;
+            Color buttonBorder;
+            Color buttonFill;
             Color selectedBorder;
             Color selectedFill;
             Color sliderTrack;
             Color sliderKnob;
+        };
+
+        struct Button {
+            std::string label;
+            UIRect rect;
+            std::function<void()> onClick;
+            bool pressed{false};
         };
 
         struct Toggle {
@@ -79,17 +91,21 @@ namespace alice2 {
             Vec2 pos;
             float width{120.0f};
             float minV{0.0f}, maxV{1.0f};
+            float step{0.0f};
             float* bound{nullptr};
             bool dragging{false};
         };
 
         InputManager& m_input;
+        std::vector<Button> m_buttons;
         std::vector<Toggle> m_toggles;
         std::vector<ButtonGroup> m_groups;
         std::vector<Slider> m_sliders;
 
         // Interaction state
         int m_activeSlider{-1};
+        int m_dragStartX{0};
+        float m_dragStartVal{0.0f};
 
         // Theme state
         UITheme m_theme{UITheme::Light};

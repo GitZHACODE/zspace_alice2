@@ -65,6 +65,7 @@ namespace alice2 {
         bool forwardKeyPress(unsigned char key, int x, int y);
         bool forwardMousePress(int button, int state, int x, int y);
         bool forwardMouseMove(int x, int y);
+        bool forwardFileDrop(const std::vector<std::string>& paths);
 
         // Hot reload
         void enableHotReload(bool enable) { m_hotReloadEnabled = enable; }
