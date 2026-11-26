@@ -7,7 +7,7 @@
 
 namespace {
 void require(bool condition, const char* message) { if (!condition) throw std::runtime_error(message); }
-bool near(float a, float b) { return std::abs(a - b) < 1e-5f; }
+bool approximatelyEqual(float a, float b) { return std::abs(a - b) < 1e-5f; }
 }
 
 int main() {
@@ -30,7 +30,7 @@ int main() {
         require(alice2::loadScene(restored, path) == 2, "Scene import count changed");
         const auto object = restored.findObject("child");
         const auto world = object->getTransform().getWorldPosition();
-        require(near(world.x, 10) && near(world.y, 2), "Parent world transform lost");
+        require(approximatelyEqual(world.x, 10) && approximatelyEqual(world.y, 2), "Parent world transform lost");
         require(restored.getBoundsMin().x > 9 && restored.getBoundsMax().y > 2,
                 "Scene bounds ignore imported transforms");
         require(alice2::loadScene(restored, path) == 2 && restored.getObjectCount() == 4, "Append failed");
@@ -55,7 +55,8 @@ def Mesh "Bad" {
         const auto converted = std::dynamic_pointer_cast<alice2::GraphObject>(alice2::makeSceneObject(sheared));
         const auto actual = converted->getTransform().getWorldMatrix().transformPoint(converted->getGraphData()->vertices[0].position);
         const auto expected = sheared.transform.transformPoint(graph.vertices[0].position);
-        require(near(actual.x, expected.x) && near(actual.y, expected.y), "Shear lost during viewer conversion");
+        require(approximatelyEqual(actual.x, expected.x) && approximatelyEqual(actual.y, expected.y),
+                "Shear lost during viewer conversion");
         child->getTransform().setParent(nullptr);
         std::filesystem::remove_all(directory);
         std::cout << "Scene object conversion, bounds and transactional import passed\n";

@@ -1,0 +1,1 @@
+alice2_add_sketch(sketch_differential SOURCES sketch_differential.cpp LIBRARIES alice2_differential alice2_igl)
